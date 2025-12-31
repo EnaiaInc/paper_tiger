@@ -1,0 +1,301 @@
+# Getting Started with PaperTiger
+
+## Introduction
+
+[![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https://github.com/EnaiaInc/paper_tiger/blob/main/examples/getting_started.livemd)
+
+This LiveBook demonstrates how to use PaperTiger, a stateful mock Stripe server for testing Elixir applications. You'll learn how to:
+
+1. Start PaperTiger and configure it
+2. Create and manage Stripe resources (customers, subscriptions, invoices)
+3. Test webhook delivery
+4. Use time control for testing billing cycles
+
+```elixir
+IO.puts("Installing dependencies...")
+
+Mix.install([
+  {:paper_tiger, github: "EnaiaInc/paper_tiger"},
+  {:req, "~> 0.5"},
+  {:kino, "~> 0.16.0"}
+])
+
+IO.puts("✅ Dependencies installed successfully!")
+```
+
+## Starting PaperTiger
+
+PaperTiger runs as an in-process HTTP server on port 4001 by default (avoiding conflicts with Phoenix on port 4000).
+
+```elixir
+# Start PaperTiger with default settings
+{:ok, _pid} = PaperTiger.start()
+
+IO.puts("✅ PaperTiger started on http://localhost:4001")
+IO.puts("📊 Current time: #{PaperTiger.now()}")
+IO.puts("⏰ Clock mode: #{PaperTiger.clock_mode()}")
+```
+
+## Configuration for Stripity Stripe
+
+If you're using the `stripity_stripe` library, PaperTiger provides a helper to configure it automatically:
+
+```elixir
+# Configure stripity_stripe to use PaperTiger
+stripe_config = PaperTiger.stripity_stripe_config()
+
+IO.puts("Stripe Configuration:")
+IO.inspect(stripe_config, label: "Config")
+
+# Apply the configuration
+Application.put_env(:stripity_stripe, :api_key, stripe_config[:api_key])
+Application.put_env(:stripity_stripe, :api_base_url, stripe_config[:api_base_url])
+```
+
+## Creating Customers
+
+Let's create some customers using direct HTTP requests with Req:
+
+```elixir
+alias Kino.Input
+
+# Create input fields for customer information
+name_input = Input.text("Customer Name", default: "Jane Doe")
+email_input = Input.text("Customer Email", default: "jane@example.com")
+
+Kino.Layout.grid([name_input, email_input], columns: 1)
+```
+
+```elixir
+# Get values from inputs
+customer_name = Kino.Input.read(name_input)
+customer_email = Kino.Input.read(email_input)
+
+# Create customer via HTTP
+response =
+  Req.post!(
+    "http://localhost:4001/v1/customers",
+    form: [
+      name: customer_name,
+      email: customer_email,
+      "metadata[user_id]": "12345"
+    ],
+    auth: {:bearer, "sk_test_paper_tiger"}
+  )
+
+customer = response.body
+
+IO.puts("✅ Customer created!")
+IO.inspect(customer, label: "Customer")
+
+# Save customer ID for later use
+customer_id = customer["id"]
+```
+
+## Listing Customers
+
+Let's retrieve all customers and display them in a table:
+
+```elixir
+# List all customers
+response =
+  Req.get!(
+    "http://localhost:4001/v1/customers",
+    params: [limit: 10],
+    auth: {:bearer, "sk_test_paper_tiger"}
+  )
+
+customers = response.body["data"]
+
+# Build markdown table
+header = "| ID | Name | Email | Created |\n|---|---|---|---|"
+
+rows =
+  Enum.map_join(customers, "\n", fn c ->
+    created = DateTime.from_unix!(c["created"]) |> Calendar.strftime("%Y-%m-%d %H:%M")
+    "| #{c["id"]} | #{c["name"]} | #{c["email"]} | #{created} |"
+  end)
+
+Kino.Markdown.new("#{header}\n#{rows}")
+```
+
+## Creating a Subscription
+
+Now let's create a subscription with inline pricing:
+
+```elixir
+# Create subscription with inline price
+response =
+  Req.post!(
+    "http://localhost:4001/v1/subscriptions",
+    form: [
+      customer: customer_id,
+      "items[0][price_data][currency]": "usd",
+      "items[0][price_data][product_data][name]": "Premium Plan",
+      "items[0][price_data][recurring][interval]": "month",
+      "items[0][price_data][unit_amount]": "2000"
+    ],
+    auth: {:bearer, "sk_test_paper_tiger"}
+  )
+
+subscription = response.body
+
+IO.puts("✅ Subscription created!")
+IO.puts("Subscription ID: #{subscription["id"]}")
+IO.puts("Status: #{subscription["status"]}")
+IO.puts("Current period: #{DateTime.from_unix!(subscription["current_period_start"])} - #{DateTime.from_unix!(subscription["current_period_end"])}")
+
+# Save subscription ID for later
+subscription_id = subscription["id"]
+```
+
+## Webhook Testing
+
+PaperTiger automatically emits Stripe events and delivers webhooks when you create, update, or delete resources. Register a webhook endpoint to receive these events:
+
+```elixir
+# Register a webhook endpoint
+# Events will be automatically delivered when resources change
+{:ok, webhook} =
+  PaperTiger.register_webhook(
+    url: "http://localhost:9999/webhook",
+    events: ["customer.*", "customer.subscription.*", "invoice.*"]
+  )
+
+Kino.Markdown.new("""
+## Webhook Registered
+
+- **Endpoint ID**: #{webhook.id}
+- **URL**: #{webhook.url}
+- **Events**: #{inspect(webhook.enabled_events)}
+- **Secret**: #{webhook.secret}
+
+**Automatic Events:** When you created the customer above, PaperTiger automatically:
+1. Created a `customer.created` event
+2. Attempted to deliver it to this webhook endpoint
+
+Supported events include:
+- `customer.created`, `customer.updated`, `customer.deleted`
+- `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+- `invoice.created`, `invoice.paid`, `invoice.payment_succeeded`
+- `payment_intent.created`, `product.created`, `price.created`
+
+> **Note**: Use wildcards like `customer.*` to match all customer events.
+""")
+```
+
+## Time Control
+
+PaperTiger's time control feature lets you test subscription billing cycles without waiting:
+
+```elixir
+# Current time
+now = PaperTiger.now()
+IO.puts("Current time: #{DateTime.from_unix!(now)}")
+
+# Switch to manual time control
+PaperTiger.set_clock_mode(:manual, timestamp: now)
+IO.puts("✅ Switched to manual time mode")
+
+# Advance time by 30 days
+PaperTiger.advance_time(days: 30)
+new_time = PaperTiger.now()
+IO.puts("Advanced 30 days to: #{DateTime.from_unix!(new_time)}")
+
+# Check subscription status (in a real app, this would trigger billing logic)
+response =
+  Req.get!(
+    "http://localhost:4001/v1/subscriptions/#{subscription_id}",
+    auth: {:bearer, "sk_test_paper_tiger"}
+  )
+
+subscription = response.body
+IO.puts("\nSubscription after time advance:")
+IO.puts("Status: #{subscription["status"]}")
+IO.puts("Current period: #{DateTime.from_unix!(subscription["current_period_start"])} - #{DateTime.from_unix!(subscription["current_period_end"])}")
+```
+
+## Idempotency Testing
+
+PaperTiger supports Stripe's idempotency keys to prevent duplicate requests:
+
+```elixir
+idempotency_key = "test_key_#{:rand.uniform(1_000_000)}"
+
+# First request
+response1 =
+  Req.post!(
+    "http://localhost:4001/v1/customers",
+    form: [name: "Idempotent Customer", email: "idempotent@example.com"],
+    auth: {:bearer, "sk_test_paper_tiger"},
+    headers: [{"idempotency-key", idempotency_key}]
+  )
+
+customer1_id = response1.body["id"]
+IO.puts("First request - Created customer: #{customer1_id}")
+
+# Duplicate request (simulating network retry)
+response2 =
+  Req.post!(
+    "http://localhost:4001/v1/customers",
+    form: [name: "Idempotent Customer", email: "idempotent@example.com"],
+    auth: {:bearer, "sk_test_paper_tiger"},
+    headers: [{"idempotency-key", idempotency_key}]
+  )
+
+customer2_id = response2.body["id"]
+cached = Enum.find(response2.headers, fn {k, _v} -> k == "x-idempotency-cached" end)
+
+IO.puts("Second request - Returned customer: #{customer2_id}")
+IO.puts("Idempotency cache hit: #{if cached, do: "✅ Yes", else: "❌ No"}")
+IO.puts("Same customer ID: #{if customer1_id == customer2_id, do: "✅ Yes", else: "❌ No"}")
+```
+
+## Cleaning Up
+
+Between test runs, you should flush PaperTiger's state:
+
+```elixir
+# Clear all resources
+PaperTiger.flush()
+
+IO.puts("✅ All resources cleared")
+
+# Verify customers are gone
+response =
+  Req.get!(
+    "http://localhost:4001/v1/customers",
+    auth: {:bearer, "sk_test_paper_tiger"}
+  )
+
+customer_count = length(response.body["data"])
+IO.puts("Customers remaining: #{customer_count}")
+```
+
+## Next Steps
+
+Now that you've explored the basics, try:
+
+1. **Testing payment flows**: Create PaymentIntents and test 3D Secure flows
+2. **Invoice finalization**: Create draft invoices and test the finalization workflow
+3. **Contract testing**: Run the same tests against both PaperTiger and real Stripe
+4. **Phoenix integration**: Use PaperTiger in your Phoenix test suite
+
+For more examples, check out:
+
+* [PaperTiger README](https://github.com/EnaiaInc/paper_tiger)
+* [Contract Testing Guide](https://github.com/EnaiaInc/paper_tiger#contract-testing)
+* [Stripe API Documentation](https://stripe.com/docs/api)
+
+## Summary
+
+You've learned how to:
+
+* ✅ Start and configure PaperTiger
+* ✅ Create Stripe resources via HTTP API
+* ✅ Register webhooks for event delivery
+* ✅ Control time for testing billing cycles
+* ✅ Test idempotency behavior
+* ✅ Clean up state between tests
+
+PaperTiger gives you a complete, stateful Stripe mock that runs in milliseconds and works offline - perfect for fast, deterministic tests! 🐯

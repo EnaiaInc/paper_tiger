@@ -1,0 +1,4 @@
+# Git commits to ignore when using git blame
+# Run: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Initial project setup and formatting
