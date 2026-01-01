@@ -15,7 +15,7 @@ This LiveBook demonstrates how to use PaperTiger, a stateful mock Stripe server 
 IO.puts("Installing dependencies...")
 
 Mix.install([
-  {:paper_tiger, github: "EnaiaInc/paper_tiger"},
+  {:paper_tiger, "~> 0.7"},
   {:req, "~> 0.5"},
   {:kino, "~> 0.16.0"}
 ])
