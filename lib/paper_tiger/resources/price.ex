@@ -49,6 +49,7 @@ defmodule PaperTiger.Resources.Price do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "price_"). Useful for seeding deterministic data.
   - active - Whether price is active (default: true)
   - metadata - Key-value metadata
   - recurring - Recurring billing config (interval, interval_count)
@@ -159,7 +160,7 @@ defmodule PaperTiger.Resources.Price do
       end
 
     %{
-      id: generate_id("price"),
+      id: generate_id("price", Map.get(params, :id)),
       object: "price",
       created: PaperTiger.now(),
       active: Map.get(params, :active, true),

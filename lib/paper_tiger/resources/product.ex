@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Product do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "prod_"). Useful for seeding deterministic data.
   - active - Whether product is active (default: true)
   - description - Product description
   - metadata - Key-value metadata
@@ -153,7 +154,7 @@ defmodule PaperTiger.Resources.Product do
 
   defp build_product(params) do
     %{
-      id: generate_id("prod"),
+      id: generate_id("prod", Map.get(params, :id)),
       object: "product",
       created: PaperTiger.now(),
       active: Map.get(params, :active, true),

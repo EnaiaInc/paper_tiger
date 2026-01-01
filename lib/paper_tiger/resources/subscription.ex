@@ -54,6 +54,7 @@ defmodule PaperTiger.Resources.Subscription do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "sub_"). Useful for seeding deterministic data.
   - default_payment_method - Payment method ID
   - trial_period_days - Days of trial period
   - metadata - Key-value metadata
@@ -255,7 +256,7 @@ defmodule PaperTiger.Resources.Subscription do
     current_period_end = current_period_start + period_days * 86_400
 
     %{
-      id: generate_id("sub"),
+      id: generate_id("sub", Map.get(params, :id)),
       object: "subscription",
       created: now,
       status: if(trial_end, do: "trialing", else: "active"),

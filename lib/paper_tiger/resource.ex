@@ -51,15 +51,32 @@ defmodule PaperTiger.Resource do
   end
 
   @doc """
-  Generates a Stripe-style ID with the given prefix.
+  Generates a Stripe-style ID with the given prefix, or uses a custom ID if provided.
+
+  When `custom_id` is provided and starts with the expected prefix, it's used as-is.
+  This enables deterministic IDs for seeding and testing scenarios.
 
   ## Examples
 
       generate_id("cus")  => "cus_1234567890abcdef"
       generate_id("sub")  => "sub_abcdef1234567890"
+      generate_id("cus", "cus_seed_user_1")  => "cus_seed_user_1"
+      generate_id("cus", nil)  => "cus_1234567890abcdef"
   """
-  @spec generate_id(String.t()) :: String.t()
-  def generate_id(prefix) do
+  @spec generate_id(String.t(), String.t() | nil) :: String.t()
+  def generate_id(prefix, custom_id \\ nil)
+
+  def generate_id(prefix, custom_id) when is_binary(custom_id) and custom_id != "" do
+    # Validate the custom ID starts with the expected prefix
+    if String.starts_with?(custom_id, "#{prefix}_") do
+      custom_id
+    else
+      raise ArgumentError,
+            "Custom ID must start with '#{prefix}_', got: #{inspect(custom_id)}"
+    end
+  end
+
+  def generate_id(prefix, _custom_id) do
     random_part =
       :crypto.strong_rand_bytes(16)
       |> Base.encode16(case: :lower)

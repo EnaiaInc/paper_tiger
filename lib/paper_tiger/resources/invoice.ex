@@ -52,6 +52,7 @@ defmodule PaperTiger.Resources.Invoice do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "in_"). Useful for seeding deterministic data.
   - auto_advance - Auto-finalize invoice (default: true)
   - collection_method - charge_automatically or send_invoice
   - currency - Three-letter ISO currency code (default: "usd")
@@ -259,9 +260,10 @@ defmodule PaperTiger.Resources.Invoice do
   defp build_invoice(params) do
     now = PaperTiger.now()
     currency = Map.get(params, :currency, "usd")
+    invoice_id = generate_id("in", Map.get(params, :id))
 
     %{
-      id: generate_id("in"),
+      id: invoice_id,
       object: "invoice",
       created: now,
       status: "draft",
@@ -278,7 +280,7 @@ defmodule PaperTiger.Resources.Invoice do
         data: [],
         has_more: false,
         object: "list",
-        url: "/v1/invoices/#{generate_id("in")}/lines"
+        url: "/v1/invoices/#{invoice_id}/lines"
       },
       # Additional fields
       livemode: false,

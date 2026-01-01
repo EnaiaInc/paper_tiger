@@ -81,10 +81,27 @@ defmodule PaperTiger.Application do
         conditional_children()
 
     opts = [strategy: :one_for_one, name: PaperTiger.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        # Load init_data after stores are initialized
+        load_init_data()
+        {:ok, pid}
+
+      error ->
+        error
+    end
   end
 
   ## Private Functions
+
+  # Loads init_data if configured
+  defp load_init_data do
+    case PaperTiger.Initializer.load() do
+      {:ok, _stats} -> :ok
+      {:error, reason} -> Logger.error("PaperTiger init_data failed: #{inspect(reason)}")
+    end
+  end
 
   # Returns children that only start under certain conditions
   defp conditional_children do

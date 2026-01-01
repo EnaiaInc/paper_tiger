@@ -149,18 +149,14 @@ defmodule PaperTiger.TelemetryHandler do
   end
 
   defp deliver_to_webhooks(event, event_type) do
-    case Webhooks.list(%{}) do
-      %{data: webhooks} ->
-        webhooks
-        |> Enum.filter(&event_matches_webhook?(&1, event_type))
-        |> Enum.each(fn webhook ->
-          Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
-          WebhookDelivery.deliver_event(event.id, webhook.id)
-        end)
+    %{data: webhooks} = Webhooks.list(%{})
 
-      _ ->
-        :ok
-    end
+    webhooks
+    |> Enum.filter(&event_matches_webhook?(&1, event_type))
+    |> Enum.each(fn webhook ->
+      Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
+      WebhookDelivery.deliver_event(event.id, webhook.id)
+    end)
   end
 
   defp event_matches_webhook?(webhook, event_type) do

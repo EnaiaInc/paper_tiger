@@ -338,7 +338,9 @@ defmodule PaperTiger do
     [
       api_key: "sk_test_paper_tiger",
       public_key: "pk_test_paper_tiger",
-      api_base_url: "http://#{host}:#{port}/v1",
+      # NOTE: stripity_stripe appends endpoints like "/v1/products" to this URL,
+      # so do NOT include "/v1" here
+      api_base_url: "http://#{host}:#{port}",
       webhook_signing_key: webhook_secret
     ]
   end

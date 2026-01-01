@@ -471,6 +471,40 @@ config :stripity_stripe,
   api_key: System.get_env("STRIPE_API_KEY") || "sk_test_mock"
 ```
 
+### Initial Data
+
+PaperTiger can pre-populate products, prices, and customers on startup via the `init_data` config. Since ETS is ephemeral, this runs on every application start - useful for development environments where you need consistent Stripe data available immediately.
+
+```elixir
+# config/dev.exs - From a JSON file
+config :paper_tiger,
+  init_data: "priv/paper_tiger/init_data.json"
+
+# Or inline in config
+config :paper_tiger,
+  init_data: %{
+    products: [
+      %{
+        id: "prod_dev_standard",
+        name: "Standard Plan",
+        active: true,
+        metadata: %{credits: "100"}
+      }
+    ],
+    prices: [
+      %{
+        id: "price_dev_standard_monthly",
+        product: "prod_dev_standard",
+        unit_amount: 7900,
+        currency: "usd",
+        recurring: %{interval: "month", interval_count: 1}
+      }
+    ]
+  }
+```
+
+Use custom IDs (like `prod_dev_*`) to ensure deterministic data across restarts. This is particularly useful when your app syncs from Stripe on startup - the data will be there before your sync runs.
+
 ## Development
 
 ### Running Tests

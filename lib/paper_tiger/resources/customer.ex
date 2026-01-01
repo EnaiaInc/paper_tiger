@@ -41,6 +41,7 @@ defmodule PaperTiger.Resources.Customer do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "cus_"). Useful for seeding deterministic data.
   - email - Customer email
   - name - Customer name
   - description - Customer description
@@ -155,7 +156,7 @@ defmodule PaperTiger.Resources.Customer do
 
   defp build_customer(params) do
     %{
-      id: generate_id("cus"),
+      id: generate_id("cus", Map.get(params, :id)),
       object: "customer",
       created: PaperTiger.now(),
       email: Map.get(params, :email),

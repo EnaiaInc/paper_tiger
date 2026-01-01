@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-01-01
+
+### Added
+
+- Custom ID support for deterministic data - pass `id` parameter to create endpoints for Customer, Subscription, Invoice, Product, and Price resources
+- Enables stable `stripe_id` values across database resets for testing scenarios
+- `PaperTiger.Initializer` module for loading initial data from config on startup
+- Config option `init_data` accepts JSON file path or inline map with products, prices, and customers
+- Initial data loads automatically after ETS stores initialize, ensuring data is available before dependent apps start
+
 ## [0.7.0] - 2026-01-01
 
 ### Added
