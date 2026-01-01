@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BillingEngine now retries existing open invoices instead of creating duplicates on each billing cycle
+- Subscriptions correctly marked `past_due` after 4 failed payment attempts
+
+## [0.8.0] - 2026-01-01
+
+### Added
+
+- `PaperTiger.BillingEngine` GenServer for subscription billing lifecycle simulation
+- Processes subscriptions whose `current_period_end` has passed
+- Creates invoices, payment intents, and charges automatically
+- Fires all relevant telemetry events for webhook delivery (invoice.created, charge.succeeded, etc.)
+- Two billing modes: `:happy_path` (all payments succeed) and `:chaos` (random failures)
+- Per-customer failure simulation via `BillingEngine.simulate_failure/2`
+- Configurable chaos mode with custom failure rates and decline codes
+- Integrates with PaperTiger's clock modes (real, accelerated, manual)
+- `invoice.upcoming` telemetry event support in TelemetryHandler
+- Enable with config: `config :paper_tiger, :billing_engine, true`
+
 ## [0.7.1] - 2026-01-01
 
 ### Added

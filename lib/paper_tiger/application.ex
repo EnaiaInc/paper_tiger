@@ -146,13 +146,14 @@ defmodule PaperTiger.Application do
   end
 
   defp maybe_add_workers(children) do
-    time_mode = Application.get_env(:paper_tiger, :time_mode, :real)
+    children
+    |> maybe_add_billing_engine()
+  end
 
-    if time_mode == :simulated do
-      # Only start workers in simulated mode (they handle time-based events)
-      Logger.info("PaperTiger starting workers in :simulated time mode")
-
-      children
+  defp maybe_add_billing_engine(children) do
+    if Application.get_env(:paper_tiger, :billing_engine, false) do
+      Logger.info("PaperTiger BillingEngine enabled")
+      children ++ [PaperTiger.BillingEngine]
     else
       children
     end

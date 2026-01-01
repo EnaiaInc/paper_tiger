@@ -50,6 +50,7 @@ defmodule PaperTiger.TelemetryHandler do
       [:paper_tiger, :invoice, :payment_succeeded],
       [:paper_tiger, :invoice, :payment_failed],
       [:paper_tiger, :invoice, :finalized],
+      [:paper_tiger, :invoice, :upcoming],
       # PaymentIntent events
       [:paper_tiger, :payment_intent, :created],
       [:paper_tiger, :payment_intent, :succeeded],
