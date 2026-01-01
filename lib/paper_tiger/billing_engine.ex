@@ -337,18 +337,12 @@ defmodule PaperTiger.BillingEngine do
     }
 
     {:ok, _item} = InvoiceItems.insert(invoice_item)
-    result = Invoices.insert(invoice)
+    {:ok, inv} = Invoices.insert(invoice)
 
     # Fire invoice.created event
-    case result do
-      {:ok, inv} ->
-        :telemetry.execute([:paper_tiger, :invoice, :created], %{}, %{object: inv})
+    :telemetry.execute([:paper_tiger, :invoice, :created], %{}, %{object: inv})
 
-      _ ->
-        nil
-    end
-
-    result
+    {:ok, inv}
   end
 
   defp attempt_payment(_invoice, customer, state) do
