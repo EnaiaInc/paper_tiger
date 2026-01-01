@@ -48,6 +48,7 @@ defmodule PaperTiger.Initializer do
   """
 
   alias PaperTiger.Store.Customers
+  alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.Products
 
@@ -110,15 +111,16 @@ defmodule PaperTiger.Initializer do
   def load_from_map(data) do
     stats = %{
       customers: load_customers(get_list(data, :customers)),
+      plans: load_plans(get_list(data, :plans)),
       prices: load_prices(get_list(data, :prices)),
       products: load_products(get_list(data, :products))
     }
 
-    total = stats.products + stats.prices + stats.customers
+    total = stats.products + stats.prices + stats.plans + stats.customers
 
     if total > 0 do
       Logger.info(
-        "PaperTiger initialized #{stats.products} products, #{stats.prices} prices, #{stats.customers} customers"
+        "PaperTiger initialized #{stats.products} products, #{stats.plans} plans, #{stats.prices} prices, #{stats.customers} customers"
       )
     end
 
@@ -171,6 +173,21 @@ defmodule PaperTiger.Initializer do
 
         {:error, reason} ->
           Logger.warning("PaperTiger failed to init price #{price.id}: #{inspect(reason)}")
+          count
+      end
+    end)
+  end
+
+  defp load_plans(plans) do
+    Enum.reduce(plans, 0, fn plan_data, count ->
+      plan = build_plan(plan_data)
+
+      case Plans.insert(plan) do
+        {:ok, _plan} ->
+          count + 1
+
+        {:error, reason} ->
+          Logger.warning("PaperTiger failed to init plan #{plan.id}: #{inspect(reason)}")
           count
       end
     end)
@@ -237,6 +254,30 @@ defmodule PaperTiger.Initializer do
       type: if(recurring, do: "recurring", else: "one_time"),
       unit_amount: get_field(data, :unit_amount),
       unit_amount_decimal: get_field(data, :unit_amount_decimal)
+    }
+  end
+
+  defp build_plan(data) do
+    %{
+      active: get_field(data, :active, true),
+      aggregate_usage: get_field(data, :aggregate_usage),
+      amount: get_field(data, :amount),
+      billing_scheme: get_field(data, :billing_scheme, "per_unit"),
+      created: PaperTiger.now(),
+      currency: get_field(data, :currency),
+      id: get_field(data, :id) || PaperTiger.Resource.generate_id("plan"),
+      interval: get_field(data, :interval),
+      interval_count: get_field(data, :interval_count, 1),
+      livemode: false,
+      metadata: atomize_keys(get_field(data, :metadata, %{})),
+      nickname: get_field(data, :nickname),
+      object: "plan",
+      product: get_field(data, :product),
+      tiers: get_field(data, :tiers),
+      tiers_mode: get_field(data, :tiers_mode),
+      transform_usage: get_field(data, :transform_usage),
+      trial_period_days: get_field(data, :trial_period_days),
+      usage_type: get_field(data, :usage_type, "licensed")
     }
   end
 
