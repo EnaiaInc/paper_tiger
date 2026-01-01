@@ -151,60 +151,32 @@ defmodule PaperTiger.Initializer do
   defp load_products(products) do
     Enum.reduce(products, 0, fn product_data, count ->
       product = build_product(product_data)
-
-      case Products.insert(product) do
-        {:ok, _product} ->
-          count + 1
-
-        {:error, reason} ->
-          Logger.warning("PaperTiger failed to init product #{product.id}: #{inspect(reason)}")
-          count
-      end
+      {:ok, _product} = Products.insert(product)
+      count + 1
     end)
   end
 
   defp load_prices(prices) do
     Enum.reduce(prices, 0, fn price_data, count ->
       price = build_price(price_data)
-
-      case Prices.insert(price) do
-        {:ok, _price} ->
-          count + 1
-
-        {:error, reason} ->
-          Logger.warning("PaperTiger failed to init price #{price.id}: #{inspect(reason)}")
-          count
-      end
+      {:ok, _price} = Prices.insert(price)
+      count + 1
     end)
   end
 
   defp load_plans(plans) do
     Enum.reduce(plans, 0, fn plan_data, count ->
       plan = build_plan(plan_data)
-
-      case Plans.insert(plan) do
-        {:ok, _plan} ->
-          count + 1
-
-        {:error, reason} ->
-          Logger.warning("PaperTiger failed to init plan #{plan.id}: #{inspect(reason)}")
-          count
-      end
+      {:ok, _plan} = Plans.insert(plan)
+      count + 1
     end)
   end
 
   defp load_customers(customers) do
     Enum.reduce(customers, 0, fn customer_data, count ->
       customer = build_customer(customer_data)
-
-      case Customers.insert(customer) do
-        {:ok, _customer} ->
-          count + 1
-
-        {:error, reason} ->
-          Logger.warning("PaperTiger failed to init customer #{customer.id}: #{inspect(reason)}")
-          count
-      end
+      {:ok, _customer} = Customers.insert(customer)
+      count + 1
     end)
   end
 
