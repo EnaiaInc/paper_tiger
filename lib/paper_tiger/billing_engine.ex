@@ -19,7 +19,8 @@ defmodule PaperTiger.BillingEngine do
       config :paper_tiger, :billing_mode, :chaos
       config :paper_tiger, :chaos_config, %{
         payment_failure_rate: 0.1,
-        decline_codes: [:card_declined, :insufficient_funds, :expired_card]
+        decline_codes: [:card_declined, :insufficient_funds, :expired_card],
+        decline_code_weights: %{card_declined: 0.5, insufficient_funds: 0.3, expired_card: 0.2}
       }
 
   ## Clock Integration
@@ -57,8 +58,44 @@ defmodule PaperTiger.BillingEngine do
 
   @poll_interval_ms 1_000
 
+  @default_decline_codes [
+    :card_declined,
+    :insufficient_funds,
+    :expired_card,
+    :processing_error
+  ]
+
+  @extended_decline_codes [
+    # Card Issues
+    :do_not_honor,
+    :lost_card,
+    :stolen_card,
+    :card_not_supported,
+    :currency_not_supported,
+    :duplicate_transaction,
+    # Fraud
+    :fraudulent,
+    :merchant_blacklist,
+    :security_violation,
+    :pickup_card,
+    # Limits
+    :card_velocity_exceeded,
+    :withdrawal_count_limit_exceeded,
+    # Authentication
+    :authentication_required,
+    :incorrect_cvc,
+    :incorrect_zip,
+    # Generic
+    :generic_decline,
+    :try_again_later,
+    :issuer_not_available
+  ]
+
+  @all_decline_codes @default_decline_codes ++ @extended_decline_codes
+
   @default_chaos_config %{
-    decline_codes: [:card_declined, :insufficient_funds, :expired_card],
+    decline_codes: @default_decline_codes,
+    decline_code_weights: nil,
     payment_failure_rate: 0.1
   }
 
@@ -94,6 +131,17 @@ defmodule PaperTiger.BillingEngine do
 
   - `:payment_failure_rate` - Probability of payment failure (0.0 - 1.0)
   - `:decline_codes` - List of decline codes to use randomly
+  - `:decline_code_weights` - Map of decline code to weight for realistic distribution
+    Example: %{card_declined: 0.5, insufficient_funds: 0.3, expired_card: 0.2}
+    Weights should sum to 1.0 for proper distribution. If nil, codes are chosen uniformly.
+
+  ## Available Decline Codes
+
+  Default codes: #{inspect(@default_decline_codes)}
+
+  Extended codes: #{inspect(@extended_decline_codes)}
+
+  All codes: #{inspect(@all_decline_codes)}
   """
   @spec set_mode(atom(), keyword()) :: :ok
   def set_mode(mode, opts \\ []) do
@@ -368,8 +416,46 @@ defmodule PaperTiger.BillingEngine do
     :rand.uniform() < rate
   end
 
-  defp random_decline_code(%{decline_codes: codes}) do
+  defp random_decline_code(%{decline_codes: codes, decline_code_weights: nil}) do
     Enum.random(codes)
+  end
+
+  defp random_decline_code(%{decline_codes: codes, decline_code_weights: weights}) when is_map(weights) do
+    # Weighted random selection
+    # Build cumulative distribution
+    total_weight = Enum.reduce(codes, 0.0, fn code, acc ->
+      acc + Map.get(weights, code, 0.0)
+    end)
+
+    if total_weight == 0.0 do
+      # Fallback to uniform if weights are all zero
+      Enum.random(codes)
+    else
+      # Generate random value and find the bucket
+      random_value = :rand.uniform() * total_weight
+      select_weighted_code(codes, weights, random_value, 0.0)
+    end
+  end
+
+  defp random_decline_code(%{decline_codes: codes}) do
+    # Fallback for when decline_code_weights is not set
+    Enum.random(codes)
+  end
+
+  defp select_weighted_code([code | rest], weights, target, cumulative) do
+    weight = Map.get(weights, code, 0.0)
+    new_cumulative = cumulative + weight
+
+    if target <= new_cumulative do
+      code
+    else
+      select_weighted_code(rest, weights, target, new_cumulative)
+    end
+  end
+
+  defp select_weighted_code([], _weights, _target, _cumulative) do
+    # Shouldn't happen, but fallback to first code
+    :card_declined
   end
 
   defp finalize_successful_payment(invoice, subscription, amount) do
@@ -580,12 +666,37 @@ defmodule PaperTiger.BillingEngine do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp decline_code_message(code) do
     case code do
+      # Default codes
       :card_declined -> "Your card was declined."
       :insufficient_funds -> "Your card has insufficient funds."
       :expired_card -> "Your card has expired."
       :processing_error -> "An error occurred while processing your card."
+      # Card Issues
+      :do_not_honor -> "Your card was declined."
+      :lost_card -> "Your card has been reported lost."
+      :stolen_card -> "Your card has been reported stolen."
+      :card_not_supported -> "Your card type is not supported."
+      :currency_not_supported -> "Your card does not support this currency."
+      :duplicate_transaction -> "A duplicate transaction was detected."
+      # Fraud
+      :fraudulent -> "Your card was declined due to suspected fraud."
+      :merchant_blacklist -> "Your card cannot be used with this merchant."
+      :security_violation -> "A security violation was detected."
+      :pickup_card -> "Your card has been declined. Please contact your card issuer."
+      # Limits
+      :card_velocity_exceeded -> "Your card has exceeded its velocity limit."
+      :withdrawal_count_limit_exceeded -> "Your card has exceeded its withdrawal limit."
+      # Authentication
+      :authentication_required -> "Authentication is required for this payment."
+      :incorrect_cvc -> "The card security code is incorrect."
+      :incorrect_zip -> "The postal code is incorrect."
+      # Generic
+      :generic_decline -> "Your card was declined."
+      :try_again_later -> "Your card was declined. Please try again later."
+      :issuer_not_available -> "Your card issuer is currently unavailable."
       _ -> "Your card was declined."
     end
   end

@@ -414,4 +414,273 @@ defmodule PaperTiger.BillingEngineTest do
       assert invoice.status == "open"
     end
   end
+
+  describe "extended decline codes" do
+    test "supports extended decline codes", %{customer: customer} do
+      start_supervised!({BillingEngine, []})
+
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      {:ok, _sub} =
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: customer.id,
+          id: "sub_extended_code",
+          items: %{
+            data: [%{price: "price_test"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+
+      # Test various extended decline codes
+      extended_codes = [
+        :do_not_honor,
+        :lost_card,
+        :stolen_card,
+        :fraudulent,
+        :incorrect_cvc,
+        :incorrect_zip,
+        :authentication_required,
+        :card_velocity_exceeded
+      ]
+
+      for code <- extended_codes do
+        PaperTiger.flush()
+        Products.insert(%{
+          active: true,
+          created: PaperTiger.now(),
+          id: "prod_test",
+          name: "Test Product",
+          object: "product"
+        })
+
+        Prices.insert(%{
+          active: true,
+          created: PaperTiger.now(),
+          currency: "usd",
+          id: "price_test",
+          object: "price",
+          product: "prod_test",
+          recurring: %{interval: "month", interval_count: 1},
+          unit_amount: 2000
+        })
+
+        Customers.insert(%{
+          created: PaperTiger.now(),
+          email: "test@example.com",
+          id: customer.id,
+          name: "Test Customer",
+          object: "customer"
+        })
+
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: customer.id,
+          id: "sub_extended_code",
+          items: %{
+            data: [%{price: "price_test"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+
+        BillingEngine.simulate_failure(customer.id, code)
+        {:ok, _stats} = BillingEngine.process_billing()
+
+        %{data: charges} = Charges.list(%{})
+        assert length(charges) == 1
+        [charge] = charges
+        assert charge.status == "failed"
+        assert charge.failure_code == to_string(code)
+        assert is_binary(charge.failure_message)
+      end
+    end
+
+    test "chaos mode can use extended decline codes" do
+      PaperTiger.flush()
+
+      # Create test product and price
+      Products.insert(%{
+        active: true,
+        created: PaperTiger.now(),
+        id: "prod_extended",
+        name: "Extended Test Product",
+        object: "product"
+      })
+
+      Prices.insert(%{
+        active: true,
+        created: PaperTiger.now(),
+        currency: "usd",
+        id: "price_extended",
+        object: "price",
+        product: "prod_extended",
+        recurring: %{interval: "month", interval_count: 1},
+        unit_amount: 2000
+      })
+
+      start_supervised!({BillingEngine, []})
+
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      # Create 5 subscriptions to test (smaller number for simpler test)
+      for i <- 1..5 do
+        Customers.insert(%{
+          created: PaperTiger.now(),
+          email: "extended#{i}@example.com",
+          id: "cus_extended_#{i}",
+          object: "customer"
+        })
+
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: "cus_extended_#{i}",
+          id: "sub_extended_#{i}",
+          items: %{
+            data: [%{price: "price_extended"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+      end
+
+      # Set chaos mode with extended decline codes
+      :ok =
+        BillingEngine.set_mode(:chaos,
+          payment_failure_rate: 1.0,
+          decline_codes: [:fraudulent, :incorrect_cvc, :authentication_required]
+        )
+
+      {:ok, stats} = BillingEngine.process_billing()
+
+      assert stats.processed == 5
+      assert stats.failed == 5
+
+      # Verify that charges have the extended codes
+      %{data: charges} = Charges.list(%{limit: 10})
+      assert length(charges) == 5
+
+      failure_codes =
+        charges
+        |> Enum.map(& &1.failure_code)
+        |> Enum.uniq()
+
+      # Should only see the extended codes we configured
+      assert Enum.all?(failure_codes, fn code ->
+        code in ["fraudulent", "incorrect_cvc", "authentication_required"]
+      end)
+
+      # Verify we see at least 2 different decline codes (with 5 samples and 3 codes, high probability)
+      assert length(failure_codes) >= 2
+    end
+
+    test "weighted decline codes produce expected distribution" do
+      PaperTiger.flush()
+
+      # Create test product and price
+      Products.insert(%{
+        active: true,
+        created: PaperTiger.now(),
+        id: "prod_weighted",
+        name: "Weighted Test Product",
+        object: "product"
+      })
+
+      Prices.insert(%{
+        active: true,
+        created: PaperTiger.now(),
+        currency: "usd",
+        id: "price_weighted",
+        object: "price",
+        product: "prod_weighted",
+        recurring: %{interval: "month", interval_count: 1},
+        unit_amount: 2000
+      })
+
+      start_supervised!({BillingEngine, []})
+
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      # Create 50 subscriptions for better statistical significance
+      for i <- 1..50 do
+        Customers.insert(%{
+          created: PaperTiger.now(),
+          email: "weighted#{i}@example.com",
+          id: "cus_weighted_#{i}",
+          object: "customer"
+        })
+
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: "cus_weighted_#{i}",
+          id: "sub_weighted_#{i}",
+          items: %{
+            data: [%{price: "price_weighted"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+      end
+
+      # Set weighted distribution: 70% card_declined, 20% insufficient_funds, 10% expired_card
+      :ok =
+        BillingEngine.set_mode(:chaos,
+          payment_failure_rate: 1.0,
+          decline_codes: [:card_declined, :insufficient_funds, :expired_card],
+          decline_code_weights: %{
+            card_declined: 0.7,
+            insufficient_funds: 0.2,
+            expired_card: 0.1
+          }
+        )
+
+      {:ok, stats} = BillingEngine.process_billing()
+
+      assert stats.processed == 50
+      assert stats.failed == 50
+
+      # Count occurrences of each code (need to request all 50 charges)
+      %{data: charges} = Charges.list(%{limit: 100})
+      assert length(charges) == 50
+
+      code_counts = Enum.frequencies_by(charges, & &1.failure_code)
+
+      # With 50 samples, we expect roughly:
+      # - card_declined: ~35 (70%)
+      # - insufficient_funds: ~10 (20%)
+      # - expired_card: ~5 (10%)
+      # Allow wider variance for smaller sample size
+      card_declined_count = Map.get(code_counts, "card_declined", 0)
+      insufficient_funds_count = Map.get(code_counts, "insufficient_funds", 0)
+      expired_card_count = Map.get(code_counts, "expired_card", 0)
+
+      # Verify card_declined is clearly the most common
+      assert card_declined_count > insufficient_funds_count
+      assert card_declined_count > expired_card_count
+
+      # Verify card_declined is roughly 70% (between 50% and 90% to account for randomness)
+      assert card_declined_count >= 25 and card_declined_count <= 45
+
+      # All charges should use one of our configured codes
+      assert Enum.all?(charges, fn charge ->
+        charge.failure_code in ["card_declined", "insufficient_funds", "expired_card"]
+      end)
+    end
+  end
 end
