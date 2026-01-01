@@ -413,6 +413,98 @@ defmodule PaperTiger.BillingEngineTest do
       assert invoice.attempt_count == 1
       assert invoice.status == "open"
     end
+
+    test "retries existing open invoice instead of creating new one", %{customer: customer} do
+      start_supervised!({BillingEngine, []})
+
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      {:ok, _sub} =
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: customer.id,
+          id: "sub_retry",
+          items: %{
+            data: [%{price: "price_test"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+
+      BillingEngine.simulate_failure(customer.id, :card_declined)
+
+      # First billing attempt
+      {:ok, _stats} = BillingEngine.process_billing()
+
+      %{data: invoices_after_first} = Invoices.list(%{})
+      assert length(invoices_after_first) == 1
+      [first_invoice] = invoices_after_first
+      assert first_invoice.attempt_count == 1
+
+      # Second billing attempt - should retry same invoice
+      {:ok, _stats} = BillingEngine.process_billing()
+
+      %{data: invoices_after_second} = Invoices.list(%{})
+      assert length(invoices_after_second) == 1
+      [second_invoice] = invoices_after_second
+      assert second_invoice.id == first_invoice.id
+      assert second_invoice.attempt_count == 2
+
+      # Third billing attempt
+      {:ok, _stats} = BillingEngine.process_billing()
+
+      %{data: invoices_after_third} = Invoices.list(%{})
+      assert length(invoices_after_third) == 1
+      [third_invoice] = invoices_after_third
+      assert third_invoice.attempt_count == 3
+    end
+
+    test "marks subscription past_due after 4 failed attempts", %{customer: customer} do
+      start_supervised!({BillingEngine, []})
+
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      {:ok, _sub} =
+        Subscriptions.insert(%{
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: customer.id,
+          id: "sub_past_due",
+          items: %{
+            data: [%{price: "price_test"}]
+          },
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+
+      BillingEngine.simulate_failure(customer.id, :card_declined)
+
+      # Run 4 billing attempts
+      for attempt <- 1..4 do
+        {:ok, _stats} = BillingEngine.process_billing()
+
+        {:ok, sub} = Subscriptions.get("sub_past_due")
+
+        if attempt < 4 do
+          assert sub.status == "active", "Expected active after attempt #{attempt}"
+        else
+          assert sub.status == "past_due", "Expected past_due after attempt #{attempt}"
+        end
+      end
+
+      # Verify only one invoice was created
+      %{data: invoices} = Invoices.list(%{})
+      assert length(invoices) == 1
+      [invoice] = invoices
+      assert invoice.attempt_count == 4
+    end
   end
 
   describe "extended decline codes" do
@@ -451,6 +543,7 @@ defmodule PaperTiger.BillingEngineTest do
 
       for code <- extended_codes do
         PaperTiger.flush()
+
         Products.insert(%{
           active: true,
           created: PaperTiger.now(),
@@ -579,8 +672,8 @@ defmodule PaperTiger.BillingEngineTest do
 
       # Should only see the extended codes we configured
       assert Enum.all?(failure_codes, fn code ->
-        code in ["fraudulent", "incorrect_cvc", "authentication_required"]
-      end)
+               code in ["fraudulent", "incorrect_cvc", "authentication_required"]
+             end)
 
       # Verify we see at least 2 different decline codes (with 5 samples and 3 codes, high probability)
       assert length(failure_codes) >= 2
@@ -645,8 +738,8 @@ defmodule PaperTiger.BillingEngineTest do
           decline_codes: [:card_declined, :insufficient_funds, :expired_card],
           decline_code_weights: %{
             card_declined: 0.7,
-            insufficient_funds: 0.2,
-            expired_card: 0.1
+            expired_card: 0.1,
+            insufficient_funds: 0.2
           }
         )
 
@@ -679,8 +772,8 @@ defmodule PaperTiger.BillingEngineTest do
 
       # All charges should use one of our configured codes
       assert Enum.all?(charges, fn charge ->
-        charge.failure_code in ["card_declined", "insufficient_funds", "expired_card"]
-      end)
+               charge.failure_code in ["card_declined", "insufficient_funds", "expired_card"]
+             end)
     end
   end
 end

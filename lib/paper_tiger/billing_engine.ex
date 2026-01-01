@@ -94,8 +94,8 @@ defmodule PaperTiger.BillingEngine do
   @all_decline_codes @default_decline_codes ++ @extended_decline_codes
 
   @default_chaos_config %{
-    decline_codes: @default_decline_codes,
     decline_code_weights: nil,
+    decline_codes: @default_decline_codes,
     payment_failure_rate: 0.1
   }
 
@@ -280,7 +280,7 @@ defmodule PaperTiger.BillingEngine do
 
     with {:ok, customer} <- Customers.get(customer_id),
          {:ok, amount, currency} <- get_subscription_amount(subscription),
-         {:ok, invoice} <- create_subscription_invoice(subscription, customer, amount, currency),
+         {:ok, invoice} <- get_or_create_invoice(subscription, customer, amount, currency),
          {:ok, payment_result} <- attempt_payment(invoice, customer, state) do
       case payment_result do
         :succeeded ->
@@ -295,6 +295,29 @@ defmodule PaperTiger.BillingEngine do
       {:error, reason} ->
         Logger.warning("Failed to process subscription #{subscription.id}: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  defp get_or_create_invoice(subscription, customer, amount, currency) do
+    # Check if there's already an open invoice for this subscription
+    case find_open_invoice_for_subscription(subscription.id) do
+      {:ok, existing_invoice} ->
+        {:ok, existing_invoice}
+
+      :not_found ->
+        create_subscription_invoice(subscription, customer, amount, currency)
+    end
+  end
+
+  defp find_open_invoice_for_subscription(subscription_id) do
+    %{data: invoices} = Invoices.list(%{limit: 100})
+
+    case Enum.find(invoices, fn inv ->
+           (inv[:subscription] == subscription_id or inv["subscription"] == subscription_id) and
+             (inv[:status] == "open" or inv["status"] == "open")
+         end) do
+      nil -> :not_found
+      invoice -> {:ok, invoice}
     end
   end
 
@@ -416,16 +439,17 @@ defmodule PaperTiger.BillingEngine do
     :rand.uniform() < rate
   end
 
-  defp random_decline_code(%{decline_codes: codes, decline_code_weights: nil}) do
+  defp random_decline_code(%{decline_code_weights: nil, decline_codes: codes}) do
     Enum.random(codes)
   end
 
-  defp random_decline_code(%{decline_codes: codes, decline_code_weights: weights}) when is_map(weights) do
+  defp random_decline_code(%{decline_code_weights: weights, decline_codes: codes}) when is_map(weights) do
     # Weighted random selection
     # Build cumulative distribution
-    total_weight = Enum.reduce(codes, 0.0, fn code, acc ->
-      acc + Map.get(weights, code, 0.0)
-    end)
+    total_weight =
+      Enum.reduce(codes, 0.0, fn code, acc ->
+        acc + Map.get(weights, code, 0.0)
+      end)
 
     if total_weight == 0.0 do
       # Fallback to uniform if weights are all zero

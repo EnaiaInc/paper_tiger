@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BillingEngine now retries existing open invoices instead of creating duplicates on each billing cycle
+- Subscriptions correctly marked `past_due` after 4 failed payment attempts
+
 ## [0.8.0] - 2026-01-01
 
 ### Added
