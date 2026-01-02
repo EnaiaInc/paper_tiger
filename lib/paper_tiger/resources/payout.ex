@@ -149,7 +149,7 @@ defmodule PaperTiger.Resources.Payout do
       id: generate_id("po"),
       object: "payout",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency),
       status: Map.get(params, :status, "pending"),
       arrival_date: Map.get(params, :arrival_date),

@@ -157,7 +157,7 @@ defmodule PaperTiger.Resources.Source do
       type: Map.get(params, :type),
       customer: Map.get(params, :customer),
       status: Map.get(params, :status, "pending"),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency, "usd"),
       metadata: Map.get(params, :metadata, %{}),
       # Additional fields

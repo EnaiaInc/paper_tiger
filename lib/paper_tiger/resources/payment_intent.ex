@@ -23,14 +23,12 @@ defmodule PaperTiger.Resources.PaymentIntent do
         customer: "cus_...",
         payment_method: "pm_...",
         metadata: %{},
-        charges: %{data: []},
         # ... other fields
       }
   """
 
   import PaperTiger.Resource
 
-  alias PaperTiger.Store.Charges
   alias PaperTiger.Store.PaymentIntents
 
   require Logger
@@ -80,7 +78,6 @@ defmodule PaperTiger.Resources.PaymentIntent do
     case PaymentIntents.get(id) do
       {:ok, payment_intent} ->
         payment_intent
-        |> load_charges()
         |> maybe_expand(conn.params)
         |> then(&json_response(conn, 200, &1))
 
@@ -110,8 +107,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
              :object,
              :created,
              :currency,
-             :status,
-             :charges
+             :status
            ]),
          {:ok, updated} <- PaymentIntents.update(updated) do
       updated
@@ -150,13 +146,12 @@ defmodule PaperTiger.Resources.PaymentIntent do
       id: generate_id("pi"),
       object: "payment_intent",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency),
       status: "requires_payment_method",
       customer: Map.get(params, :customer),
       payment_method: Map.get(params, :payment_method),
       metadata: Map.get(params, :metadata, %{}),
-      charges: %{data: []},
       # Additional fields
       livemode: false,
       description: Map.get(params, :description),
@@ -181,21 +176,6 @@ defmodule PaperTiger.Resources.PaymentIntent do
       mandate: nil,
       source: Map.get(params, :source)
     }
-  end
-
-  # Loads actual charges from the store into the charges list
-  defp load_charges(payment_intent) do
-    charges =
-      Charges.find_by_payment_intent(payment_intent.id)
-      |> Enum.sort_by(& &1.created, :desc)
-
-    Map.put(payment_intent, :charges, %{
-      data: charges,
-      has_more: false,
-      object: "list",
-      total_count: length(charges),
-      url: "/v1/charges?payment_intent=#{payment_intent.id}"
-    })
   end
 
   defp maybe_expand(payment_intent, params) do

@@ -138,7 +138,7 @@ defmodule PaperTiger.Resources.Topup do
       id: generate_id("tu"),
       object: "topup",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency),
       status: Map.get(params, :status, "pending"),
       description: Map.get(params, :description),

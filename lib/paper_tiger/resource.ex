@@ -223,4 +223,19 @@ defmodule PaperTiger.Resource do
   end
 
   def to_integer(_), do: 0
+
+  @doc """
+  Gets an integer param from a map, with default value.
+
+  Handles form-encoded string values by coercing to integer.
+
+  ## Examples
+
+      get_integer(params, :amount)        # => 0 if missing
+      get_integer(params, :amount, 100)   # => 100 if missing
+      get_integer(%{amount: "500"}, :amount) # => 500
+  """
+  def get_integer(params, key, default \\ 0) do
+    params |> Map.get(key, default) |> to_integer()
+  end
 end
