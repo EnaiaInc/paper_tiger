@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Subscription `latest_invoice`**: Now populated with the actual latest Invoice object for the subscription instead of always being null
+- **PaymentIntent `charges`**: Now contains actual Charge objects from the store instead of an empty list
+- **Charge `balance_transaction`**: Successful charges now create and link a BalanceTransaction with proper fee calculation (2.9% + $0.30)
+- **Refund `balance_transaction`**: Refunds now create and link a BalanceTransaction with negative amounts
+
 ### Added
 
 - **Environment-specific port configuration**: New env vars `PAPER_TIGER_PORT_DEV` and `PAPER_TIGER_PORT_TEST` allow different ports per Mix environment. Enables running dev server and tests simultaneously without port conflicts. Precedence: `PAPER_TIGER_PORT_{ENV}` > `PAPER_TIGER_PORT` > config > 4001.
+- `PaperTiger.BalanceTransactionHelper` module for creating balance transactions with Stripe-compatible fee calculations
 
 ## [0.8.5] - 2026-01-02
 

@@ -29,6 +29,8 @@ defmodule PaperTiger.Resources.Refund do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.BalanceTransactionHelper
+  alias PaperTiger.Store.Charges
   alias PaperTiger.Store.Refunds
 
   require Logger
@@ -50,7 +52,8 @@ defmodule PaperTiger.Resources.Refund do
   def create(conn) do
     with {:ok, _params} <- validate_params(conn.params, [:charge]),
          refund = build_refund(conn.params),
-         {:ok, refund} <- Refunds.insert(refund) do
+         {:ok, refund} <- Refunds.insert(refund),
+         {:ok, refund} <- create_balance_transaction(refund) do
       maybe_store_idempotency(conn, refund)
 
       refund
@@ -63,6 +66,22 @@ defmodule PaperTiger.Resources.Refund do
           PaperTiger.Error.invalid_request("Missing required parameter", field)
         )
     end
+  end
+
+  # Creates a balance transaction for a refund
+  defp create_balance_transaction(refund) do
+    charge_id = refund[:charge] || refund["charge"]
+
+    # Get the original charge for fee calculation
+    original_charge =
+      case Charges.get(charge_id) do
+        {:ok, charge} -> charge
+        _ -> %{amount: 0}
+      end
+
+    {:ok, txn_id} = BalanceTransactionHelper.create_for_refund(refund, original_charge)
+    updated = Map.put(refund, :balance_transaction, txn_id)
+    Refunds.update(updated)
   end
 
   @doc """

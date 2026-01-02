@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Subscription do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
@@ -95,6 +96,7 @@ defmodule PaperTiger.Resources.Subscription do
       {:ok, subscription} ->
         subscription
         |> load_subscription_items()
+        |> load_latest_invoice()
         |> maybe_expand(conn.params)
         |> then(&json_response(conn, 200, &1))
 
@@ -370,6 +372,16 @@ defmodule PaperTiger.Resources.Subscription do
         ended_at: now,
         status: "canceled"
     }
+  end
+
+  # Loads the latest invoice for this subscription from the store
+  defp load_latest_invoice(subscription) do
+    latest_invoice =
+      Invoices.find_by_subscription(subscription.id)
+      |> Enum.sort_by(& &1.created, :desc)
+      |> List.first()
+
+    Map.put(subscription, :latest_invoice, latest_invoice)
   end
 
   defp maybe_expand(subscription, params) do
