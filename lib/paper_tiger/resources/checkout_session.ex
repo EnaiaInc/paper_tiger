@@ -433,8 +433,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
   end
 
   defp build_session(params) do
+    session_id = generate_id("cs")
+
     %{
-      id: generate_id("cs"),
+      id: session_id,
       object: "checkout.session",
       created: PaperTiger.now(),
       customer: Map.get(params, :customer),
@@ -445,6 +447,8 @@ defmodule PaperTiger.Resources.CheckoutSession do
       cancel_url: Map.get(params, :cancel_url),
       line_items: Map.get(params, :line_items, []),
       metadata: Map.get(params, :metadata, %{}),
+      # URL field - matches Stripe's hosted checkout URL format
+      url: generate_checkout_url(session_id),
       # Additional fields
       livemode: false,
       billing_address_collection: Map.get(params, :billing_address_collection),
@@ -463,8 +467,20 @@ defmodule PaperTiger.Resources.CheckoutSession do
       payment_intent: Map.get(params, :payment_intent),
       setup_intent: Map.get(params, :setup_intent),
       completed_at: nil,
-      total_details: Map.get(params, :total_details)
+      total_details: Map.get(params, :total_details),
+      ui_mode: Map.get(params, :ui_mode, "hosted")
     }
+  end
+
+  # Generates a Stripe-compatible checkout URL
+  # Real Stripe format: https://checkout.stripe.com/c/pay/cs_test_xxx#fidkdWxOY...
+  defp generate_checkout_url(session_id) do
+    # Generate a realistic-looking fragment
+    fragment =
+      :crypto.strong_rand_bytes(32)
+      |> Base.url_encode64(padding: false)
+
+    "https://checkout.stripe.com/c/pay/#{session_id}##{fragment}"
   end
 
   defp maybe_expand(session, params) do
