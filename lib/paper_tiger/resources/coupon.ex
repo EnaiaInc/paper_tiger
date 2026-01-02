@@ -191,18 +191,26 @@ defmodule PaperTiger.Resources.Coupon do
       id: Map.get(params, :id),
       object: "coupon",
       created: PaperTiger.now(),
-      percent_off: Map.get(params, :percent_off),
-      amount_off: Map.get(params, :amount_off),
+      percent_off: get_integer_or_nil(params, :percent_off),
+      amount_off: get_integer_or_nil(params, :amount_off),
       currency: Map.get(params, :currency),
       duration: Map.get(params, :duration),
-      duration_in_months: Map.get(params, :duration_in_months),
+      duration_in_months: get_integer_or_nil(params, :duration_in_months),
       metadata: Map.get(params, :metadata, %{}),
-      max_redemptions: Map.get(params, :max_redemptions),
-      redeem_by: Map.get(params, :redeem_by),
+      max_redemptions: get_integer_or_nil(params, :max_redemptions),
+      redeem_by: get_integer_or_nil(params, :redeem_by),
       # Additional fields
       livemode: false,
       valid: true
     }
+  end
+
+  # Like get_integer but returns nil instead of 0 for missing values
+  defp get_integer_or_nil(params, key) do
+    case Map.get(params, key) do
+      nil -> nil
+      value -> to_integer(value)
+    end
   end
 
   defp validate_discount(params) do

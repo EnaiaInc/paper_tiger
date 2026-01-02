@@ -172,7 +172,7 @@ defmodule PaperTiger.Resources.SubscriptionItem do
       created: PaperTiger.now(),
       subscription: Map.get(params, :subscription),
       price: price_object,
-      quantity: Map.get(params, :quantity, 1),
+      quantity: get_integer(params, :quantity, 1),
       metadata: Map.get(params, :metadata, %{}),
       # Additional fields
       livemode: false,

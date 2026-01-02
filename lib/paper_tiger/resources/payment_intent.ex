@@ -150,7 +150,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
       id: generate_id("pi"),
       object: "payment_intent",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency),
       status: "requires_payment_method",
       customer: Map.get(params, :customer),

@@ -160,7 +160,7 @@ defmodule PaperTiger.Resources.Charge do
       id: generate_id("ch"),
       object: "charge",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       currency: Map.get(params, :currency),
       status: Map.get(params, :status, "succeeded"),
       customer: Map.get(params, :customer),
@@ -168,7 +168,7 @@ defmodule PaperTiger.Resources.Charge do
       description: Map.get(params, :description),
       metadata: Map.get(params, :metadata, %{}),
       refunded: Map.get(params, :refunded, false),
-      amount_refunded: Map.get(params, :amount_refunded, 0),
+      amount_refunded: get_integer(params, :amount_refunded),
       # Additional fields
       livemode: false,
       receipt_email: Map.get(params, :receipt_email),

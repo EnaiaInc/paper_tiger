@@ -160,7 +160,7 @@ defmodule PaperTiger.Resources.Refund do
       id: generate_id("re"),
       object: "refund",
       created: PaperTiger.now(),
-      amount: Map.get(params, :amount),
+      amount: get_integer(params, :amount),
       charge: Map.get(params, :charge),
       currency: Map.get(params, :currency, "usd"),
       status: Map.get(params, :status, "succeeded"),

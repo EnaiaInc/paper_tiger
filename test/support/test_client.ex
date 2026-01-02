@@ -403,6 +403,90 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Charge Operations
+
+  @doc """
+  Creates a charge.
+  """
+  def create_charge(params) do
+    case mode() do
+      :real_stripe ->
+        create_charge_real(params)
+
+      :paper_tiger ->
+        create_charge_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a charge by ID.
+  """
+  def get_charge(charge_id) do
+    case mode() do
+      :real_stripe ->
+        get_charge_real(charge_id)
+
+      :paper_tiger ->
+        get_charge_mock(charge_id)
+    end
+  end
+
+  ## PaymentIntent Operations
+
+  @doc """
+  Creates a payment intent.
+  """
+  def create_payment_intent(params) do
+    case mode() do
+      :real_stripe ->
+        create_payment_intent_real(params)
+
+      :paper_tiger ->
+        create_payment_intent_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a payment intent by ID.
+  """
+  def get_payment_intent(payment_intent_id) do
+    case mode() do
+      :real_stripe ->
+        get_payment_intent_real(payment_intent_id)
+
+      :paper_tiger ->
+        get_payment_intent_mock(payment_intent_id)
+    end
+  end
+
+  ## Refund Operations
+
+  @doc """
+  Creates a refund.
+  """
+  def create_refund(params) do
+    case mode() do
+      :real_stripe ->
+        create_refund_real(params)
+
+      :paper_tiger ->
+        create_refund_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a refund by ID.
+  """
+  def get_refund(refund_id) do
+    case mode() do
+      :real_stripe ->
+        get_refund_real(refund_id)
+
+      :paper_tiger ->
+        get_refund_mock(refund_id)
+    end
+  end
+
   ## Invoice Operations
 
   @doc """
@@ -555,6 +639,48 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp create_charge_real(params) do
+    case Stripe.Charge.create(normalize_params(params), stripe_opts()) do
+      {:ok, charge} -> {:ok, stripe_to_map(charge)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_charge_real(charge_id) do
+    case Stripe.Charge.retrieve(charge_id, %{}, stripe_opts()) do
+      {:ok, charge} -> {:ok, stripe_to_map(charge)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp create_payment_intent_real(params) do
+    case Stripe.PaymentIntent.create(normalize_params(params), stripe_opts()) do
+      {:ok, payment_intent} -> {:ok, stripe_to_map(payment_intent)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_payment_intent_real(payment_intent_id) do
+    case Stripe.PaymentIntent.retrieve(payment_intent_id, %{}, stripe_opts()) do
+      {:ok, payment_intent} -> {:ok, stripe_to_map(payment_intent)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp create_refund_real(params) do
+    case Stripe.Refund.create(normalize_params(params), stripe_opts()) do
+      {:ok, refund} -> {:ok, stripe_to_map(refund)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_refund_real(refund_id) do
+    case Stripe.Refund.retrieve(refund_id, %{}, stripe_opts()) do
+      {:ok, refund} -> {:ok, stripe_to_map(refund)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   ## Private - PaperTiger Mock
 
   defp create_customer_mock(params) do
@@ -634,6 +760,36 @@ defmodule PaperTiger.TestClient do
 
   defp create_price_mock(params) do
     conn = request(:post, "/v1/prices", params)
+    handle_response(conn)
+  end
+
+  defp create_charge_mock(params) do
+    conn = request(:post, "/v1/charges", params)
+    handle_response(conn)
+  end
+
+  defp get_charge_mock(charge_id) do
+    conn = request(:get, "/v1/charges/#{charge_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_payment_intent_mock(params) do
+    conn = request(:post, "/v1/payment_intents", params)
+    handle_response(conn)
+  end
+
+  defp get_payment_intent_mock(payment_intent_id) do
+    conn = request(:get, "/v1/payment_intents/#{payment_intent_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_refund_mock(params) do
+    conn = request(:post, "/v1/refunds", params)
+    handle_response(conn)
+  end
+
+  defp get_refund_mock(refund_id) do
+    conn = request(:get, "/v1/refunds/#{refund_id}", %{})
     handle_response(conn)
   end
 
