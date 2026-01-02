@@ -511,12 +511,6 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
-  defp cleanup_payment_method(_payment_method_id) do
-    # PaymentMethods don't need explicit cleanup in Stripe
-    # They're automatically cleaned up when not attached to a customer
-    :ok
-  end
-
   defp cleanup_invoice(_invoice_id) do
     # Invoices don't need explicit cleanup in Stripe
     # They're automatically managed with the customer
