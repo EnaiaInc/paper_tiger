@@ -80,15 +80,49 @@ defmodule PaperTiger.Error do
 
   @doc """
   Creates a not found error (404).
+
+  Returns the same error format as Stripe's API for missing resources.
+
+  ## Param Values by Resource Type
+
+  Stripe uses different `param` values depending on the resource:
+  - `customer`, `product`, `subscription` -> `"id"`
+  - `price` -> `"price"`
+  - `plan` -> `"plan"`
+  - `invoice` -> `"invoice"`
+  - `payment_intent` -> `"intent"`
+
+  ## Examples
+
+      PaperTiger.Error.not_found("customer", "cus_123")
+      # => %PaperTiger.Error{
+      #      code: "resource_missing",
+      #      message: "No such customer: 'cus_123'",
+      #      param: "id",
+      #      status: 404,
+      #      type: "invalid_request_error"
+      #    }
   """
   @spec not_found(String.t(), String.t()) :: t()
   def not_found(resource_type, id) do
     %__MODULE__{
+      code: "resource_missing",
       message: "No such #{resource_type}: '#{id}'",
+      param: param_for_resource(resource_type),
       status: 404,
       type: "invalid_request_error"
     }
   end
+
+  # Returns the param value Stripe uses for each resource type
+  defp param_for_resource("price"), do: "price"
+  defp param_for_resource("plan"), do: "plan"
+  defp param_for_resource("invoice"), do: "invoice"
+  defp param_for_resource("payment_intent"), do: "intent"
+  defp param_for_resource("charge"), do: "charge"
+  defp param_for_resource("refund"), do: "refund"
+  defp param_for_resource("coupon"), do: "coupon"
+  defp param_for_resource(_resource_type), do: "id"
 
   @doc """
   Creates a card declined error (402).

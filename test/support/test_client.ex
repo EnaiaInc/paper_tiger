@@ -293,6 +293,19 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Retrieves a product by ID.
+  """
+  def get_product(product_id) do
+    case mode() do
+      :real_stripe ->
+        get_product_real(product_id)
+
+      :paper_tiger ->
+        get_product_mock(product_id)
+    end
+  end
+
   ## Price Operations
 
   @doc """
@@ -305,6 +318,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         create_price_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a price by ID.
+  """
+  def get_price(price_id) do
+    case mode() do
+      :real_stripe ->
+        get_price_real(price_id)
+
+      :paper_tiger ->
+        get_price_mock(price_id)
     end
   end
 
@@ -673,8 +699,22 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp get_product_real(product_id) do
+    case Stripe.Product.retrieve(product_id, %{}, stripe_opts()) do
+      {:ok, product} -> {:ok, stripe_to_map(product)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   defp create_price_real(params) do
     case Stripe.Price.create(normalize_params(params), stripe_opts()) do
+      {:ok, price} -> {:ok, stripe_to_map(price)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_price_real(price_id) do
+    case Stripe.Price.retrieve(price_id, %{}, stripe_opts()) do
       {:ok, price} -> {:ok, stripe_to_map(price)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
@@ -820,8 +860,18 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp get_product_mock(product_id) do
+    conn = request(:get, "/v1/products/#{product_id}", %{})
+    handle_response(conn)
+  end
+
   defp create_price_mock(params) do
     conn = request(:post, "/v1/prices", params)
+    handle_response(conn)
+  end
+
+  defp get_price_mock(price_id) do
+    conn = request(:get, "/v1/prices/#{price_id}", %{})
     handle_response(conn)
   end
 
@@ -966,6 +1016,23 @@ defmodule PaperTiger.TestClient do
   defp normalize_value(list) when is_list(list), do: Enum.map(list, &normalize_value/1)
   defp normalize_value(map) when is_map(map), do: stripe_to_map(map)
   defp normalize_value(other), do: other
+
+  defp stripe_error_to_map(%Stripe.Error{extra: extra} = error) when is_map(extra) do
+    # Stripe API errors have the full error structure in extra
+    # e.g., %{code: "resource_missing", type: "invalid_request_error", param: "id", ...}
+    error_body = %{
+      "message" => error.message,
+      "type" => Map.get(extra, :type, error.code)
+    }
+
+    error_body =
+      if code = Map.get(extra, :code), do: Map.put(error_body, "code", code), else: error_body
+
+    error_body =
+      if param = Map.get(extra, :param), do: Map.put(error_body, "param", param), else: error_body
+
+    %{"error" => error_body}
+  end
 
   defp stripe_error_to_map(%Stripe.Error{} = error) do
     %{

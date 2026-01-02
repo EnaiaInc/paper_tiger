@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-01-02
+
+### Fixed
+
+- **Proper Stripe error responses for missing resources**: Instead of crashing, PaperTiger now returns the same error format as Stripe when a resource doesn't exist
+  - Returns `resource_missing` error code with proper message format: "No such <resource>: '<id>'"
+  - Includes correct `param` values matching Stripe (e.g., `id` for customers, `price` for prices)
+  - HTTP 404 status code for not found errors
+
+### Added
+
+- Contract tests verifying error responses match Stripe's format
+
+## [0.9.1] - 2026-01-02
+
+### Fixed
+
+- **Events missing `delivery_attempts` field**: Events created via telemetry now include `delivery_attempts: []` field, fixing KeyError when accessing this field
+
+### Added
+
+- **Auto-register webhooks from application config on startup**: PaperTiger now automatically registers webhooks configured via `config :paper_tiger, webhooks: [...]` when the application starts, eliminating need for manual registration in your Application module
+
 ## [0.9.0] - 2026-01-02
 
 ### Fixed

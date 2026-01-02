@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Subscription do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Customers
   alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
@@ -66,9 +67,12 @@ defmodule PaperTiger.Resources.Subscription do
   @spec create(Plug.Conn.t()) :: Plug.Conn.t()
   def create(conn) do
     with {:ok, _params} <- validate_params(conn.params, [:customer, :items]),
+         customer_id = Map.get(conn.params, :customer),
+         :ok <- validate_customer_exists(customer_id),
+         items = Map.get(conn.params, :items),
+         :ok <- validate_prices_exist(items),
          subscription = build_subscription(conn.params),
          {:ok, subscription} <- Subscriptions.insert(subscription),
-         items = Map.get(conn.params, :items),
          :ok <- create_subscription_items(subscription.id, items) do
       maybe_store_idempotency(conn, subscription)
 
@@ -84,6 +88,20 @@ defmodule PaperTiger.Resources.Subscription do
           conn,
           PaperTiger.Error.invalid_request("Missing required parameter", field)
         )
+
+      {:error, :customer_not_found, customer_id} ->
+        error_response(conn, PaperTiger.Error.not_found("customer", customer_id))
+
+      {:error, :price_not_found, price_id, index} ->
+        error = %PaperTiger.Error{
+          code: "resource_missing",
+          message: "No such price: '#{price_id}'",
+          param: "items[#{index}][price]",
+          status: 404,
+          type: "invalid_request_error"
+        }
+
+        error_response(conn, error)
     end
   end
 
@@ -316,43 +334,40 @@ defmodule PaperTiger.Resources.Subscription do
 
   defp create_subscription_items(_subscription_id, _items), do: :ok
 
-  # Fetches full price object from store, or builds minimal object if not found
+  # Fetches full price object from store
+  # Note: Prices are validated upfront in validate_prices_exist/1, so this should always succeed
   defp fetch_price_object(price_id) when is_binary(price_id) do
     case Prices.get(price_id) do
       {:ok, price} -> price
-      {:error, :not_found} -> build_minimal_price_object(price_id)
+      {:error, :not_found} -> nil
     end
   end
 
   defp fetch_price_object(_), do: nil
 
-  # Build minimal price object when price doesn't exist in store
-  # This ensures API compatibility even with ad-hoc price IDs
-  defp build_minimal_price_object(price_id) do
-    %{
-      active: true,
-      billing_scheme: nil,
-      created: nil,
-      currency: "usd",
-      currency_options: nil,
-      custom_unit_amount: nil,
-      id: price_id,
-      livemode: false,
-      lookup_key: nil,
-      metadata: nil,
-      nickname: nil,
-      object: "price",
-      product: nil,
-      recurring: nil,
-      tax_behavior: nil,
-      tiers: nil,
-      tiers_mode: nil,
-      transform_quantity: nil,
-      type: "recurring",
-      unit_amount: nil,
-      unit_amount_decimal: nil
-    }
+  # Validates that the customer exists in the store
+  defp validate_customer_exists(customer_id) do
+    case Customers.get(customer_id) do
+      {:ok, _customer} -> :ok
+      {:error, :not_found} -> {:error, :customer_not_found, customer_id}
+    end
   end
+
+  # Validates that all prices in the items list exist in the store
+  defp validate_prices_exist(items) when is_list(items) do
+    items
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {item, index}, :ok ->
+      price_id = get_item_field(item, :price)
+
+      case Prices.get(price_id) do
+        {:ok, _price} -> {:cont, :ok}
+        {:error, :not_found} -> {:halt, {:error, :price_not_found, price_id, index}}
+      end
+    end)
+  end
+
+  defp validate_prices_exist(_), do: :ok
 
   defp load_subscription_items(subscription) do
     items =

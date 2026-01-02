@@ -385,7 +385,7 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       assert price["recurring"]["interval"] == "month"
     end
 
-    test "subscription item price contains minimal object for unknown price ID", %{
+    test "returns error for unknown price ID", %{
       customer_id: customer_id
     } do
       # Use a price ID that doesn't exist in the store
@@ -398,19 +398,34 @@ defmodule PaperTiger.Resources.SubscriptionTest do
 
       conn = request(:post, "/v1/subscriptions", subscription_params)
 
-      assert conn.status == 200
+      # Should return 404 with resource_missing error (matching real Stripe behavior)
+      assert conn.status == 404
       body = json_response(conn)
 
-      item = Enum.at(body["items"]["data"], 0)
-      price = item["price"]
+      assert body["error"]["type"] == "invalid_request_error"
+      assert body["error"]["code"] == "resource_missing"
+      assert body["error"]["message"] == "No such price: '#{unknown_price_id}'"
+      assert body["error"]["param"] == "items[0][price]"
+    end
 
-      # Verify minimal price object structure (price not found in store)
-      assert is_map(price)
-      assert price["id"] == unknown_price_id
-      assert price["object"] == "price"
-      # Should have default values
-      assert price["currency"] == "usd"
-      assert price["active"] == true
+    test "returns error for unknown customer ID", %{price_id: price_id} do
+      unknown_customer_id = "cus_unknown_test_123"
+
+      subscription_params = %{
+        "customer" => unknown_customer_id,
+        "items" => [%{"price" => price_id, "quantity" => "1"}]
+      }
+
+      conn = request(:post, "/v1/subscriptions", subscription_params)
+
+      # Should return 404 with resource_missing error (matching real Stripe behavior)
+      assert conn.status == 404
+      body = json_response(conn)
+
+      assert body["error"]["type"] == "invalid_request_error"
+      assert body["error"]["code"] == "resource_missing"
+      assert body["error"]["message"] == "No such customer: '#{unknown_customer_id}'"
+      assert body["error"]["param"] == "id"
     end
   end
 
