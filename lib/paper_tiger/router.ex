@@ -169,6 +169,12 @@ defmodule PaperTiger.Router do
     end
   end
 
+  ## Test API (for test orchestration)
+
+  post "/_test/checkout/sessions/:id/complete" do
+    CheckoutSession.complete(conn, id)
+  end
+
   ## Resource Routes
 
   # Core resources (Phase 1)
@@ -200,6 +206,12 @@ defmodule PaperTiger.Router do
   stripe_resource("events", Event, only: [:retrieve, :list])
   stripe_resource("tokens", Token, only: [:create, :retrieve])
   stripe_resource("checkout/sessions", CheckoutSession, only: [:create, :retrieve, :list])
+
+  ## Custom Checkout Session Endpoints
+
+  post "/v1/checkout/sessions/:id/expire" do
+    CheckoutSession.expire(conn, id)
+  end
 
   ## Custom Subscription Endpoints
 

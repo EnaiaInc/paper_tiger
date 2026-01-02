@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkout Session completion support**: New endpoints for completing and expiring checkout sessions
+  - `POST /v1/checkout/sessions/:id/expire` - Expires an open session (matches Stripe API)
+  - `POST /_test/checkout/sessions/:id/complete` - Test helper to simulate successful checkout completion
+  - Based on mode, creates appropriate side effects:
+    - `payment`: Creates a succeeded PaymentIntent
+    - `subscription`: Creates an active Subscription with items
+    - `setup`: Creates a succeeded SetupIntent
+  - Fires `checkout.session.completed` and `checkout.session.expired` webhook events
 - **Environment-specific port configuration**: New env vars `PAPER_TIGER_PORT_DEV` and `PAPER_TIGER_PORT_TEST` allow different ports per Mix environment. Enables running dev server and tests simultaneously without port conflicts. Precedence: `PAPER_TIGER_PORT_{ENV}` > `PAPER_TIGER_PORT` > config > 4001.
 - `PaperTiger.BalanceTransactionHelper` module for creating balance transactions with Stripe-compatible fee calculations
 

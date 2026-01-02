@@ -69,7 +69,10 @@ defmodule PaperTiger.TelemetryHandler do
       [:paper_tiger, :price, :deleted],
       # PaymentMethod events
       [:paper_tiger, :payment_method, :attached],
-      [:paper_tiger, :payment_method, :detached]
+      [:paper_tiger, :payment_method, :detached],
+      # Checkout Session events
+      [:paper_tiger, :checkout, :session, :completed],
+      [:paper_tiger, :checkout, :session, :expired]
     ]
 
     :telemetry.attach_many(
