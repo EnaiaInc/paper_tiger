@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-01-02
+
+### Fixed
+
+- **Subscription items now return full price object**: `subscription.items.data[].price` is now a full price object (with `id`, `object`, `currency`, etc.) instead of just the price ID string, matching real Stripe API behavior
+- Same fix applied to `subscription_item.price` when creating/updating subscription items directly
+- When price doesn't exist in the store, returns a minimal price object with required fields for API compatibility
+
+### Added
+
+- Contract test validating subscription item price structure against real Stripe API
+- `TestClient.create_product/1` and `TestClient.create_price/1` helpers for contract testing
+
 ## [0.8.3] - 2026-01-02
 
 ### Fixed

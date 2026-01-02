@@ -278,6 +278,36 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Product Operations
+
+  @doc """
+  Creates a product.
+  """
+  def create_product(params) do
+    case mode() do
+      :real_stripe ->
+        create_product_real(params)
+
+      :paper_tiger ->
+        create_product_mock(params)
+    end
+  end
+
+  ## Price Operations
+
+  @doc """
+  Creates a price.
+  """
+  def create_price(params) do
+    case mode() do
+      :real_stripe ->
+        create_price_real(params)
+
+      :paper_tiger ->
+        create_price_mock(params)
+    end
+  end
+
   ## Subscription Operations
 
   @doc """
@@ -511,6 +541,20 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp create_product_real(params) do
+    case Stripe.Product.create(normalize_params(params), stripe_opts()) do
+      {:ok, product} -> {:ok, stripe_to_map(product)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp create_price_real(params) do
+    case Stripe.Price.create(normalize_params(params), stripe_opts()) do
+      {:ok, price} -> {:ok, stripe_to_map(price)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   ## Private - PaperTiger Mock
 
   defp create_customer_mock(params) do
@@ -580,6 +624,16 @@ defmodule PaperTiger.TestClient do
 
   defp get_invoice_mock(invoice_id) do
     conn = request(:get, "/v1/invoices/#{invoice_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_product_mock(params) do
+    conn = request(:post, "/v1/products", params)
+    handle_response(conn)
+  end
+
+  defp create_price_mock(params) do
+    conn = request(:post, "/v1/prices", params)
     handle_response(conn)
   end
 

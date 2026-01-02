@@ -19,7 +19,7 @@ defmodule PaperTiger.Resources.Subscription do
         status: "active",
         customer: "cus_...",
         items: %{
-          data: [%{id: "si_...", price: "price_...", quantity: 1}]
+          data: [%{id: "si_...", price: %{id: "price_...", object: "price", ...}, quantity: 1}]
         },
         current_period_start: 1234567890,
         current_period_end: 1237159890,
@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Subscription do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
 
@@ -292,12 +293,15 @@ defmodule PaperTiger.Resources.Subscription do
     items
     |> Enum.with_index()
     |> Enum.each(fn {item, index} ->
+      price_id = get_item_field(item, :price)
+      price_object = fetch_price_object(price_id)
+
       subscription_item = %{
         created: now + index,
         id: generate_id("si"),
         metadata: get_item_field(item, :metadata, %{}),
         object: "subscription_item",
-        price: get_item_field(item, :price),
+        price: price_object,
         quantity: item |> get_item_field(:quantity, 1) |> to_integer(),
         subscription: subscription_id
       }
@@ -309,6 +313,29 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   defp create_subscription_items(_subscription_id, _items), do: :ok
+
+  # Fetches full price object from store, or builds minimal object if not found
+  defp fetch_price_object(price_id) when is_binary(price_id) do
+    case Prices.get(price_id) do
+      {:ok, price} -> price
+      {:error, :not_found} -> build_minimal_price_object(price_id)
+    end
+  end
+
+  defp fetch_price_object(_), do: nil
+
+  # Build minimal price object when price doesn't exist in store
+  # This ensures API compatibility even with ad-hoc price IDs
+  defp build_minimal_price_object(price_id) do
+    %{
+      active: true,
+      currency: "usd",
+      id: price_id,
+      livemode: false,
+      object: "price",
+      type: "recurring"
+    }
+  end
 
   defp load_subscription_items(subscription) do
     items =

@@ -17,7 +17,7 @@ defmodule PaperTiger.Resources.SubscriptionItem do
         object: "subscription_item",
         created: 1234567890,
         subscription: "sub_...",
-        price: "price_...",
+        price: %{id: "price_...", object: "price", ...},
         quantity: 1,
         metadata: %{},
         # ... other fields
@@ -26,6 +26,7 @@ defmodule PaperTiger.Resources.SubscriptionItem do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
 
   require Logger
@@ -162,18 +163,44 @@ defmodule PaperTiger.Resources.SubscriptionItem do
   ## Private Functions
 
   defp build_subscription_item(params) do
+    price_id = Map.get(params, :price)
+    price_object = fetch_price_object(price_id)
+
     %{
       id: generate_id("si"),
       object: "subscription_item",
       created: PaperTiger.now(),
       subscription: Map.get(params, :subscription),
-      price: Map.get(params, :price),
+      price: price_object,
       quantity: Map.get(params, :quantity, 1),
       metadata: Map.get(params, :metadata, %{}),
       # Additional fields
       livemode: false,
       billing_thresholds: Map.get(params, :billing_thresholds),
       tax_rates: Map.get(params, :tax_rates, [])
+    }
+  end
+
+  # Fetches full price object from store, or builds minimal object if not found
+  defp fetch_price_object(price_id) when is_binary(price_id) do
+    case Prices.get(price_id) do
+      {:ok, price} -> price
+      {:error, :not_found} -> build_minimal_price_object(price_id)
+    end
+  end
+
+  defp fetch_price_object(_), do: nil
+
+  # Build minimal price object when price doesn't exist in store
+  # This ensures API compatibility even with ad-hoc price IDs
+  defp build_minimal_price_object(price_id) do
+    %{
+      active: true,
+      currency: "usd",
+      id: price_id,
+      livemode: false,
+      object: "price",
+      type: "recurring"
     }
   end
 

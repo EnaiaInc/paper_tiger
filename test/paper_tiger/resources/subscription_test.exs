@@ -212,9 +212,13 @@ defmodule PaperTiger.Resources.SubscriptionTest do
 
       # Verify subscription item
       item = Enum.at(body["items"]["data"], 0)
-      assert item["price"] == price_id
       assert item["quantity"] == 1
       assert String.starts_with?(item["id"], "si_")
+
+      # Verify price is embedded as full object (matches real Stripe API)
+      assert is_map(item["price"])
+      assert item["price"]["id"] == price_id
+      assert item["price"]["object"] == "price"
     end
 
     test "creates subscription with trial period", %{customer_id: customer_id, price_id: price_id} do
@@ -315,12 +319,14 @@ defmodule PaperTiger.Resources.SubscriptionTest do
 
       # Verify first item
       item1 = Enum.at(body["items"]["data"], 0)
-      assert item1["price"] == price_id
+      assert is_map(item1["price"])
+      assert item1["price"]["id"] == price_id
       assert item1["quantity"] == 1
 
       # Verify second item
       item2 = Enum.at(body["items"]["data"], 1)
-      assert item2["price"] == addon_price_id
+      assert is_map(item2["price"])
+      assert item2["price"]["id"] == addon_price_id
       assert item2["quantity"] == 2
     end
 
@@ -348,6 +354,63 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       body = json_response(conn)
       assert body["error"]["type"] == "invalid_request_error"
       assert String.contains?(body["error"]["message"], "items")
+    end
+
+    test "subscription item price contains full price object from store", %{
+      customer_id: customer_id,
+      price_id: price_id,
+      product_id: product_id
+    } do
+      subscription_params = %{
+        "customer" => customer_id,
+        "items" => [%{"price" => price_id, "quantity" => "1"}]
+      }
+
+      conn = request(:post, "/v1/subscriptions", subscription_params)
+
+      assert conn.status == 200
+      body = json_response(conn)
+
+      item = Enum.at(body["items"]["data"], 0)
+      price = item["price"]
+
+      # Verify full price object structure (fetched from store)
+      assert is_map(price)
+      assert price["id"] == price_id
+      assert price["object"] == "price"
+      assert price["currency"] == "usd"
+      assert price["unit_amount"] == 2000
+      assert price["product"] == product_id
+      assert is_map(price["recurring"])
+      assert price["recurring"]["interval"] == "month"
+    end
+
+    test "subscription item price contains minimal object for unknown price ID", %{
+      customer_id: customer_id
+    } do
+      # Use a price ID that doesn't exist in the store
+      unknown_price_id = "price_unknown_test_123"
+
+      subscription_params = %{
+        "customer" => customer_id,
+        "items" => [%{"price" => unknown_price_id, "quantity" => "1"}]
+      }
+
+      conn = request(:post, "/v1/subscriptions", subscription_params)
+
+      assert conn.status == 200
+      body = json_response(conn)
+
+      item = Enum.at(body["items"]["data"], 0)
+      price = item["price"]
+
+      # Verify minimal price object structure (price not found in store)
+      assert is_map(price)
+      assert price["id"] == unknown_price_id
+      assert price["object"] == "price"
+      # Should have default values
+      assert price["currency"] == "usd"
+      assert price["active"] == true
     end
   end
 

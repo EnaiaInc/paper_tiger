@@ -392,6 +392,56 @@ defmodule PaperTiger.ContractTest do
       Enum.each(subscription_ids, &cleanup_subscription/1)
       cleanup_customer(customer["id"])
     end
+
+    @tag :contract
+    test "subscription items contain full price object (not just ID)" do
+      # This test validates that items[].price is a full object, not just a string ID
+      # This is critical for compatibility with real Stripe API behavior
+
+      # Create product first
+      {:ok, product} = TestClient.create_product(%{"name" => "Contract Test Plan"})
+
+      # Create price
+      price_params = %{
+        "currency" => "usd",
+        "product" => product["id"],
+        "recurring" => %{"interval" => "month"},
+        "unit_amount" => 1500
+      }
+
+      {:ok, price} = TestClient.create_price(price_params)
+
+      # Create customer
+      {:ok, customer} = TestClient.create_customer(%{"email" => "price-object-test@example.com"})
+
+      # Create subscription with pre-created price
+      # For real Stripe, we need payment_behavior to skip payment method requirement
+      subscription_params = %{
+        "customer" => customer["id"],
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
+      }
+
+      {:ok, subscription} = TestClient.create_subscription(subscription_params)
+
+      # Validate subscription was created
+      assert subscription["object"] == "subscription"
+      assert is_list(subscription["items"]["data"])
+      assert subscription["items"]["data"] != []
+
+      # THE KEY ASSERTION: price should be a full object, not a string ID
+      item = Enum.at(subscription["items"]["data"], 0)
+      assert is_map(item["price"]), "Expected price to be a map/object, got: #{inspect(item["price"])}"
+      assert item["price"]["id"] == price["id"]
+      assert item["price"]["object"] == "price"
+      assert item["price"]["currency"] == "usd"
+      assert item["price"]["unit_amount"] == 1500
+
+      # Cleanup
+      cleanup_subscription(subscription["id"])
+      cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
+    end
   end
 
   describe "PaymentMethod Operations" do
@@ -514,6 +564,12 @@ defmodule PaperTiger.ContractTest do
   defp cleanup_invoice(_invoice_id) do
     # Invoices don't need explicit cleanup in Stripe
     # They're automatically managed with the customer
+    :ok
+  end
+
+  defp cleanup_product(_product_id) do
+    # Products can't be deleted in Stripe if they have prices
+    # Just leave them - they're in test mode anyway
     :ok
   end
 end
