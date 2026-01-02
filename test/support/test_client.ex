@@ -36,6 +36,9 @@ defmodule PaperTiger.TestClient do
   @doc """
   Returns the current test mode.
 
+  Validates that only test-mode API keys are used when running against real Stripe.
+  Raises if a live-mode key (sk_live_*) is detected to prevent accidental production usage.
+
   ## Examples
 
       iex> System.put_env("VALIDATE_AGAINST_STRIPE", "true")
@@ -48,9 +51,150 @@ defmodule PaperTiger.TestClient do
   """
   def mode do
     if System.get_env("VALIDATE_AGAINST_STRIPE") == "true" do
+      validate_test_mode_key!()
       :real_stripe
     else
       :paper_tiger
+    end
+  end
+
+  @doc """
+  Validates that the STRIPE_API_KEY is a test-mode key (sk_test_*).
+
+  Performs two-layer validation:
+  1. Checks the key prefix (sk_test_*, rk_test_*)
+  2. Makes a live API call to /v1/balance and verifies `livemode: false`
+
+  Raises an error if:
+  - A live-mode key (sk_live_*) is detected
+  - No API key is configured
+  - The API returns `livemode: true`
+
+  This prevents accidentally running contract tests against production Stripe.
+  """
+  def validate_test_mode_key! do
+    api_key = System.get_env("STRIPE_API_KEY") || Application.get_env(:stripity_stripe, :api_key)
+
+    # First layer: check key prefix
+    validate_key_prefix!(api_key)
+
+    # Second layer: verify with live API call
+    verify_test_mode_via_api!(api_key)
+  end
+
+  defp validate_key_prefix!(api_key) do
+    cond do
+      is_nil(api_key) or api_key == "" ->
+        raise """
+        STRIPE_API_KEY not configured!
+
+        Contract tests require a Stripe test-mode API key when VALIDATE_AGAINST_STRIPE=true.
+
+        Set the environment variable:
+            export STRIPE_API_KEY=sk_test_your_key_here
+
+        Get your test key from: https://dashboard.stripe.com/test/apikeys
+        """
+
+      String.starts_with?(api_key, "sk_live_") ->
+        raise """
+        🚨 LIVE MODE API KEY DETECTED! 🚨
+
+        You are attempting to run contract tests with a LIVE Stripe API key.
+        This would create real charges and affect real customers!
+
+        Current key: #{String.slice(api_key, 0, 12)}...
+
+        Please use a TEST mode key instead:
+            export STRIPE_API_KEY=sk_test_your_key_here
+
+        Get your test key from: https://dashboard.stripe.com/test/apikeys
+        """
+
+      String.starts_with?(api_key, "rk_live_") ->
+        raise """
+        🚨 LIVE MODE RESTRICTED KEY DETECTED! 🚨
+
+        You are attempting to run contract tests with a LIVE Stripe restricted key.
+        This could affect real customers!
+
+        Please use a TEST mode key instead:
+            export STRIPE_API_KEY=sk_test_your_key_here
+        """
+
+      String.starts_with?(api_key, "sk_test_") ->
+        :ok
+
+      String.starts_with?(api_key, "rk_test_") ->
+        :ok
+
+      true ->
+        raise """
+        Invalid Stripe API key format!
+
+        Expected a test-mode key starting with 'sk_test_' or 'rk_test_'.
+        Got: #{String.slice(api_key, 0, 12)}...
+
+        Get your test key from: https://dashboard.stripe.com/test/apikeys
+        """
+    end
+  end
+
+  defp verify_test_mode_via_api!(api_key) do
+    # Make a simple API call to verify we're actually in test mode
+    # The /v1/balance endpoint is read-only and returns livemode field
+    url = "https://api.stripe.com/v1/balance"
+
+    headers = [
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/x-www-form-urlencoded"}
+    ]
+
+    case :httpc.request(:get, {String.to_charlist(url), headers}, [], []) do
+      {:ok, {{_, 200, _}, _headers, body}} ->
+        case Jason.decode(List.to_string(body)) do
+          {:ok, %{"livemode" => false}} ->
+            :ok
+
+          {:ok, %{"livemode" => true}} ->
+            raise """
+            🚨 LIVE MODE CONFIRMED BY STRIPE API! 🚨
+
+            The Stripe API confirmed this key is in LIVE mode.
+            This would create real charges and affect real customers!
+
+            Current key: #{String.slice(api_key, 0, 12)}...
+
+            Please use a TEST mode key instead:
+                export STRIPE_API_KEY=sk_test_your_key_here
+
+            Get your test key from: https://dashboard.stripe.com/test/apikeys
+            """
+
+          _ ->
+            # Couldn't parse response, but key prefix check passed
+            :ok
+        end
+
+      {:ok, {{_, 401, _}, _, _}} ->
+        raise """
+        Invalid Stripe API key!
+
+        The key was rejected by Stripe. Please verify your API key.
+
+        Current key: #{String.slice(api_key, 0, 12)}...
+
+        Get your test key from: https://dashboard.stripe.com/test/apikeys
+        """
+
+      {:error, reason} ->
+        # Network error - log warning but allow to proceed if key prefix was valid
+        IO.warn("""
+        Could not verify test mode via Stripe API: #{inspect(reason)}
+        Proceeding based on key prefix validation only.
+        """)
+
+        :ok
     end
   end
 

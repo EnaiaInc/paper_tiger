@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-01-02
+
+### Added
+
+- **Live key safety guard**: `TestClient` now performs two-layer validation before running contract tests against real Stripe:
+  1. Validates API key prefix (rejects `sk_live_*`, `rk_live_*`)
+  2. Makes a live API call to `/v1/balance` and verifies `livemode: false`
+
+  This prevents accidental production usage even if someone crafts a key with a fake prefix
+
 ### Fixed
 
 - BillingEngine now retries existing open invoices instead of creating duplicates on each billing cycle
