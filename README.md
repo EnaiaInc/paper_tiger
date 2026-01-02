@@ -1,3 +1,7 @@
+[![Hex.pm](https://img.shields.io/hexpm/v/paper_tiger)](https://hex.pm/packages/paper_tiger)
+[![Hexdocs.pm](https://img.shields.io/badge/docs-hexdocs.pm-purple)](https://hexdocs.pm/paper_tiger)
+[![Github.com](https://github.com/EnaiaInc/paper_tiger/actions/workflows/ci.yml/badge.svg)](https://github.com/EnaiaInc/paper_tiger/actions)
+
 # PaperTiger
 
 A stateful mock Stripe server for testing Elixir applications.
