@@ -2,15 +2,27 @@ defmodule PaperTiger.WebhookDelivery do
   @moduledoc """
   Manages webhook event delivery to registered endpoints.
 
-  This GenServer delivers webhook events asynchronously with:
+  This GenServer delivers webhook events with:
   - Stripe-compatible HMAC SHA256 signing of payloads
   - Exponential backoff retry logic (max 5 attempts)
   - Detailed delivery attempt tracking in Event object
   - Concurrent delivery to multiple endpoints
+  - Optional synchronous mode for testing
+
+  ## Delivery Modes
+
+  By default, webhooks are delivered asynchronously. For testing, you can enable
+  synchronous mode so API calls block until webhooks are delivered:
+
+      config :paper_tiger, webhook_mode: :sync
+
+  In sync mode, `deliver_event_sync/2` is used which blocks until the webhook
+  is delivered (or fails after all retries).
 
   ## Architecture
 
-  - **Main delivery function**: `deliver_event/2` - Queues a delivery task
+  - **Async delivery**: `deliver_event/2` - Queues a delivery task (default)
+  - **Sync delivery**: `deliver_event_sync/2` - Blocks until complete
   - **Signing**: `sign_payload/2` - Creates Stripe-compatible HMAC SHA256 signature
   - **HTTP client**: Uses Req library for reliable, timeout-aware requests
   - **Retry strategy**: Exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -29,8 +41,11 @@ defmodule PaperTiger.WebhookDelivery do
 
   ## Examples
 
-      # Deliver an event to all subscribed webhook endpoints
-      {:ok, _result} = PaperTiger.WebhookDelivery.deliver_event("evt_123", "we_456")
+      # Deliver an event asynchronously (default)
+      {:ok, _ref} = PaperTiger.WebhookDelivery.deliver_event("evt_123", "we_456")
+
+      # Deliver an event synchronously (for testing)
+      {:ok, :delivered} = PaperTiger.WebhookDelivery.deliver_event_sync("evt_123", "we_456")
 
       # Manually create a signature for testing
       signature = PaperTiger.WebhookDelivery.sign_payload("body", "secret")
@@ -83,6 +98,33 @@ defmodule PaperTiger.WebhookDelivery do
   end
 
   @doc """
+  Delivers a webhook event synchronously, waiting for completion.
+
+  Unlike `deliver_event/2`, this function blocks until the webhook has been
+  delivered (or fails after all retries). Use this in test environments where
+  you need webhooks to be processed before assertions.
+
+  ## Parameters
+
+  - `event_id` - ID of the event to deliver (e.g., "evt_123")
+  - `webhook_endpoint_id` - ID of the webhook endpoint (e.g., "we_456")
+
+  ## Returns
+
+  - `{:ok, :delivered}` - Webhook delivered successfully
+  - `{:ok, :failed}` - Delivery failed after all retries
+  - `{:error, reason}` - Event or webhook not found
+
+  ## Examples
+
+      {:ok, :delivered} = PaperTiger.WebhookDelivery.deliver_event_sync("evt_123", "we_456")
+  """
+  @spec deliver_event_sync(String.t(), String.t()) :: {:ok, :delivered | :failed} | {:error, term()}
+  def deliver_event_sync(event_id, webhook_endpoint_id) when is_binary(event_id) and is_binary(webhook_endpoint_id) do
+    GenServer.call(__MODULE__, {:deliver_event_sync, event_id, webhook_endpoint_id}, :infinity)
+  end
+
+  @doc """
   Signs a payload using HMAC SHA256 (Stripe-compatible).
 
   Creates the signature component for the `Stripe-Signature` header.
@@ -122,6 +164,12 @@ defmodule PaperTiger.WebhookDelivery do
     {:reply, result, state}
   end
 
+  @impl true
+  def handle_call({:deliver_event_sync, event_id, webhook_endpoint_id}, _from, state) do
+    result = dispatch_delivery_sync(event_id, webhook_endpoint_id)
+    {:reply, result, state}
+  end
+
   ## Private Functions
 
   # Dispatches a delivery by spawning an async task
@@ -145,6 +193,58 @@ defmodule PaperTiger.WebhookDelivery do
       {_, {:error, :not_found}} ->
         Logger.warning("WebhookDelivery: Webhook endpoint not found: #{webhook_endpoint_id}")
         {:error, :webhook_not_found}
+    end
+  end
+
+  # Dispatches a delivery synchronously, waiting for completion
+  defp dispatch_delivery_sync(event_id, webhook_endpoint_id) do
+    case {Events.get(event_id), Webhooks.get(webhook_endpoint_id)} do
+      {{:ok, event}, {:ok, webhook}} ->
+        deliver_with_retries_sync(event, webhook, 0)
+
+      {{:error, :not_found}, _} ->
+        Logger.warning("WebhookDelivery: Event not found: #{event_id}")
+        {:error, :event_not_found}
+
+      {_, {:error, :not_found}} ->
+        Logger.warning("WebhookDelivery: Webhook endpoint not found: #{webhook_endpoint_id}")
+        {:error, :webhook_not_found}
+    end
+  end
+
+  # Synchronous version of deliver_with_retries - blocks until complete
+  defp deliver_with_retries_sync(event, webhook, attempt) when attempt >= @max_retries do
+    Logger.error("WebhookDelivery: Max retries (#{@max_retries}) exceeded for event #{event.id} to #{webhook.url}")
+    update_event_delivery_attempts(event, webhook, attempt, :failed, nil)
+    {:ok, :failed}
+  end
+
+  defp deliver_with_retries_sync(event, webhook, attempt) do
+    case perform_delivery(event, webhook) do
+      {:ok, status_code, response_body} when status_code >= 200 and status_code < 300 ->
+        Logger.info("WebhookDelivery: Event #{event.id} delivered to #{webhook.url} (attempt #{attempt + 1})")
+        update_event_delivery_attempts(event, webhook, attempt, :delivered, response_body)
+        {:ok, :delivered}
+
+      {:ok, status_code, _response_body} ->
+        Logger.warning(
+          "WebhookDelivery: Event #{event.id} rejected by #{webhook.url} with status #{status_code} (attempt #{attempt + 1}/#{@max_retries})"
+        )
+
+        # Wait for backoff, then retry synchronously
+        delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
+        Process.sleep(delay_ms)
+        deliver_with_retries_sync(event, webhook, attempt + 1)
+
+      {:error, reason} ->
+        Logger.warning(
+          "WebhookDelivery: Event #{event.id} delivery to #{webhook.url} failed: #{inspect(reason)} (attempt #{attempt + 1}/#{@max_retries})"
+        )
+
+        # Wait for backoff, then retry synchronously
+        delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
+        Process.sleep(delay_ms)
+        deliver_with_retries_sync(event, webhook, attempt + 1)
     end
   end
 

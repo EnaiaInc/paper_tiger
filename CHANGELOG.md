@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-01-02
+
+### Added
+
+- **Synchronous webhook delivery mode**: Configure `webhook_mode: :sync` to have API calls block until webhooks are delivered. Useful for testing where you need to assert on webhook side effects immediately after API calls.
+- `WebhookDelivery.deliver_event_sync/2` function for explicit synchronous delivery
+
 ## [0.8.4] - 2026-01-02
 
 ### Fixed
