@@ -32,6 +32,7 @@ defmodule PaperTiger.TestClient do
   """
 
   alias PaperTiger.Router
+  alias Stripe.Checkout.Session
 
   @doc """
   Returns the current test mode.
@@ -487,6 +488,47 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Checkout Session Operations
+
+  @doc """
+  Creates a checkout session.
+  """
+  def create_checkout_session(params) do
+    case mode() do
+      :real_stripe ->
+        create_checkout_session_real(params)
+
+      :paper_tiger ->
+        create_checkout_session_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a checkout session by ID.
+  """
+  def get_checkout_session(session_id) do
+    case mode() do
+      :real_stripe ->
+        get_checkout_session_real(session_id)
+
+      :paper_tiger ->
+        get_checkout_session_mock(session_id)
+    end
+  end
+
+  @doc """
+  Expires a checkout session.
+  """
+  def expire_checkout_session(session_id) do
+    case mode() do
+      :real_stripe ->
+        expire_checkout_session_real(session_id)
+
+      :paper_tiger ->
+        expire_checkout_session_mock(session_id)
+    end
+  end
+
   ## Invoice Operations
 
   @doc """
@@ -681,6 +723,27 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp create_checkout_session_real(params) do
+    case Session.create(normalize_params(params), stripe_opts()) do
+      {:ok, session} -> {:ok, stripe_to_map(session)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_checkout_session_real(session_id) do
+    case Session.retrieve(session_id, %{}, stripe_opts()) do
+      {:ok, session} -> {:ok, stripe_to_map(session)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp expire_checkout_session_real(session_id) do
+    case Session.expire(session_id, %{}, stripe_opts()) do
+      {:ok, session} -> {:ok, stripe_to_map(session)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   ## Private - PaperTiger Mock
 
   defp create_customer_mock(params) do
@@ -790,6 +853,21 @@ defmodule PaperTiger.TestClient do
 
   defp get_refund_mock(refund_id) do
     conn = request(:get, "/v1/refunds/#{refund_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_checkout_session_mock(params) do
+    conn = request(:post, "/v1/checkout/sessions", params)
+    handle_response(conn)
+  end
+
+  defp get_checkout_session_mock(session_id) do
+    conn = request(:get, "/v1/checkout/sessions/#{session_id}", %{})
+    handle_response(conn)
+  end
+
+  defp expire_checkout_session_mock(session_id) do
+    conn = request(:post, "/v1/checkout/sessions/#{session_id}/expire", %{})
     handle_response(conn)
   end
 

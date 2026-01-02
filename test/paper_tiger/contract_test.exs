@@ -634,6 +634,74 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Checkout Session Operations" do
+    @tag :contract
+    test "creates a checkout session" do
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "line_items" => [
+          %{
+            "price_data" => %{"currency" => "usd", "product_data" => %{"name" => "Test Product"}, "unit_amount" => 2000},
+            "quantity" => 1
+          }
+        ],
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      {:ok, session} = TestClient.create_checkout_session(params)
+
+      assert session["object"] == "checkout.session"
+      assert is_binary(session["id"])
+      assert String.starts_with?(session["id"], "cs_")
+      assert session["mode"] == "payment"
+      assert session["status"] == "open"
+    end
+
+    @tag :contract
+    test "retrieves a checkout session" do
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "line_items" => [
+          %{
+            "price_data" => %{"currency" => "usd", "product_data" => %{"name" => "Test Product"}, "unit_amount" => 2000},
+            "quantity" => 1
+          }
+        ],
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      {:ok, created} = TestClient.create_checkout_session(params)
+      {:ok, retrieved} = TestClient.get_checkout_session(created["id"])
+
+      assert retrieved["id"] == created["id"]
+      assert retrieved["object"] == "checkout.session"
+      assert retrieved["mode"] == "payment"
+    end
+
+    @tag :contract
+    test "expires a checkout session" do
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "line_items" => [
+          %{
+            "price_data" => %{"currency" => "usd", "product_data" => %{"name" => "Test Product"}, "unit_amount" => 2000},
+            "quantity" => 1
+          }
+        ],
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      {:ok, created} = TestClient.create_checkout_session(params)
+      {:ok, expired} = TestClient.expire_checkout_session(created["id"])
+
+      assert expired["id"] == created["id"]
+      assert expired["status"] == "expired"
+    end
+  end
+
   describe "Subscription latest_invoice Validation" do
     @tag :contract
     test "subscription has latest_invoice field" do
