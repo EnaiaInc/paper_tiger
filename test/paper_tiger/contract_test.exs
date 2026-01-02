@@ -702,6 +702,97 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Error Response Format Validation" do
+    @tag :contract
+    test "non-existent customer returns resource_missing error" do
+      {:error, error} = TestClient.get_customer("cus_nonexistent_test_123")
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such customer: 'cus_nonexistent_test_123'"
+      assert error["error"]["param"] == "id"
+    end
+
+    @tag :contract
+    test "non-existent product returns resource_missing error" do
+      {:error, error} = TestClient.get_product("prod_nonexistent_test_123")
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such product: 'prod_nonexistent_test_123'"
+      assert error["error"]["param"] == "id"
+    end
+
+    @tag :contract
+    test "non-existent subscription returns resource_missing error" do
+      {:error, error} = TestClient.get_subscription("sub_nonexistent_test_123")
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such subscription: 'sub_nonexistent_test_123'"
+      assert error["error"]["param"] == "id"
+    end
+
+    @tag :contract
+    test "non-existent price returns resource_missing error" do
+      {:error, error} = TestClient.get_price("price_nonexistent_test_123")
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such price: 'price_nonexistent_test_123'"
+      assert error["error"]["param"] == "price"
+    end
+
+    @tag :contract
+    test "subscription with non-existent customer returns resource_missing error" do
+      # First create a valid price
+      {:ok, product} = TestClient.create_product(%{"name" => "Error Test Plan"})
+
+      price_params = %{
+        "currency" => "usd",
+        "product" => product["id"],
+        "recurring" => %{"interval" => "month"},
+        "unit_amount" => 1000
+      }
+
+      {:ok, price} = TestClient.create_price(price_params)
+
+      # Try to create subscription with non-existent customer
+      subscription_params = %{
+        "customer" => "cus_nonexistent_test_123",
+        "items" => [%{"price" => price["id"]}]
+      }
+
+      {:error, error} = TestClient.create_subscription(subscription_params)
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such customer: 'cus_nonexistent_test_123'"
+
+      cleanup_product(product["id"])
+    end
+
+    @tag :contract
+    test "subscription with non-existent price returns resource_missing error" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "price-error@example.com"})
+
+      # Try to create subscription with non-existent price
+      subscription_params = %{
+        "customer" => customer["id"],
+        "items" => [%{"price" => "price_nonexistent_test_123"}]
+      }
+
+      {:error, error} = TestClient.create_subscription(subscription_params)
+
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
+      assert error["error"]["message"] == "No such price: 'price_nonexistent_test_123'"
+      assert error["error"]["param"] == "items[0][price]"
+
+      cleanup_customer(customer["id"])
+    end
+  end
+
   describe "Subscription latest_invoice Validation" do
     @tag :contract
     test "subscription has latest_invoice field" do
