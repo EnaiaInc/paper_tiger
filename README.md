@@ -32,6 +32,7 @@ PaperTiger solves this by providing a complete, stateful implementation of the S
 - **Idempotency**: Request deduplication with 24-hour TTL
 - **Object Expansion**: Hydrator system for nested resource expansion
 - **Time Control**: Accelerated, manual, or real-time clock for testing
+- **Billing Engine**: Automated subscription billing simulation with chaos testing support
 
 ## Installation
 
@@ -40,7 +41,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.1.0"}
+    {:paper_tiger, "~> 0.8.0"}
   ]
 end
 ```
@@ -288,6 +289,89 @@ PaperTiger.set_clock_mode(:accelerated, multiplier: 10)
 # Manual time control
 PaperTiger.set_clock_mode(:manual, timestamp: 1234567890)
 PaperTiger.advance_time(3600)  # Advance 1 hour
+```
+
+## Billing Engine
+
+PaperTiger includes a `BillingEngine` for simulating subscription billing cycles. This enables testing of payment failures, retry logic, and subscription lifecycle without waiting for real time to pass.
+
+### Basic Usage
+
+```elixir
+# Enable billing engine in config
+config :paper_tiger, :billing_engine, true
+
+# Or start manually
+PaperTiger.BillingEngine.start_link([])
+
+# Process all due subscriptions
+{:ok, stats} = PaperTiger.BillingEngine.process_billing()
+# => %{processed: 5, succeeded: 4, failed: 1}
+```
+
+### Billing Modes
+
+**Happy Path** (default): All payments succeed.
+
+```elixir
+PaperTiger.BillingEngine.set_mode(:happy_path)
+```
+
+**Chaos Mode**: Random payment failures with configurable rates and decline codes.
+
+```elixir
+PaperTiger.BillingEngine.set_mode(:chaos,
+  payment_failure_rate: 0.3,  # 30% failure rate
+  decline_codes: [:card_declined, :insufficient_funds, :expired_card]
+)
+```
+
+### Extended Decline Codes
+
+PaperTiger supports 22 Stripe decline codes for realistic failure simulation:
+
+- **Common**: `card_declined`, `insufficient_funds`, `expired_card`, `do_not_honor`
+- **Authentication**: `authentication_required`, `incorrect_cvc`, `incorrect_zip`
+- **Fraud**: `fraudulent`, `stolen_card`, `lost_card`, `pickup_card`
+- **Limits**: `card_velocity_exceeded`, `withdrawal_count_limit_exceeded`
+- **Technical**: `processing_error`, `try_again_later`, `issuer_not_available`
+
+### Per-Customer Failure Simulation
+
+Force specific customers to fail with specific decline codes:
+
+```elixir
+# This customer will always fail with insufficient_funds
+PaperTiger.BillingEngine.simulate_failure("cus_123", :insufficient_funds)
+
+# Clear simulation
+PaperTiger.BillingEngine.clear_failure("cus_123")
+```
+
+### Subscription Lifecycle
+
+The billing engine handles the full subscription lifecycle:
+
+1. Finds subscriptions where `current_period_end` has passed
+2. Creates invoice with line items
+3. Creates payment intent and attempts charge
+4. On success: Updates invoice to `paid`, advances subscription period
+5. On failure: Increments `attempt_count`, marks subscription `past_due` after 4 failures
+
+Combined with time control, you can simulate months of billing in seconds:
+
+```elixir
+# Set up subscription due for billing
+PaperTiger.set_clock_mode(:manual, timestamp: :os.system_time(:second))
+
+# Process billing cycle
+{:ok, _} = PaperTiger.BillingEngine.process_billing()
+
+# Advance 30 days
+PaperTiger.advance_time(30 * 24 * 60 * 60)
+
+# Process next cycle
+{:ok, _} = PaperTiger.BillingEngine.process_billing()
 ```
 
 ## Contract Testing
