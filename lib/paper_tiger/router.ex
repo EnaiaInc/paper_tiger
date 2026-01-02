@@ -47,7 +47,7 @@ defmodule PaperTiger.Router do
 
   import PaperTiger.Router.Macros
 
-  alias PaperTiger.Plug.ApiChaos
+  alias PaperTiger.Plug.APIChaos
   alias PaperTiger.Plugs.Auth
   alias PaperTiger.Plugs.CORS
   alias PaperTiger.Plugs.Idempotency
@@ -89,7 +89,7 @@ defmodule PaperTiger.Router do
   plug(:match)
   plug(CORS)
   plug(Sandbox)
-  plug(ApiChaos)
+  plug(APIChaos)
 
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],

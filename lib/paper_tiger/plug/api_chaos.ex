@@ -1,4 +1,4 @@
-defmodule PaperTiger.Plug.ApiChaos do
+defmodule PaperTiger.Plug.APIChaos do
   @moduledoc """
   Plug middleware that injects chaos into API requests.
 
