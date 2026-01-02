@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-01-02
+
+### Fixed
+
+- **Contract test fixes**: Tests now properly pass the API key to all stripity_stripe calls
+- **PaymentMethod and Subscription tests**: Skipped for real Stripe (require tokens/pre-created prices that can't be created via API) - these test PaperTiger's convenience features
+- **Clearer test mode messaging**: Contract tests now display "RUNNING AGAINST REAL STRIPE TEST API" with explicit "API key validated as TEST MODE"
+
 ## [0.8.1] - 2026-01-02
 
 ### Added

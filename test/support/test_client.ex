@@ -143,14 +143,15 @@ defmodule PaperTiger.TestClient do
   defp verify_test_mode_via_api!(api_key) do
     # Make a simple API call to verify we're actually in test mode
     # The /v1/balance endpoint is read-only and returns livemode field
-    url = "https://api.stripe.com/v1/balance"
+    url = ~c"https://api.stripe.com/v1/balance"
 
+    # :httpc requires charlist headers
     headers = [
-      {"authorization", "Bearer #{api_key}"},
-      {"content-type", "application/x-www-form-urlencoded"}
+      {~c"authorization", String.to_charlist("Bearer #{api_key}")},
+      {~c"content-type", ~c"application/x-www-form-urlencoded"}
     ]
 
-    case :httpc.request(:get, {String.to_charlist(url), headers}, [], []) do
+    case :httpc.request(:get, {url, headers}, [], []) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(List.to_string(body)) do
           {:ok, %{"livemode" => false}} ->
@@ -402,36 +403,40 @@ defmodule PaperTiger.TestClient do
 
   ## Private - Real Stripe API
 
+  defp stripe_opts do
+    [api_key: System.get_env("STRIPE_API_KEY")]
+  end
+
   defp create_customer_real(params) do
-    case Stripe.Customer.create(normalize_params(params)) do
+    case Stripe.Customer.create(normalize_params(params), stripe_opts()) do
       {:ok, customer} -> {:ok, stripe_to_map(customer)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp get_customer_real(customer_id) do
-    case Stripe.Customer.retrieve(customer_id) do
+    case Stripe.Customer.retrieve(customer_id, %{}, stripe_opts()) do
       {:ok, customer} -> {:ok, stripe_to_map(customer)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp update_customer_real(customer_id, params) do
-    case Stripe.Customer.update(customer_id, normalize_params(params)) do
+    case Stripe.Customer.update(customer_id, normalize_params(params), stripe_opts()) do
       {:ok, customer} -> {:ok, stripe_to_map(customer)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp delete_customer_real(customer_id) do
-    case Stripe.Customer.delete(customer_id) do
+    case Stripe.Customer.delete(customer_id, stripe_opts()) do
       {:ok, result} -> {:ok, stripe_to_map(result)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp list_customers_real(params) do
-    case Stripe.Customer.list(normalize_params(params)) do
+    case Stripe.Customer.list(normalize_params(params), stripe_opts()) do
       {:ok, %{data: customers, has_more: has_more}} ->
         {:ok, %{"data" => Enum.map(customers, &stripe_to_map/1), "has_more" => has_more}}
 
@@ -441,35 +446,35 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_subscription_real(params) do
-    case Stripe.Subscription.create(normalize_params(params)) do
+    case Stripe.Subscription.create(normalize_params(params), stripe_opts()) do
       {:ok, subscription} -> {:ok, stripe_to_map(subscription)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp get_subscription_real(subscription_id) do
-    case Stripe.Subscription.retrieve(subscription_id) do
+    case Stripe.Subscription.retrieve(subscription_id, %{}, stripe_opts()) do
       {:ok, subscription} -> {:ok, stripe_to_map(subscription)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp update_subscription_real(subscription_id, params) do
-    case Stripe.Subscription.update(subscription_id, normalize_params(params)) do
+    case Stripe.Subscription.update(subscription_id, normalize_params(params), stripe_opts()) do
       {:ok, subscription} -> {:ok, stripe_to_map(subscription)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp delete_subscription_real(subscription_id) do
-    case Stripe.Subscription.cancel(subscription_id) do
+    case Stripe.Subscription.cancel(subscription_id, stripe_opts()) do
       {:ok, result} -> {:ok, stripe_to_map(result)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp list_subscriptions_real(params) do
-    case Stripe.Subscription.list(normalize_params(params)) do
+    case Stripe.Subscription.list(normalize_params(params), stripe_opts()) do
       {:ok, %{data: subscriptions, has_more: has_more}} ->
         {:ok, %{"data" => Enum.map(subscriptions, &stripe_to_map/1), "has_more" => has_more}}
 
@@ -479,28 +484,28 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_payment_method_real(params) do
-    case Stripe.PaymentMethod.create(normalize_params(params)) do
+    case Stripe.PaymentMethod.create(normalize_params(params), stripe_opts()) do
       {:ok, payment_method} -> {:ok, stripe_to_map(payment_method)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp get_payment_method_real(payment_method_id) do
-    case Stripe.PaymentMethod.retrieve(payment_method_id) do
+    case Stripe.PaymentMethod.retrieve(payment_method_id, %{}, stripe_opts()) do
       {:ok, payment_method} -> {:ok, stripe_to_map(payment_method)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp create_invoice_real(params) do
-    case Stripe.Invoice.create(normalize_params(params)) do
+    case Stripe.Invoice.create(normalize_params(params), stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
 
   defp get_invoice_real(invoice_id) do
-    case Stripe.Invoice.retrieve(invoice_id) do
+    case Stripe.Invoice.retrieve(invoice_id, %{}, stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
@@ -659,9 +664,11 @@ defmodule PaperTiger.TestClient do
   end
 
   # Convert Stripe struct to plain map for consistency
+  # Filter out nil values to match PaperTiger's leaner responses
   defp stripe_to_map(%_{} = struct) do
     struct
     |> Map.from_struct()
+    |> Enum.reject(fn {_k, v} -> v == nil end)
     |> Map.new(fn {k, v} -> {to_string(k), normalize_value(v)} end)
   end
 
