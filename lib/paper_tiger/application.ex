@@ -46,6 +46,7 @@ defmodule PaperTiger.Application do
         # Core systems (always running)
         PaperTiger.Clock,
         PaperTiger.Idempotency,
+        {Task.Supervisor, name: PaperTiger.TaskSupervisor},
         PaperTiger.WebhookDelivery,
 
         # Resource stores (always running)
