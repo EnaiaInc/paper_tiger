@@ -356,12 +356,76 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   defp update_subscription_items(subscription_id, items) when is_list(items) do
-    # Delete existing items and recreate with new values
-    SubscriptionItems.delete_by_subscription(subscription_id)
-    create_subscription_items(subscription_id, items)
+    existing_items = SubscriptionItems.find_by_subscription(subscription_id)
+    existing_by_id = Map.new(existing_items, &{&1.id, &1})
+
+    # Track which existing items we've seen (to delete removed ones)
+    seen_ids = MapSet.new()
+
+    # Process each item in the update payload
+    {seen_ids, _} =
+      items
+      |> Enum.with_index()
+      |> Enum.reduce({seen_ids, PaperTiger.now()}, fn {item, index}, {seen, now} ->
+        item_id = get_item_field(item, :id)
+
+        cond do
+          # Item has an ID and exists - update it
+          item_id && Map.has_key?(existing_by_id, item_id) ->
+            existing = existing_by_id[item_id]
+            updated = update_existing_item(existing, item)
+            SubscriptionItems.update(updated)
+            {MapSet.put(seen, item_id), now}
+
+          # Item has an ID but doesn't exist - create with that ID (edge case)
+          item_id ->
+            new_item = build_subscription_item(subscription_id, item, now + index, item_id)
+            SubscriptionItems.insert(new_item)
+            {MapSet.put(seen, item_id), now}
+
+          # No ID - create new item
+          true ->
+            new_item = build_subscription_item(subscription_id, item, now + index, nil)
+            SubscriptionItems.insert(new_item)
+            {seen, now}
+        end
+      end)
+
+    # Delete items that weren't in the update payload
+    existing_items
+    |> Enum.reject(&MapSet.member?(seen_ids, &1.id))
+    |> Enum.each(&SubscriptionItems.delete(&1.id))
+
+    :ok
   end
 
   defp update_subscription_items(_subscription_id, _invalid), do: :ok
+
+  defp build_subscription_item(subscription_id, item, created_at, custom_id) do
+    price_id = get_item_field(item, :price)
+    price_object = fetch_price_object(price_id)
+
+    %{
+      created: created_at,
+      id: custom_id || generate_id("si"),
+      metadata: get_item_field(item, :metadata, %{}),
+      object: "subscription_item",
+      price: price_object,
+      quantity: item |> get_item_field(:quantity, 1) |> to_integer(),
+      subscription: subscription_id
+    }
+  end
+
+  defp update_existing_item(existing, updates) do
+    price_id = get_item_field(updates, :price)
+
+    %{
+      existing
+      | metadata: get_item_field(updates, :metadata, existing.metadata),
+        price: if(price_id, do: fetch_price_object(price_id), else: existing.price),
+        quantity: updates |> get_item_field(:quantity, existing.quantity) |> to_integer()
+    }
+  end
 
   defp cancel_subscription(subscription) do
     now = PaperTiger.now()

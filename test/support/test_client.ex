@@ -144,21 +144,20 @@ defmodule PaperTiger.TestClient do
   defp verify_test_mode_via_api!(api_key) do
     # Make a simple API call to verify we're actually in test mode
     # The /v1/balance endpoint is read-only and returns livemode field
-    url = ~c"https://api.stripe.com/v1/balance"
+    url = "https://api.stripe.com/v1/balance"
 
-    # :httpc requires charlist headers
     headers = [
-      {~c"authorization", String.to_charlist("Bearer #{api_key}")},
-      {~c"content-type", ~c"application/x-www-form-urlencoded"}
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/x-www-form-urlencoded"}
     ]
 
-    case :httpc.request(:get, {url, headers}, [], []) do
-      {:ok, {{_, 200, _}, _headers, body}} ->
-        case Jason.decode(List.to_string(body)) do
-          {:ok, %{"livemode" => false}} ->
+    case Req.get(url, headers: headers) do
+      {:ok, %{body: body, status: 200}} ->
+        case body do
+          %{"livemode" => false} ->
             :ok
 
-          {:ok, %{"livemode" => true}} ->
+          %{"livemode" => true} ->
             raise """
             🚨 LIVE MODE CONFIRMED BY STRIPE API! 🚨
 
@@ -178,7 +177,7 @@ defmodule PaperTiger.TestClient do
             :ok
         end
 
-      {:ok, {{_, 401, _}, _, _}} ->
+      {:ok, %{status: 401}} ->
         raise """
         Invalid Stripe API key!
 

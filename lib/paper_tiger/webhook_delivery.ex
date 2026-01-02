@@ -166,7 +166,14 @@ defmodule PaperTiger.WebhookDelivery do
 
   @impl true
   def handle_call({:deliver_event_sync, event_id, webhook_endpoint_id}, _from, state) do
-    result = dispatch_delivery_sync(event_id, webhook_endpoint_id)
+    # Spawn a task so we don't block the GenServer during retries/backoff
+    task =
+      Task.async(fn ->
+        dispatch_delivery_sync(event_id, webhook_endpoint_id)
+      end)
+
+    # Wait indefinitely for the task to complete
+    result = Task.await(task, :infinity)
     {:reply, result, state}
   end
 
@@ -177,10 +184,10 @@ defmodule PaperTiger.WebhookDelivery do
     # Fetch the event and webhook endpoint
     case {Events.get(event_id), Webhooks.get(webhook_endpoint_id)} do
       {{:ok, event}, {:ok, webhook}} ->
-        # Spawn async task to handle delivery with retries
+        # Spawn task under supervisor to isolate failures from WebhookDelivery GenServer
         ref = make_ref()
 
-        spawn_link(fn ->
+        Task.Supervisor.start_child(PaperTiger.TaskSupervisor, fn ->
           deliver_with_retries(event, webhook, 0, ref)
         end)
 
@@ -297,7 +304,7 @@ defmodule PaperTiger.WebhookDelivery do
     headers = [
       {"Stripe-Signature", stripe_signature},
       {"Content-Type", "application/json"},
-      {"User-Agent", "PaperTiger/1.0"}
+      {"User-Agent", "Stripe/1.0 (+https://stripe.com/docs/webhooks)"}
     ]
 
     Logger.debug("WebhookDelivery: Posting event #{event.id} to #{webhook.url} with timestamp #{timestamp}")
@@ -310,7 +317,7 @@ defmodule PaperTiger.WebhookDelivery do
           body: payload,
           headers: headers,
           receive_timeout: @timeout_ms,
-          connect_timeout: @timeout_ms
+          connect_options: [timeout: @timeout_ms]
         )
 
       {:ok, response.status, response.body || ""}
