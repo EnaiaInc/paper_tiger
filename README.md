@@ -394,7 +394,14 @@ export VALIDATE_AGAINST_STRIPE=true
 mix test test/paper_tiger/contract_test.exs
 ```
 
-Tests run against stripe.com to validate that PaperTiger behavior matches production. Requires a Stripe test account. Only use test mode API keys (sk*test*\*).
+Tests run against stripe.com to validate that PaperTiger behavior matches production. Requires a Stripe test account.
+
+> **🛡️ Safety Guard:** PaperTiger performs two-layer validation before running against real Stripe:
+>
+> 1. Validates the API key prefix (rejects `sk_live_*`, `rk_live_*`)
+> 2. Makes a live API call to `/v1/balance` and verifies `livemode: false`
+>
+> If you accidentally configure a live-mode key, the tests will refuse to run with a clear error message. This prevents accidental charges to real customers.
 
 ### Writing Contract Tests
 
