@@ -30,6 +30,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Charges
   alias PaperTiger.Store.PaymentIntents
 
   require Logger
@@ -79,6 +80,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
     case PaymentIntents.get(id) do
       {:ok, payment_intent} ->
         payment_intent
+        |> load_charges()
         |> maybe_expand(conn.params)
         |> then(&json_response(conn, 200, &1))
 
@@ -179,6 +181,21 @@ defmodule PaperTiger.Resources.PaymentIntent do
       mandate: nil,
       source: Map.get(params, :source)
     }
+  end
+
+  # Loads actual charges from the store into the charges list
+  defp load_charges(payment_intent) do
+    charges =
+      Charges.find_by_payment_intent(payment_intent.id)
+      |> Enum.sort_by(& &1.created, :desc)
+
+    Map.put(payment_intent, :charges, %{
+      data: charges,
+      has_more: false,
+      object: "list",
+      total_count: length(charges),
+      url: "/v1/charges?payment_intent=#{payment_intent.id}"
+    })
   end
 
   defp maybe_expand(payment_intent, params) do

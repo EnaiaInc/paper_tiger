@@ -31,6 +31,7 @@ defmodule PaperTiger.Resources.Charge do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.BalanceTransactionHelper
   alias PaperTiger.Store.Charges
 
   require Logger
@@ -55,7 +56,8 @@ defmodule PaperTiger.Resources.Charge do
   def create(conn) do
     with {:ok, _params} <- validate_params(conn.params, [:amount, :currency]),
          charge = build_charge(conn.params),
-         {:ok, charge} <- Charges.insert(charge) do
+         {:ok, charge} <- Charges.insert(charge),
+         {:ok, charge} <- create_balance_transaction_if_succeeded(charge) do
       maybe_store_idempotency(conn, charge)
 
       charge
@@ -69,6 +71,15 @@ defmodule PaperTiger.Resources.Charge do
         )
     end
   end
+
+  # Creates a balance transaction for successful charges
+  defp create_balance_transaction_if_succeeded(%{status: "succeeded"} = charge) do
+    {:ok, txn_id} = BalanceTransactionHelper.create_for_charge(charge)
+    updated = Map.put(charge, :balance_transaction, txn_id)
+    Charges.update(updated)
+  end
+
+  defp create_balance_transaction_if_succeeded(charge), do: {:ok, charge}
 
   @doc """
   Retrieves a charge by ID.
