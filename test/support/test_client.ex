@@ -581,7 +581,7 @@ defmodule PaperTiger.TestClient do
   end
 
   defp delete_subscription_real(subscription_id) do
-    case Stripe.Subscription.cancel(subscription_id, stripe_opts()) do
+    case Stripe.Subscription.cancel(subscription_id, %{}, stripe_opts()) do
       {:ok, result} -> {:ok, stripe_to_map(result)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end

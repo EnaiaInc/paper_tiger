@@ -205,31 +205,30 @@ defmodule PaperTiger.ContractTest do
   end
 
   describe "Subscription CRUD Operations" do
-    # Subscription tests with inline price_data only run against PaperTiger
-    # Real Stripe doesn't support items[].price_data.product_data - requires pre-created prices
-    # PaperTiger allows inline product/price creation for testing convenience
+    # Helper to create a product and price for subscription tests
+    defp create_test_price(name, amount \\ 2000) do
+      {:ok, product} = TestClient.create_product(%{"name" => name})
 
-    @tag :contract
-    @tag :paper_tiger_only
-    test "creates a subscription with customer and items" do
-      if TestClient.real_stripe?(), do: :ok, else: do_test_create_subscription()
+      price_params = %{
+        "currency" => "usd",
+        "product" => product["id"],
+        "recurring" => %{"interval" => "month"},
+        "unit_amount" => amount
+      }
+
+      {:ok, price} = TestClient.create_price(price_params)
+      {product, price}
     end
 
-    defp do_test_create_subscription do
+    @tag :contract
+    test "creates a subscription with customer and items" do
       {:ok, customer} = TestClient.create_customer(%{"email" => "sub@example.com"})
+      {product, price} = create_test_price("Premium Plan")
 
       params = %{
         "customer" => customer["id"],
-        "items" => [
-          %{
-            "price_data" => %{
-              "currency" => "usd",
-              "product_data" => %{"name" => "Premium Plan"},
-              "recurring" => %{"interval" => "month"},
-              "unit_amount" => 2000
-            }
-          }
-        ]
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
       }
 
       {:ok, subscription} = TestClient.create_subscription(params)
@@ -243,29 +242,18 @@ defmodule PaperTiger.ContractTest do
 
       cleanup_subscription(subscription["id"])
       cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "retrieves a subscription by ID" do
-      if TestClient.real_stripe?(), do: :ok, else: do_test_retrieve_subscription()
-    end
-
-    defp do_test_retrieve_subscription do
       {:ok, customer} = TestClient.create_customer(%{"email" => "retrieve-sub@example.com"})
+      {product, price} = create_test_price("Test Plan", 1000)
 
       params = %{
         "customer" => customer["id"],
-        "items" => [
-          %{
-            "price_data" => %{
-              "currency" => "usd",
-              "product_data" => %{"name" => "Test Plan"},
-              "recurring" => %{"interval" => "month"},
-              "unit_amount" => 1000
-            }
-          }
-        ]
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
       }
 
       {:ok, created} = TestClient.create_subscription(params)
@@ -279,29 +267,18 @@ defmodule PaperTiger.ContractTest do
 
       cleanup_subscription(subscription_id)
       cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "updates a subscription" do
-      if TestClient.real_stripe?(), do: :ok, else: do_test_update_subscription()
-    end
-
-    defp do_test_update_subscription do
       {:ok, customer} = TestClient.create_customer(%{"email" => "update-sub@example.com"})
+      {product, price} = create_test_price("Basic Plan", 1000)
 
       params = %{
         "customer" => customer["id"],
-        "items" => [
-          %{
-            "price_data" => %{
-              "currency" => "usd",
-              "product_data" => %{"name" => "Basic Plan"},
-              "recurring" => %{"interval" => "month"},
-              "unit_amount" => 1000
-            }
-          }
-        ]
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
       }
 
       {:ok, subscription} = TestClient.create_subscription(params)
@@ -318,29 +295,18 @@ defmodule PaperTiger.ContractTest do
 
       cleanup_subscription(subscription_id)
       cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "cancels a subscription" do
-      if TestClient.real_stripe?(), do: :ok, else: do_test_cancel_subscription()
-    end
-
-    defp do_test_cancel_subscription do
       {:ok, customer} = TestClient.create_customer(%{"email" => "cancel-sub@example.com"})
+      {product, price} = create_test_price("Canceled Plan", 1000)
 
       params = %{
         "customer" => customer["id"],
-        "items" => [
-          %{
-            "price_data" => %{
-              "currency" => "usd",
-              "product_data" => %{"name" => "Canceled Plan"},
-              "recurring" => %{"interval" => "month"},
-              "unit_amount" => 1000
-            }
-          }
-        ]
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
       }
 
       {:ok, subscription} = TestClient.create_subscription(params)
@@ -349,39 +315,35 @@ defmodule PaperTiger.ContractTest do
       {:ok, result} = TestClient.delete_subscription(subscription_id)
 
       assert result["id"] == subscription_id
-      assert result["status"] == "canceled"
+      # Stripe returns "incomplete_expired" for incomplete subscriptions that are canceled
+      # PaperTiger returns "canceled" - both indicate a terminated subscription
+      assert result["status"] in ["canceled", "incomplete_expired"]
 
       cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "lists subscriptions with pagination" do
-      if TestClient.real_stripe?(), do: :ok, else: do_test_list_subscriptions()
-    end
-
-    defp do_test_list_subscriptions do
       {:ok, customer} = TestClient.create_customer(%{"email" => "list-subs@example.com"})
 
-      subscription_ids =
+      # Create 3 subscriptions with different prices
+      products_and_subscriptions =
         for i <- 1..3 do
+          {product, price} = create_test_price("Plan #{i}", 1000 * i)
+
           params = %{
             "customer" => customer["id"],
-            "items" => [
-              %{
-                "price_data" => %{
-                  "currency" => "usd",
-                  "product_data" => %{"name" => "Plan #{i}"},
-                  "recurring" => %{"interval" => "month"},
-                  "unit_amount" => 1000 * i
-                }
-              }
-            ]
+            "items" => [%{"price" => price["id"]}],
+            "payment_behavior" => "default_incomplete"
           }
 
           {:ok, subscription} = TestClient.create_subscription(params)
-          subscription["id"]
+          {product, subscription}
         end
+
+      subscription_ids = Enum.map(products_and_subscriptions, fn {_, sub} -> sub["id"] end)
+      products = Enum.map(products_and_subscriptions, fn {prod, _} -> prod end)
 
       {:ok, result} = TestClient.list_subscriptions(%{"limit" => 2})
 
@@ -391,6 +353,7 @@ defmodule PaperTiger.ContractTest do
 
       Enum.each(subscription_ids, &cleanup_subscription/1)
       cleanup_customer(customer["id"])
+      Enum.each(products, fn prod -> cleanup_product(prod["id"]) end)
     end
 
     @tag :contract
@@ -444,65 +407,9 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
-  describe "PaymentMethod Operations" do
-    # PaymentMethod tests only run against PaperTiger
-    # Real Stripe requires tokens (pm_card_visa) which can't be created via API
-    # PaperTiger allows raw card data for testing convenience
-
-    @tag :contract
-    @tag :paper_tiger_only
-    test "creates a payment method" do
-      # Skip for real Stripe - can't send raw card numbers
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        params = %{
-          "card" => %{
-            "cvc" => "123",
-            "exp_month" => 12,
-            "exp_year" => 2025,
-            "number" => "4242424242424242"
-          },
-          "type" => "card"
-        }
-
-        {:ok, payment_method} = TestClient.create_payment_method(params)
-
-        assert payment_method["object"] == "payment_method"
-        assert payment_method["type"] == "card"
-        assert String.starts_with?(payment_method["id"], "pm_")
-        assert is_integer(payment_method["created"])
-      end
-    end
-
-    @tag :contract
-    @tag :paper_tiger_only
-    test "retrieves a payment method by ID" do
-      # Skip for real Stripe - can't send raw card numbers
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        params = %{
-          "card" => %{
-            "cvc" => "456",
-            "exp_month" => 6,
-            "exp_year" => 2026,
-            "number" => "4242424242424242"
-          },
-          "type" => "card"
-        }
-
-        {:ok, created} = TestClient.create_payment_method(params)
-        payment_method_id = created["id"]
-
-        {:ok, retrieved} = TestClient.get_payment_method(payment_method_id)
-
-        assert retrieved["id"] == payment_method_id
-        assert retrieved["object"] == "payment_method"
-        assert retrieved["type"] == "card"
-      end
-    end
-  end
+  # NOTE: PaymentMethod tests removed because they use raw card numbers
+  # which don't work with real Stripe API. PaperTiger should accept
+  # test tokens (pm_card_visa) like real Stripe does instead of raw cards.
 
   describe "Invoice Operations" do
     @tag :contract
@@ -548,55 +455,43 @@ defmodule PaperTiger.ContractTest do
 
   describe "Charge Structure Validation" do
     @tag :contract
-    @tag :paper_tiger_only
     test "successful charge has balance_transaction" do
-      # This test validates that balance_transaction is populated for successful charges
-      # Real Stripe requires payment source tokens we can't create via API
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        params = %{
-          "amount" => 2000,
-          "currency" => "usd",
-          "source" => "tok_visa"
-        }
+      params = %{
+        "amount" => 2000,
+        "currency" => "usd",
+        "source" => "tok_visa"
+      }
 
-        {:ok, charge} = TestClient.create_charge(params)
+      {:ok, charge} = TestClient.create_charge(params)
 
-        assert charge["object"] == "charge"
-        assert charge["status"] == "succeeded"
-        assert is_binary(charge["balance_transaction"])
-        assert String.starts_with?(charge["balance_transaction"], "txn_")
-      end
+      assert charge["object"] == "charge"
+      assert charge["status"] == "succeeded"
+      assert is_binary(charge["balance_transaction"])
+      assert String.starts_with?(charge["balance_transaction"], "txn_")
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "charge object has required fields" do
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        params = %{
-          "amount" => 1500,
-          "currency" => "usd",
-          "source" => "tok_visa"
-        }
+      params = %{
+        "amount" => 1500,
+        "currency" => "usd",
+        "source" => "tok_visa"
+      }
 
-        {:ok, charge} = TestClient.create_charge(params)
+      {:ok, charge} = TestClient.create_charge(params)
 
-        # Core required fields
-        assert Map.has_key?(charge, "id")
-        assert Map.has_key?(charge, "object")
-        assert Map.has_key?(charge, "amount")
-        assert Map.has_key?(charge, "currency")
-        assert Map.has_key?(charge, "status")
-        assert Map.has_key?(charge, "created")
-        assert Map.has_key?(charge, "livemode")
+      # Core required fields
+      assert Map.has_key?(charge, "id")
+      assert Map.has_key?(charge, "object")
+      assert Map.has_key?(charge, "amount")
+      assert Map.has_key?(charge, "currency")
+      assert Map.has_key?(charge, "status")
+      assert Map.has_key?(charge, "created")
+      assert Map.has_key?(charge, "livemode")
 
-        assert charge["object"] == "charge"
-        assert charge["amount"] == 1500
-        assert charge["currency"] == "usd"
-      end
+      assert charge["object"] == "charge"
+      assert charge["amount"] == 1500
+      assert charge["currency"] == "usd"
     end
   end
 
@@ -621,98 +516,75 @@ defmodule PaperTiger.ContractTest do
     end
 
     @tag :contract
-    test "payment intent has charges list structure" do
+    test "payment intent does NOT have charges field" do
+      # Stripe API no longer includes charges as a top-level field on PaymentIntent
+      # Charges are accessed via separate endpoint: GET /v1/charges?payment_intent=pi_xxx
       params = %{
         "amount" => 2500,
         "currency" => "usd"
       }
 
       {:ok, payment_intent} = TestClient.create_payment_intent(params)
-
-      # Retrieve to get full structure with charges
       {:ok, retrieved} = TestClient.get_payment_intent(payment_intent["id"])
 
-      # charges should be a list object
-      assert Map.has_key?(retrieved, "charges")
-      charges = retrieved["charges"]
-
-      # In PaperTiger, charges is always a list object structure
-      # In real Stripe, it may vary based on the payment intent state
-      if TestClient.paper_tiger?() do
-        assert is_map(charges)
-        assert Map.has_key?(charges, "data")
-        assert is_list(charges["data"])
-        assert Map.has_key?(charges, "has_more")
-        assert Map.has_key?(charges, "object")
-        assert charges["object"] == "list"
-      end
+      # charges should NOT be present on PaymentIntent
+      refute Map.has_key?(retrieved, "charges")
     end
   end
 
   describe "Refund Structure Validation" do
     @tag :contract
-    @tag :paper_tiger_only
     test "refund has balance_transaction" do
-      # Real Stripe requires actual charges to refund
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        # Create a charge first
-        charge_params = %{
-          "amount" => 2000,
-          "currency" => "usd",
-          "source" => "tok_visa"
-        }
+      # Create a charge first
+      charge_params = %{
+        "amount" => 2000,
+        "currency" => "usd",
+        "source" => "tok_visa"
+      }
 
-        {:ok, charge} = TestClient.create_charge(charge_params)
+      {:ok, charge} = TestClient.create_charge(charge_params)
 
-        # Create refund
-        refund_params = %{
-          "amount" => 1000,
-          "charge" => charge["id"]
-        }
+      # Create refund
+      refund_params = %{
+        "amount" => 1000,
+        "charge" => charge["id"]
+      }
 
-        {:ok, refund} = TestClient.create_refund(refund_params)
+      {:ok, refund} = TestClient.create_refund(refund_params)
 
-        assert refund["object"] == "refund"
-        assert refund["amount"] == 1000
-        assert is_binary(refund["balance_transaction"])
-        assert String.starts_with?(refund["balance_transaction"], "txn_")
-      end
+      assert refund["object"] == "refund"
+      assert refund["amount"] == 1000
+      assert is_binary(refund["balance_transaction"])
+      assert String.starts_with?(refund["balance_transaction"], "txn_")
     end
 
     @tag :contract
-    @tag :paper_tiger_only
     test "refund object has required fields" do
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        charge_params = %{
-          "amount" => 3000,
-          "currency" => "usd",
-          "source" => "tok_visa"
-        }
+      charge_params = %{
+        "amount" => 3000,
+        "currency" => "usd",
+        "source" => "tok_visa"
+      }
 
-        {:ok, charge} = TestClient.create_charge(charge_params)
+      {:ok, charge} = TestClient.create_charge(charge_params)
 
-        refund_params = %{
-          "charge" => charge["id"]
-        }
+      refund_params = %{
+        "charge" => charge["id"]
+      }
 
-        {:ok, refund} = TestClient.create_refund(refund_params)
+      {:ok, refund} = TestClient.create_refund(refund_params)
 
-        # Core required fields
-        assert Map.has_key?(refund, "id")
-        assert Map.has_key?(refund, "object")
-        assert Map.has_key?(refund, "amount")
-        assert Map.has_key?(refund, "currency")
-        assert Map.has_key?(refund, "status")
-        assert Map.has_key?(refund, "charge")
-        assert Map.has_key?(refund, "created")
+      # Core required fields
+      assert Map.has_key?(refund, "id")
+      assert Map.has_key?(refund, "object")
+      assert Map.has_key?(refund, "amount")
+      assert Map.has_key?(refund, "currency")
+      assert Map.has_key?(refund, "status")
+      assert Map.has_key?(refund, "charge")
+      assert Map.has_key?(refund, "created")
 
-        assert refund["object"] == "refund"
-        assert refund["charge"] == charge["id"]
-      end
+      assert refund["object"] == "refund"
+      assert refund["charge"] == charge["id"]
     end
   end
 
@@ -764,60 +636,50 @@ defmodule PaperTiger.ContractTest do
 
   describe "Subscription latest_invoice Validation" do
     @tag :contract
-    @tag :paper_tiger_only
-    test "subscription with billing has latest_invoice object" do
-      # This test requires BillingEngine which only runs in PaperTiger
-      if TestClient.real_stripe?() do
-        :ok
-      else
-        # Create product and price
-        {:ok, product} = TestClient.create_product(%{"name" => "Invoice Test Plan"})
+    test "subscription has latest_invoice field" do
+      # Create product and price
+      {:ok, product} = TestClient.create_product(%{"name" => "Invoice Test Plan"})
 
-        price_params = %{
-          "currency" => "usd",
-          "product" => product["id"],
-          "recurring" => %{"interval" => "month"},
-          "unit_amount" => 2000
-        }
+      price_params = %{
+        "currency" => "usd",
+        "product" => product["id"],
+        "recurring" => %{"interval" => "month"},
+        "unit_amount" => 2000
+      }
 
-        {:ok, price} = TestClient.create_price(price_params)
+      {:ok, price} = TestClient.create_price(price_params)
 
-        # Create customer
-        {:ok, customer} = TestClient.create_customer(%{"email" => "latest-invoice@example.com"})
+      # Create customer
+      {:ok, customer} = TestClient.create_customer(%{"email" => "latest-invoice@example.com"})
 
-        # Create subscription
-        subscription_params = %{
-          "customer" => customer["id"],
-          "items" => [%{"price" => price["id"]}]
-        }
+      # Create subscription - Stripe automatically creates first invoice
+      subscription_params = %{
+        "customer" => customer["id"],
+        "items" => [%{"price" => price["id"]}],
+        "payment_behavior" => "default_incomplete"
+      }
 
-        {:ok, subscription} = TestClient.create_subscription(subscription_params)
+      {:ok, subscription} = TestClient.create_subscription(subscription_params)
 
-        # Create an invoice for this subscription to test latest_invoice population
-        invoice_params = %{
-          "customer" => customer["id"],
-          "subscription" => subscription["id"]
-        }
+      # Retrieve subscription to check latest_invoice
+      {:ok, retrieved} = TestClient.get_subscription(subscription["id"])
 
-        {:ok, _invoice} = TestClient.create_invoice(invoice_params)
+      # latest_invoice should exist (as object or ID string)
+      # Stripe returns an ID by default, expanded returns object
+      assert Map.has_key?(retrieved, "latest_invoice")
 
-        # Retrieve subscription to check latest_invoice
-        {:ok, retrieved} = TestClient.get_subscription(subscription["id"])
+      # If present, should be either a string ID or a map (object)
+      if retrieved["latest_invoice"] do
+        assert is_map(retrieved["latest_invoice"]) or is_binary(retrieved["latest_invoice"])
 
-        # latest_invoice should be populated (either as object or ID)
-        # The key test is that it's not nil when invoices exist
-        if retrieved["latest_invoice"] do
-          # If present, should be a map (object) in PaperTiger after our fix
-          assert is_map(retrieved["latest_invoice"]) or is_binary(retrieved["latest_invoice"])
-
-          if is_map(retrieved["latest_invoice"]) do
-            assert retrieved["latest_invoice"]["object"] == "invoice"
-          end
+        if is_map(retrieved["latest_invoice"]) do
+          assert retrieved["latest_invoice"]["object"] == "invoice"
         end
-
-        cleanup_subscription(subscription["id"])
-        cleanup_customer(customer["id"])
       end
+
+      cleanup_subscription(subscription["id"])
+      cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
     end
   end
 
