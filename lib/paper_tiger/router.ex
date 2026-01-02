@@ -75,6 +75,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Source
   alias PaperTiger.Resources.Subscription
   alias PaperTiger.Resources.SubscriptionItem
+  alias PaperTiger.Resources.SubscriptionSchedule
   alias PaperTiger.Resources.TaxRate
   alias PaperTiger.Resources.Token
   alias PaperTiger.Resources.Topup
@@ -196,6 +197,7 @@ defmodule PaperTiger.Router do
   stripe_resource("cards", Card, [])
   stripe_resource("bank_accounts", BankAccount, [])
   stripe_resource("subscription_items", SubscriptionItem, [])
+  stripe_resource("subscription_schedules", SubscriptionSchedule, except: [:delete])
   stripe_resource("invoiceitems", InvoiceItem, [])
   stripe_resource("topups", Topup, except: [:delete])
   stripe_resource("balance_transactions", BalanceTransaction, only: [:retrieve, :list])
@@ -217,6 +219,16 @@ defmodule PaperTiger.Router do
 
   post "/v1/subscriptions/:id/cancel" do
     Subscription.cancel(conn, id)
+  end
+
+  ## Custom Subscription Schedule Endpoints
+
+  post "/v1/subscription_schedules/:id/cancel" do
+    SubscriptionSchedule.cancel(conn, id)
+  end
+
+  post "/v1/subscription_schedules/:id/release" do
+    SubscriptionSchedule.release(conn, id)
   end
 
   ## Custom Invoice Endpoints

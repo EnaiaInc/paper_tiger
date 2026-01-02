@@ -27,6 +27,7 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Sources
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
+  alias PaperTiger.Store.SubscriptionSchedules
   alias PaperTiger.Store.TaxRates
   alias PaperTiger.Store.Tokens
   alias PaperTiger.Store.Topups
@@ -61,6 +62,7 @@ defmodule PaperTiger.Application do
         PaymentIntents,
         SetupIntents,
         SubscriptionItems,
+        SubscriptionSchedules,
         InvoiceItems,
         Plans,
         Coupons,
