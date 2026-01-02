@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   alias PaperTiger.Store.CheckoutSessions
   alias PaperTiger.Store.PaymentIntents
+  alias PaperTiger.Store.PaymentMethods
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SetupIntents
   alias PaperTiger.Store.SubscriptionItems
@@ -224,19 +225,22 @@ defmodule PaperTiger.Resources.CheckoutSession do
   defp complete_session(session) do
     now = PaperTiger.now()
 
+    # Create a payment method and attach to customer (fires payment_method.attached event)
+    payment_method = create_payment_method_for_session(session)
+
     # Create side effects based on mode
     {subscription_id, payment_intent_id, setup_intent_id} =
       case session.mode do
         "subscription" ->
-          subscription = create_subscription_from_session(session)
+          subscription = create_subscription_from_session(session, payment_method)
           {subscription.id, nil, nil}
 
         "payment" ->
-          payment_intent = create_payment_intent_from_session(session)
+          payment_intent = create_payment_intent_from_session(session, payment_method)
           {nil, payment_intent.id, nil}
 
         "setup" ->
-          setup_intent = create_setup_intent_from_session(session)
+          setup_intent = create_setup_intent_from_session(session, payment_method)
           {nil, nil, setup_intent.id}
 
         _ ->
@@ -254,7 +258,69 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
   end
 
-  defp create_subscription_from_session(session) do
+  defp create_payment_method_for_session(session) do
+    now = PaperTiger.now()
+    exp_year = now |> DateTime.from_unix!() |> Map.get(:year) |> Kernel.+(3)
+
+    payment_method = %{
+      billing_details: %{
+        address: %{
+          city: nil,
+          country: nil,
+          line1: nil,
+          line2: nil,
+          postal_code: nil,
+          state: nil
+        },
+        email: nil,
+        name: nil,
+        phone: nil
+      },
+      card: %{
+        brand: "visa",
+        checks: %{
+          address_line1_check: nil,
+          address_postal_code_check: nil,
+          cvc_check: "pass"
+        },
+        country: "US",
+        exp_month: 12,
+        exp_year: exp_year,
+        fingerprint: generate_fingerprint(),
+        funding: "credit",
+        generated_from: nil,
+        last4: "4242",
+        networks: %{available: ["visa"], preferred: nil},
+        three_d_secure_usage: %{supported: true},
+        wallet: nil
+      },
+      created: now,
+      customer: session.customer,
+      id: generate_id("pm"),
+      livemode: false,
+      metadata: %{},
+      object: "payment_method",
+      type: "card"
+    }
+
+    {:ok, payment_method} = PaymentMethods.insert(payment_method)
+
+    # Fire payment_method.attached event - this is critical for downstream processing
+    :telemetry.execute(
+      [:paper_tiger, :payment_method, :attached],
+      %{},
+      %{object: payment_method}
+    )
+
+    payment_method
+  end
+
+  defp generate_fingerprint do
+    :crypto.strong_rand_bytes(16)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp create_subscription_from_session(session, payment_method) do
     now = PaperTiger.now()
 
     subscription = %{
@@ -268,7 +334,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
       current_period_start: now,
       customer: session.customer,
       days_until_due: nil,
-      default_payment_method: nil,
+      default_payment_method: payment_method.id,
       ended_at: nil,
       id: generate_id("sub"),
       items: %{data: [], has_more: false, object: "list", url: "/v1/subscription_items"},
@@ -341,7 +407,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
   end
 
-  defp create_payment_intent_from_session(session) do
+  defp create_payment_intent_from_session(session, payment_method) do
     now = PaperTiger.now()
 
     # Calculate amount from line items
@@ -370,7 +436,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
       object: "payment_intent",
       off_session: nil,
       on_behalf_of: nil,
-      payment_method: nil,
+      payment_method: payment_method.id,
       processing: nil,
       receipt_email: nil,
       review: nil,
@@ -395,7 +461,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp calculate_amount_from_line_items(_), do: 0
 
-  defp create_setup_intent_from_session(session) do
+  defp create_setup_intent_from_session(session, payment_method) do
     now = PaperTiger.now()
 
     setup_intent = %{
@@ -412,7 +478,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
       next_action: nil,
       object: "setup_intent",
       on_behalf_of: nil,
-      payment_method: nil,
+      payment_method: payment_method.id,
       payment_method_types: session.payment_method_types || ["card"],
       single_use_mandate: nil,
       status: "succeeded",
