@@ -331,11 +331,26 @@ defmodule PaperTiger.Resources.Subscription do
   defp build_minimal_price_object(price_id) do
     %{
       active: true,
+      billing_scheme: nil,
+      created: nil,
       currency: "usd",
+      currency_options: nil,
+      custom_unit_amount: nil,
       id: price_id,
       livemode: false,
+      lookup_key: nil,
+      metadata: nil,
+      nickname: nil,
       object: "price",
-      type: "recurring"
+      product: nil,
+      recurring: nil,
+      tax_behavior: nil,
+      tiers: nil,
+      tiers_mode: nil,
+      transform_quantity: nil,
+      type: "recurring",
+      unit_amount: nil,
+      unit_amount_decimal: nil
     }
   end
 

@@ -136,6 +136,7 @@ defmodule PaperTiger.TelemetryHandler do
       data: %{
         object: object
       },
+      delivery_attempts: [],
       id: PaperTiger.Resource.generate_id("evt"),
       livemode: false,
       object: "event",

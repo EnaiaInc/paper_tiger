@@ -89,6 +89,8 @@ defmodule PaperTiger.Application do
       {:ok, pid} ->
         # Load init_data after stores are initialized
         load_init_data()
+        # Register configured webhooks
+        register_configured_webhooks()
         {:ok, pid}
 
       error ->
@@ -104,6 +106,11 @@ defmodule PaperTiger.Application do
       {:ok, _stats} -> :ok
       {:error, reason} -> Logger.error("PaperTiger init_data failed: #{inspect(reason)}")
     end
+  end
+
+  # Registers webhooks from application config
+  defp register_configured_webhooks do
+    PaperTiger.register_configured_webhooks()
   end
 
   # Returns children that only start under certain conditions
