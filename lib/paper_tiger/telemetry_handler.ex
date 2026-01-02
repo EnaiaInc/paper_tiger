@@ -21,6 +21,7 @@ defmodule PaperTiger.TelemetryHandler do
     [:paper_tiger, :subscription, :created] -> "customer.subscription.created"
   """
 
+  alias PaperTiger.ChaosCoordinator
   alias PaperTiger.Store.Events
   alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
@@ -167,23 +168,33 @@ defmodule PaperTiger.TelemetryHandler do
     end
   end
 
-  defp deliver_to_registered_webhooks(event, event_type, webhook_mode) do
+  defp deliver_to_registered_webhooks(event, event_type, _webhook_mode) do
     %{data: webhooks} = Webhooks.list(%{})
+    matching_webhooks = Enum.filter(webhooks, &event_matches_webhook?(&1, event_type))
+    deliver_fn = build_delivery_fn(matching_webhooks, event_type)
 
-    webhooks
-    |> Enum.filter(&event_matches_webhook?(&1, event_type))
-    |> Enum.each(fn webhook ->
-      Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
-      deliver_webhook(event, webhook, webhook_mode)
-    end)
+    # Route through ChaosCoordinator for potential chaos
+    ChaosCoordinator.queue_event(event, deliver_fn)
   end
 
-  defp deliver_webhook(event, webhook, :sync) do
-    WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+  defp build_delivery_fn(matching_webhooks, event_type) do
+    sync_mode? = Application.get_env(:paper_tiger, :webhook_mode) == :sync
+
+    fn evt ->
+      Enum.each(matching_webhooks, fn webhook ->
+        deliver_to_webhook(evt, webhook, event_type, sync_mode?)
+      end)
+    end
   end
 
-  defp deliver_webhook(event, webhook, _mode) do
-    WebhookDelivery.deliver_event(event.id, webhook.id)
+  defp deliver_to_webhook(evt, webhook, event_type, sync_mode?) do
+    Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
+
+    if sync_mode? do
+      WebhookDelivery.deliver_event_sync(evt.id, webhook.id)
+    else
+      WebhookDelivery.deliver_event(evt.id, webhook.id)
+    end
   end
 
   defp event_matches_webhook?(webhook, event_type) do

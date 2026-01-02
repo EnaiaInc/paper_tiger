@@ -48,6 +48,7 @@ defmodule PaperTiger.Application do
         # Core systems (always running)
         PaperTiger.Clock,
         PaperTiger.Idempotency,
+        PaperTiger.ChaosCoordinator,
         {Task.Supervisor, name: PaperTiger.TaskSupervisor},
         PaperTiger.WebhookDelivery,
 

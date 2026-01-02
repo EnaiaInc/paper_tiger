@@ -2,10 +2,12 @@ defmodule PaperTiger.BillingEngineTest do
   use ExUnit.Case, async: false
 
   alias PaperTiger.BillingEngine
+  alias PaperTiger.ChaosCoordinator
   alias PaperTiger.Store.{Charges, Customers, Invoices, Plans, Prices, Products, Subscriptions}
 
   setup do
     PaperTiger.flush()
+    ChaosCoordinator.reset()
 
     # Create a test product
     {:ok, _product} =
