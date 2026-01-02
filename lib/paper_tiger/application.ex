@@ -137,12 +137,25 @@ defmodule PaperTiger.Application do
     end
   end
 
-  # Get port from env var or config (env var takes precedence)
+  # Get port from env var or config
+  # Precedence: PAPER_TIGER_PORT_{ENV} > PAPER_TIGER_PORT > config > default
   defp get_port do
-    case System.get_env("PAPER_TIGER_PORT") do
-      nil -> Application.get_env(:paper_tiger, :port, 4001)
-      port_string -> String.to_integer(port_string)
+    env_specific_var = "PAPER_TIGER_PORT_#{mix_env_upcase()}"
+
+    case System.get_env(env_specific_var) do
+      nil ->
+        case System.get_env("PAPER_TIGER_PORT") do
+          nil -> Application.get_env(:paper_tiger, :port, 4001)
+          port_string -> String.to_integer(port_string)
+        end
+
+      port_string ->
+        String.to_integer(port_string)
     end
+  end
+
+  defp mix_env_upcase do
+    Mix.env() |> Atom.to_string() |> String.upcase()
   end
 
   defp maybe_add_workers(children) do

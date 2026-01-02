@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Environment-specific port configuration**: New env vars `PAPER_TIGER_PORT_DEV` and `PAPER_TIGER_PORT_TEST` allow different ports per Mix environment. Enables running dev server and tests simultaneously without port conflicts. Precedence: `PAPER_TIGER_PORT_{ENV}` > `PAPER_TIGER_PORT` > config > 4001.
+
 ## [0.8.5] - 2026-01-02
 
 ### Added

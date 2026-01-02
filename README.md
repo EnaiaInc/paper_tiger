@@ -127,8 +127,20 @@ PaperTiger respects environment variables for runtime configuration:
 
 - `PAPER_TIGER_AUTO_START` - Set to "true" to enable HTTP server
 - `PAPER_TIGER_PORT` - Port to run on (default: 4001)
+- `PAPER_TIGER_PORT_DEV` - Port for dev environment (overrides `PAPER_TIGER_PORT`)
+- `PAPER_TIGER_PORT_TEST` - Port for test environment (overrides `PAPER_TIGER_PORT`)
 
-This is useful for Heroku, Render, or other PaaS deployments:
+**Port precedence:** `PAPER_TIGER_PORT_{ENV}` > `PAPER_TIGER_PORT` > config > 4001
+
+This allows running dev server and tests simultaneously on different ports:
+
+```bash
+# In .env or shell
+export PAPER_TIGER_PORT_DEV=4001
+export PAPER_TIGER_PORT_TEST=4003
+```
+
+This is also useful for Heroku, Render, or other PaaS deployments:
 
 ```bash
 # Enable PaperTiger for PR apps
