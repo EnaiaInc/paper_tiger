@@ -665,8 +665,14 @@ defmodule PaperTiger.TestClient do
 
   defp delete_customer_real(customer_id) do
     case Stripe.Customer.delete(customer_id, stripe_opts()) do
-      {:ok, result} -> {:ok, stripe_to_map(result)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
+      {:ok, result} ->
+        # stripity_stripe loses the "deleted" field when converting to struct
+        # Add it back since a successful delete means deleted=true
+        map = stripe_to_map(result)
+        {:ok, Map.put(map, "deleted", true)}
+
+      {:error, error} ->
+        {:error, stripe_error_to_map(error)}
     end
   end
 

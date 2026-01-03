@@ -131,16 +131,8 @@ defmodule PaperTiger.ContractTest do
 
       {:ok, result} = TestClient.delete_customer(customer_id)
 
-      # PaperTiger returns {"deleted": true, "id": "..."}
-      # Real Stripe via stripity_stripe has inconsistent struct mapping
-      if TestClient.paper_tiger?() do
-        assert result["deleted"] == true
-        assert result["id"] == customer_id
-      else
-        # For real Stripe, just verify the call succeeded and ID matches
-        id = result["id"] || result[:id]
-        assert id == customer_id
-      end
+      assert result["deleted"] == true
+      assert result["id"] == customer_id
     end
 
     @tag :contract
