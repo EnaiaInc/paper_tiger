@@ -31,10 +31,11 @@ defmodule PaperTiger.Error do
       #    }
   """
 
-  defexception [:type, :message, :code, :param, :status]
+  defexception [:type, :message, :code, :param, :status, :decline_code]
 
   @type t :: %__MODULE__{
           code: String.t() | nil,
+          decline_code: String.t() | nil,
           message: String.t() | nil,
           param: String.t() | nil,
           status: integer() | nil,
@@ -139,10 +140,10 @@ defmodule PaperTiger.Error do
   """
   @spec card_declined(keyword()) :: t()
   def card_declined(opts \\ []) do
-    code = Keyword.get(opts, :code, "card_declined")
+    decline_code = Keyword.get(opts, :code, "card_declined")
 
     message =
-      case code do
+      case decline_code do
         "insufficient_funds" -> "Your card has insufficient funds."
         "expired_card" -> "Your card has expired."
         "incorrect_cvc" -> "Your card's security code is incorrect."
@@ -150,7 +151,8 @@ defmodule PaperTiger.Error do
       end
 
     %__MODULE__{
-      code: code,
+      code: "card_declined",
+      decline_code: decline_code,
       message: message,
       status: 402,
       type: "card_error"
@@ -205,6 +207,13 @@ defmodule PaperTiger.Error do
     error_data =
       if error.code do
         Map.put(error_data, :code, error.code)
+      else
+        error_data
+      end
+
+    error_data =
+      if error.decline_code do
+        Map.put(error_data, :decline_code, error.decline_code)
       else
         error_data
       end

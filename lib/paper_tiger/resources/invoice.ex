@@ -38,6 +38,7 @@ defmodule PaperTiger.Resources.Invoice do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.ChaosCoordinator
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
 
@@ -217,8 +218,9 @@ defmodule PaperTiger.Resources.Invoice do
   @spec pay(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def pay(conn, id) do
     with {:ok, invoice} <- Invoices.get(id),
-         paid = mark_invoice_paid(invoice),
-         {:ok, paid} <- Invoices.update(paid) do
+         :ok <- check_payment_chaos(invoice.customer) do
+      paid = mark_invoice_paid(invoice)
+      {:ok, paid} = Invoices.update(paid)
       paid_with_lines = load_invoice_lines(paid)
       :telemetry.execute([:paper_tiger, :invoice, :paid], %{}, %{object: paid_with_lines})
       :telemetry.execute([:paper_tiger, :invoice, :payment_succeeded], %{}, %{object: paid_with_lines})
@@ -229,7 +231,38 @@ defmodule PaperTiger.Resources.Invoice do
     else
       {:error, :not_found} ->
         error_response(conn, PaperTiger.Error.not_found("invoice", id))
+
+      {:error, {:payment_failed, decline_code}} ->
+        # Mark invoice as failed and return error
+        with {:ok, invoice} <- Invoices.get(id) do
+          failed = mark_invoice_payment_failed(invoice, decline_code)
+          {:ok, _failed} = Invoices.update(failed)
+          :telemetry.execute([:paper_tiger, :invoice, :payment_failed], %{}, %{object: failed})
+        end
+
+        error_response(conn, PaperTiger.Error.card_declined(code: to_string(decline_code)))
     end
+  end
+
+  defp check_payment_chaos(customer_id) do
+    case ChaosCoordinator.should_payment_fail?(customer_id) do
+      {:ok, :succeed} -> :ok
+      {:ok, {:fail, decline_code}} -> {:error, {:payment_failed, decline_code}}
+    end
+  end
+
+  defp mark_invoice_payment_failed(invoice, decline_code) do
+    code_str = to_string(decline_code)
+
+    invoice
+    |> Map.put(:status, "open")
+    |> Map.put(:attempted, true)
+    |> Map.put(:attempt_count, (invoice[:attempt_count] || 0) + 1)
+    |> Map.put(:last_finalization_error, %{
+      code: code_str,
+      message: "Your card was declined.",
+      type: "card_error"
+    })
   end
 
   @doc """
