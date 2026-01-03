@@ -43,7 +43,7 @@ defmodule PaperTiger.Resources.InvoiceTest do
         [
           {"content-type", "application/json"},
           {"authorization", "Bearer sk_test_invoice_key"}
-        ]
+        ] ++ sandbox_headers()
 
     Enum.reduce(headers_with_defaults, conn, fn {key, value}, acc ->
       Plug.Conn.put_req_header(acc, key, value)

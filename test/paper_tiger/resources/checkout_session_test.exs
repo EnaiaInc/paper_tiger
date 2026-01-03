@@ -26,7 +26,7 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
         [
           {"content-type", "application/json"},
           {"authorization", "Bearer sk_test_checkout_key"}
-        ]
+        ] ++ sandbox_headers()
 
     Enum.reduce(headers_with_defaults, conn, fn {key, value}, acc ->
       Plug.Conn.put_req_header(acc, key, value)

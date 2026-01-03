@@ -39,7 +39,7 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
         [
           {"content-type", "application/json"},
           {"authorization", "Bearer sk_test_payment_key"}
-        ]
+        ] ++ sandbox_headers()
 
     Enum.reduce(headers_with_defaults, conn, fn {key, value}, acc ->
       Plug.Conn.put_req_header(acc, key, value)
@@ -57,7 +57,7 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     conn = Plug.Test.conn(method, path, params)
 
     conn_with_headers =
-      Enum.reduce([{"content-type", "application/json"}], conn, fn {key, value}, acc ->
+      Enum.reduce([{"content-type", "application/json"}] ++ sandbox_headers(), conn, fn {key, value}, acc ->
         Plug.Conn.put_req_header(acc, key, value)
       end)
 
