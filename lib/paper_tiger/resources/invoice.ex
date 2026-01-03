@@ -348,27 +348,32 @@ defmodule PaperTiger.Resources.Invoice do
     now = PaperTiger.now()
     currency = Map.get(params, :currency, "usd")
     invoice_id = generate_id("in", Map.get(params, :id))
+    total = Map.get(params, :total, 0)
+
+    # Allow provided lines or use empty default
+    default_lines = %{
+      data: [],
+      has_more: false,
+      object: "list",
+      url: "/v1/invoices/#{invoice_id}/lines"
+    }
+
+    lines = Map.get(params, :lines, default_lines)
 
     %{
       id: invoice_id,
       object: "invoice",
-      created: now,
-      status: "draft",
+      created: Map.get(params, :created, now),
+      status: Map.get(params, :status, "draft"),
       customer: Map.get(params, :customer),
-      amount_due: 0,
-      amount_paid: 0,
-      amount_remaining: 0,
+      amount_due: Map.get(params, :amount_due, total),
+      amount_paid: Map.get(params, :amount_paid, 0),
+      amount_remaining: Map.get(params, :amount_remaining, total),
       currency: currency,
       description: Map.get(params, :description),
       metadata: Map.get(params, :metadata, %{}),
       subscription: Map.get(params, :subscription),
-      # Lines will be loaded separately
-      lines: %{
-        data: [],
-        has_more: false,
-        object: "list",
-        url: "/v1/invoices/#{invoice_id}/lines"
-      },
+      lines: lines,
       # Additional fields
       livemode: false,
       account_country: "US",
@@ -379,18 +384,18 @@ defmodule PaperTiger.Resources.Invoice do
       ending_balance: nil,
       footer: Map.get(params, :footer),
       hosted_invoice_url: nil,
-      invoice_pdf: nil,
+      invoice_pdf: Map.get(params, :invoice_pdf),
       next_payment_attempt: nil,
       number: nil,
-      paid: false,
-      period_end: now,
-      period_start: now,
+      paid: Map.get(params, :paid, false),
+      period_end: Map.get(params, :period_end, now),
+      period_start: Map.get(params, :period_start, now),
       receipt_number: nil,
       starting_balance: 0,
       statement_descriptor: Map.get(params, :statement_descriptor),
-      subtotal: 0,
+      subtotal: Map.get(params, :subtotal, total),
       tax: nil,
-      total: 0,
+      total: total,
       webhooks_delivered_at: nil
     }
   end
