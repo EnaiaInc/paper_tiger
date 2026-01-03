@@ -60,8 +60,11 @@ defmodule PaperTiger.Idempotency do
   """
   @spec check(String.t()) :: {:cached, map()} | :new_request | :in_progress
   def check(idempotency_key) when is_binary(idempotency_key) do
-    case :ets.lookup(@table, idempotency_key) do
-      [{^idempotency_key, :in_progress, expires_at}] ->
+    namespace = PaperTiger.Test.current_namespace()
+    key = {namespace, idempotency_key}
+
+    case :ets.lookup(@table, key) do
+      [{^key, :in_progress, expires_at}] ->
         now = PaperTiger.Clock.now()
 
         if expires_at > now do
@@ -70,11 +73,11 @@ defmodule PaperTiger.Idempotency do
         else
           # Expired in-progress marker, clean up and retry
           Logger.debug("Idempotency in-progress marker expired: #{idempotency_key}")
-          :ets.delete(@table, idempotency_key)
+          :ets.delete(@table, key)
           check(idempotency_key)
         end
 
-      [{^idempotency_key, response, expires_at}] ->
+      [{^key, response, expires_at}] ->
         now = PaperTiger.Clock.now()
 
         if expires_at > now do
@@ -82,7 +85,7 @@ defmodule PaperTiger.Idempotency do
           {:cached, response}
         else
           Logger.debug("Idempotency cache expired: #{idempotency_key}")
-          :ets.delete(@table, idempotency_key)
+          :ets.delete(@table, key)
           check(idempotency_key)
         end
 
@@ -90,7 +93,7 @@ defmodule PaperTiger.Idempotency do
         # Atomically reserve this key with in-progress marker
         expires_at = PaperTiger.Clock.now() + @ttl_seconds
 
-        case :ets.insert_new(@table, {idempotency_key, :in_progress, expires_at}) do
+        case :ets.insert_new(@table, {key, :in_progress, expires_at}) do
           true ->
             Logger.debug("Idempotency: new request with key=#{idempotency_key}")
             :new_request
@@ -110,8 +113,10 @@ defmodule PaperTiger.Idempotency do
   """
   @spec store(String.t(), map()) :: :ok
   def store(idempotency_key, response) when is_binary(idempotency_key) do
+    namespace = PaperTiger.Test.current_namespace()
+    key = {namespace, idempotency_key}
     expires_at = PaperTiger.Clock.now() + @ttl_seconds
-    :ets.insert(@table, {idempotency_key, response, expires_at})
+    :ets.insert(@table, {key, response, expires_at})
     Logger.debug("Idempotency stored: #{idempotency_key} (expires: #{expires_at})")
     :ok
   end
@@ -124,6 +129,16 @@ defmodule PaperTiger.Idempotency do
   @spec clear() :: :ok
   def clear do
     GenServer.call(__MODULE__, :clear)
+  end
+
+  @doc """
+  Clears idempotency keys for a specific namespace.
+
+  Used by `PaperTiger.Test` to clean up after each test.
+  """
+  @spec clear_namespace(pid() | :global) :: :ok
+  def clear_namespace(namespace) do
+    GenServer.call(__MODULE__, {:clear_namespace, namespace})
   end
 
   ## Server Callbacks
@@ -143,10 +158,17 @@ defmodule PaperTiger.Idempotency do
     {:reply, :ok, state}
   end
 
+  def handle_call({:clear_namespace, namespace}, _from, state) do
+    :ets.match_delete(@table, {{namespace, :_}, :_, :_})
+    Logger.debug("Idempotency cache cleared for namespace")
+    {:reply, :ok, state}
+  end
+
   @impl true
   def handle_info(:cleanup, state) do
     now = PaperTiger.Clock.now()
-    count = :ets.select_delete(@table, [{{:_, :_, :"$1"}, [{:<, :"$1", now}], [true]}])
+    # Match pattern for namespaced keys: {{namespace, key}, response, expires_at}
+    count = :ets.select_delete(@table, [{{{:_, :_}, :_, :"$1"}, [{:<, :"$1", now}], [true]}])
 
     if count > 0 do
       Logger.debug("Idempotency cleanup: removed #{count} expired entries")

@@ -50,6 +50,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Plugs.Auth
   alias PaperTiger.Plugs.CORS
   alias PaperTiger.Plugs.Idempotency
+  alias PaperTiger.Plugs.Sandbox
   alias PaperTiger.Plugs.UnflattenParams
   alias PaperTiger.Resources.ApplicationFee
   alias PaperTiger.Resources.BalanceTransaction
@@ -86,6 +87,7 @@ defmodule PaperTiger.Router do
   # Plug pipeline
   plug(:match)
   plug(CORS)
+  plug(Sandbox)
 
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],

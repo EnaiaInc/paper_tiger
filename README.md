@@ -241,6 +241,79 @@ test "subscription creation triggers webhook" do
 end
 ```
 
+### Webhook Collection Mode
+
+For tests that need to verify webhooks without running a web server, use `:collect` mode. This stores webhooks in-memory for inspection instead of delivering them via HTTP.
+
+```elixir
+defmodule MyApp.SubscriptionTest do
+  use ExUnit.Case, async: true
+  import PaperTiger.Test
+
+  setup :checkout_paper_tiger
+
+  test "creating subscription triggers correct webhook" do
+    # Enable webhook collection for this test
+    enable_webhook_collection()
+
+    # Create subscription - this triggers the webhook
+    {:ok, subscription} = Stripe.Subscription.create(%{
+      customer: customer_id,
+      items: [%{price: price_id}]
+    })
+
+    # Verify the webhook that Stripe would send
+    [delivery] = assert_webhook_delivered("customer.subscription.created")
+
+    # Inspect the webhook payload
+    assert delivery.event_data.object.id == subscription.id
+    assert delivery.event_data.object.status == "active"
+    assert delivery.event_data.object.customer == customer_id
+  end
+
+  test "cancellation triggers delete webhook" do
+    enable_webhook_collection()
+
+    {:ok, subscription} = Stripe.Subscription.create(%{...})
+    clear_delivered_webhooks()  # Clear creation webhook
+
+    {:ok, _} = Stripe.Subscription.cancel(subscription.id)
+
+    [delivery] = assert_webhook_delivered("customer.subscription.deleted")
+    assert delivery.event_data.object.status == "canceled"
+  end
+
+  test "update does not trigger delete webhook" do
+    enable_webhook_collection()
+
+    {:ok, subscription} = Stripe.Subscription.create(%{...})
+    clear_delivered_webhooks()
+
+    {:ok, _} = Stripe.Subscription.update(subscription.id, %{metadata: %{foo: "bar"}})
+
+    refute_webhook_delivered("customer.subscription.deleted")
+    assert_webhook_delivered("customer.subscription.updated")
+  end
+end
+```
+
+**Available helpers:**
+
+- `enable_webhook_collection/0` - Enables `:collect` mode for the test (auto-cleanup on exit)
+- `get_delivered_webhooks/0` - Returns all collected webhooks
+- `get_delivered_webhooks/1` - Filter by event type (supports wildcards like `"customer.*"`)
+- `assert_webhook_delivered/1` - Asserts webhook was delivered, returns matches
+- `refute_webhook_delivered/1` - Asserts webhook was NOT delivered
+- `clear_delivered_webhooks/0` - Clears collected webhooks (useful between operations)
+
+**When to use each mode:**
+
+| Mode            | Use Case                                           |
+| --------------- | -------------------------------------------------- |
+| `:collect`      | Unit tests verifying webhook payloads without HTTP |
+| `:sync`         | Integration tests with a real webhook endpoint     |
+| Default (async) | Development with Phoenix running                   |
+
 ### Port Configuration
 
 PaperTiger uses port 4001 by default to avoid conflicts with Phoenix's port 4000.
@@ -253,6 +326,63 @@ config :stripity_stripe, PaperTiger.stripity_stripe_config(port: 4002)
 
 # Or via environment variable
 # PAPER_TIGER_PORT=4002 mix test
+```
+
+## Concurrent Test Support
+
+PaperTiger supports running tests concurrently with `async: true` through a sandbox mechanism similar to Ecto's SQL Sandbox.
+
+### Setup
+
+Use `checkout_paper_tiger` in your test setup:
+
+```elixir
+defmodule MyApp.StripeTest do
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
+
+  setup :checkout_paper_tiger
+
+  test "creates a customer" do
+    # Data is isolated to this test process
+    conn = post("/v1/customers", %{email: "test@example.com"})
+    assert conn.status == 200
+  end
+end
+```
+
+### How It Works
+
+1. `checkout_paper_tiger/1` stores the test process PID as a namespace
+2. All PaperTiger operations (reads/writes) are scoped to that namespace
+3. On test exit, only that namespace's data is automatically cleaned up
+
+This allows hundreds of tests to run in parallel without data interference.
+
+### Migration from sync tests
+
+Replace:
+
+```elixir
+# Before
+use ExUnit.Case
+
+setup do
+  PaperTiger.flush()
+  :ok
+end
+```
+
+With:
+
+```elixir
+# After
+use ExUnit.Case, async: true
+
+import PaperTiger.Test
+
+setup :checkout_paper_tiger
 ```
 
 ## Architecture

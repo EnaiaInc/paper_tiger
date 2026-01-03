@@ -11,7 +11,9 @@ defmodule PaperTiger.Resources.SubscriptionTest do
   6. GET /v1/subscriptions - List subscriptions
   """
 
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
 
   alias PaperTiger.Router
 
@@ -20,11 +22,7 @@ defmodule PaperTiger.Resources.SubscriptionTest do
     :ok
   end
 
-  setup do
-    # Clear all data before each test
-    PaperTiger.flush()
-    :ok
-  end
+  setup :checkout_paper_tiger
 
   # Helper function to create a test connection with proper setup
   defp conn(method, path, params, headers) do

@@ -22,15 +22,13 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
      - GET /v1/payment_methods - List with pagination
   """
 
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
 
   alias PaperTiger.Router
 
-  setup do
-    # Clear all data before each test
-    PaperTiger.flush()
-    :ok
-  end
+  setup :checkout_paper_tiger
 
   # Helper function to create a test connection with proper setup
   defp conn(method, path, params, headers) do

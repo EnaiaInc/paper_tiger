@@ -10,14 +10,13 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
   5. POST /_test/checkout/sessions/:id/complete - Complete checkout session (test helper)
   """
 
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
 
   alias PaperTiger.Router
 
-  setup do
-    PaperTiger.flush()
-    :ok
-  end
+  setup :checkout_paper_tiger
 
   defp conn(method, path, params, headers) do
     conn = Plug.Test.conn(method, path, params)

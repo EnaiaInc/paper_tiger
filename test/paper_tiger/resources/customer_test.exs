@@ -10,15 +10,13 @@ defmodule PaperTiger.Resources.CustomerTest do
   5. GET /v1/customers - List customers
   """
 
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
 
   alias PaperTiger.Router
 
-  setup do
-    # Clear all data before each test
-    PaperTiger.flush()
-    :ok
-  end
+  setup :checkout_paper_tiger
 
   # Helper function to create a test connection with proper setup
   defp conn(method, path, params, headers) do

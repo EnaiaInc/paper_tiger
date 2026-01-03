@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-01-02
+
+### Added
+
+- **Test sandbox for concurrent test support**: New `PaperTiger.Test` module provides Ecto SQL Sandbox-style test isolation
+  - Use `setup :checkout_paper_tiger` to isolate test data per process
+  - Tests can now run with `async: true` without data interference
+  - All stores now support namespace-scoped operations
+  - Automatic cleanup on test exit
+- **HTTP sandbox via headers**: `PaperTiger.Plugs.Sandbox` enables sandbox isolation for HTTP API tests
+  - Include `x-paper-tiger-namespace` header to scope HTTP requests to a test namespace
+  - New `PaperTiger.Test.sandbox_headers/0` returns headers for sandbox isolation
+  - New `PaperTiger.Test.auth_headers/1` combines auth + sandbox headers
+  - New `PaperTiger.Test.base_url/1` helper for building PaperTiger URLs
+
+### Changed
+
+- **Storage layer uses namespaced keys**: All ETS stores now key data by `{namespace, id}` instead of just `id`
+  - Backwards compatible: non-sandboxed code uses `:global` namespace automatically
+  - New functions: `clear_namespace/1`, `list_namespace/1` on all stores
+  - Idempotency cache also supports namespacing
+
 ## [0.9.2] - 2026-01-02
 
 ### Fixed

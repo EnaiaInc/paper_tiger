@@ -1,15 +1,13 @@
 defmodule PaperTigerTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+
+  import PaperTiger.Test
 
   alias PaperTiger.Store.Customers
 
   doctest PaperTiger
 
-  setup do
-    # Clear all data between tests
-    PaperTiger.flush()
-    :ok
-  end
+  setup :checkout_paper_tiger
 
   describe "Clock" do
     test "real mode returns system time" do

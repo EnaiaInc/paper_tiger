@@ -31,6 +31,7 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.TaxRates
   alias PaperTiger.Store.Tokens
   alias PaperTiger.Store.Topups
+  alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
 
   require Logger
@@ -75,6 +76,7 @@ defmodule PaperTiger.Application do
         Payouts,
         CheckoutSessions,
         Events,
+        WebhookDeliveries,
         Webhooks,
         Disputes,
         ApplicationFees,

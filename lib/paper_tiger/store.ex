@@ -7,6 +7,7 @@ defmodule PaperTiger.Store do
   - Serialized writes (through GenServer)
   - Common CRUD operations
   - Pagination support
+  - Test isolation via namespacing (see `PaperTiger.Test`)
 
   ## Usage
 
@@ -17,15 +18,25 @@ defmodule PaperTiger.Store do
 
         # Optionally add resource-specific queries
         def find_by_email(email) when is_binary(email) do
-          :ets.match_object(@table, {:_, %{email: email}})
-          |> Enum.map(fn {_id, customer} -> customer end)
+          namespace = PaperTiger.Test.current_namespace()
+          :ets.match_object(@table, {{namespace, :_}, %{email: email}})
+          |> Enum.map(fn {_key, customer} -> customer end)
         end
       end
 
   This generates all standard store functions:
   - `get/1`, `list/1`, `count/0` (reads - direct ETS)
   - `insert/1`, `update/1`, `delete/1`, `clear/0` (writes - via GenServer)
+  - `clear_namespace/1` (for test cleanup)
   - GenServer callbacks
+
+  ## Namespacing
+
+  All data is stored with a composite key `{namespace, id}` where namespace
+  is either `:global` (default) or the PID of the test process when using
+  `PaperTiger.Test.checkout_paper_tiger/1`.
+
+  This allows concurrent tests to have isolated data without interference.
   """
 
   defmacro __using__(opts) do
@@ -38,6 +49,7 @@ defmodule PaperTiger.Store do
       quote_module_setup(table, resource, plural, url_path),
       quote_read_functions(table, resource, plural, url_path),
       quote_write_functions(resource, plural),
+      quote_namespace_functions(table, plural),
       quote_callbacks(table, resource, plural)
     ]
   end
@@ -66,6 +78,11 @@ defmodule PaperTiger.Store do
       """
       @spec table_name() :: atom()
       def table_name, do: @table
+
+      # Returns the current namespace for data isolation
+      defp current_namespace do
+        PaperTiger.Test.current_namespace()
+      end
     end
   end
 
@@ -75,11 +92,15 @@ defmodule PaperTiger.Store do
       Retrieves a #{unquote(resource)} by ID.
 
       **Direct ETS access** - does not go through GenServer.
+      Data is scoped to the current test namespace.
       """
       @spec get(String.t()) :: {:ok, map()} | {:error, :not_found}
       def get(id) when is_binary(id) do
-        case :ets.lookup(unquote(table), id) do
-          [{^id, item}] -> {:ok, item}
+        namespace = current_namespace()
+        key = {namespace, id}
+
+        case :ets.lookup(unquote(table), key) do
+          [{^key, item}] -> {:ok, item}
           [] -> {:error, :not_found}
         end
       end
@@ -88,6 +109,7 @@ defmodule PaperTiger.Store do
       Lists all #{unquote(plural)} with optional pagination.
 
       **Direct ETS access** - does not go through GenServer.
+      Data is scoped to the current test namespace.
 
       ## Options
 
@@ -98,66 +120,104 @@ defmodule PaperTiger.Store do
       @spec list(keyword() | map()) :: PaperTiger.List.t()
       def list(opts \\ %{}) do
         opts = if is_list(opts), do: Map.new(opts), else: opts
+        namespace = current_namespace()
 
-        :ets.tab2list(unquote(table))
-        |> Enum.map(fn {_id, item} -> item end)
+        # Match only items in current namespace
+        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        |> Enum.map(fn {_key, item} -> item end)
         |> PaperTiger.List.paginate(Map.put(opts, :url, unquote(url_path)))
       end
 
       @doc """
-      Counts total #{unquote(plural)}.
+      Counts total #{unquote(plural)} in current namespace.
 
       **Direct ETS access** - does not go through GenServer.
       """
       @spec count() :: non_neg_integer()
       def count do
-        :ets.info(unquote(table), :size)
+        namespace = current_namespace()
+
+        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        |> length()
       end
     end
   end
 
-  defp quote_write_functions(resource, plural) do
+  defp quote_write_functions(resource, _plural) do
     quote do
       @doc """
       Inserts a #{unquote(resource)} into the store.
 
       **Serialized write** - goes through GenServer to prevent race conditions.
+      Data is scoped to the current test namespace.
       """
       @spec insert(map()) :: {:ok, map()}
       def insert(item) when is_map(item) do
-        GenServer.call(__MODULE__, {:insert, item})
+        namespace = current_namespace()
+        GenServer.call(__MODULE__, {:insert, namespace, item})
       end
 
       @doc """
       Updates a #{unquote(resource)} in the store.
 
       **Serialized write** - goes through GenServer.
+      Data is scoped to the current test namespace.
       """
       @spec update(map()) :: {:ok, map()}
       def update(item) when is_map(item) do
-        GenServer.call(__MODULE__, {:update, item})
+        namespace = current_namespace()
+        GenServer.call(__MODULE__, {:update, namespace, item})
       end
 
       @doc """
       Deletes a #{unquote(resource)} from the store.
 
       **Serialized write** - goes through GenServer.
+      Data is scoped to the current test namespace.
       """
       @spec delete(String.t()) :: :ok
       def delete(id) when is_binary(id) do
-        GenServer.call(__MODULE__, {:delete, id})
+        namespace = current_namespace()
+        GenServer.call(__MODULE__, {:delete, namespace, id})
       end
 
       @doc """
-      Clears all #{unquote(plural)} from the store.
+      Clears all #{unquote(resource)}s from the store (all namespaces).
 
       **Serialized write** - goes through GenServer.
 
-      Useful for test cleanup.
+      Useful for test cleanup. Note: This clears ALL data, not just
+      the current namespace. For namespace-specific cleanup, use
+      `clear_namespace/1`.
       """
       @spec clear() :: :ok
       def clear do
         GenServer.call(__MODULE__, :clear)
+      end
+    end
+  end
+
+  defp quote_namespace_functions(table, plural) do
+    quote do
+      @doc """
+      Clears all #{unquote(plural)} for a specific namespace.
+
+      Used by `PaperTiger.Test` to clean up after each test.
+      """
+      @spec clear_namespace(pid() | :global) :: :ok
+      def clear_namespace(namespace) do
+        GenServer.call(__MODULE__, {:clear_namespace, namespace})
+      end
+
+      @doc """
+      Returns all items in a specific namespace.
+
+      Useful for debugging test isolation.
+      """
+      @spec list_namespace(pid() | :global) :: [map()]
+      def list_namespace(namespace) do
+        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        |> Enum.map(fn {_key, item} -> item end)
       end
     end
   end
@@ -179,20 +239,23 @@ defmodule PaperTiger.Store do
       end
 
       @impl true
-      def handle_call({:insert, item}, _from, state) do
-        :ets.insert(unquote(table), {item.id, item})
+      def handle_call({:insert, namespace, item}, _from, state) do
+        key = {namespace, item.id}
+        :ets.insert(unquote(table), {key, item})
         Logger.debug("#{String.capitalize(unquote(resource))} inserted: #{item.id}")
         {:reply, {:ok, item}, state}
       end
 
-      def handle_call({:update, item}, _from, state) do
-        :ets.insert(unquote(table), {item.id, item})
+      def handle_call({:update, namespace, item}, _from, state) do
+        key = {namespace, item.id}
+        :ets.insert(unquote(table), {key, item})
         Logger.debug("#{String.capitalize(unquote(resource))} updated: #{item.id}")
         {:reply, {:ok, item}, state}
       end
 
-      def handle_call({:delete, id}, _from, state) do
-        :ets.delete(unquote(table), id)
+      def handle_call({:delete, namespace, id}, _from, state) do
+        key = {namespace, id}
+        :ets.delete(unquote(table), key)
         Logger.debug("#{String.capitalize(unquote(resource))} deleted: #{id}")
         {:reply, :ok, state}
       end
@@ -200,6 +263,13 @@ defmodule PaperTiger.Store do
       def handle_call(:clear, _from, state) do
         :ets.delete_all_objects(unquote(table))
         Logger.debug("#{String.capitalize(unquote(plural))} store cleared")
+        {:reply, :ok, state}
+      end
+
+      def handle_call({:clear_namespace, namespace}, _from, state) do
+        # Delete all entries matching the namespace
+        :ets.match_delete(unquote(table), {{namespace, :_}, :_})
+        Logger.debug("#{String.capitalize(unquote(plural))} cleared for namespace")
         {:reply, :ok, state}
       end
 
@@ -217,7 +287,9 @@ defmodule PaperTiger.Store do
                      insert: 1,
                      update: 1,
                      delete: 1,
-                     clear: 0
+                     clear: 0,
+                     clear_namespace: 1,
+                     list_namespace: 1
     end
   end
 end

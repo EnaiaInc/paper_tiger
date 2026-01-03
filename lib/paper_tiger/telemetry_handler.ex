@@ -22,6 +22,7 @@ defmodule PaperTiger.TelemetryHandler do
   """
 
   alias PaperTiger.Store.Events
+  alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
   alias PaperTiger.WebhookDelivery
 
@@ -154,20 +155,35 @@ defmodule PaperTiger.TelemetryHandler do
   end
 
   defp deliver_to_webhooks(event, event_type) do
+    webhook_mode = Application.get_env(:paper_tiger, :webhook_mode)
+
+    # In :collect mode, store all events for test inspection without needing
+    # registered webhooks. This lets tests verify what webhooks would fire.
+    if webhook_mode == :collect do
+      Logger.debug("Collecting #{event_type} webhook for test inspection")
+      WebhookDeliveries.record(event, %{id: "test_collector", url: "test://collect"})
+    else
+      deliver_to_registered_webhooks(event, event_type, webhook_mode)
+    end
+  end
+
+  defp deliver_to_registered_webhooks(event, event_type, webhook_mode) do
     %{data: webhooks} = Webhooks.list(%{})
-    sync_mode? = Application.get_env(:paper_tiger, :webhook_mode) == :sync
 
     webhooks
     |> Enum.filter(&event_matches_webhook?(&1, event_type))
     |> Enum.each(fn webhook ->
       Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
-
-      if sync_mode? do
-        WebhookDelivery.deliver_event_sync(event.id, webhook.id)
-      else
-        WebhookDelivery.deliver_event(event.id, webhook.id)
-      end
+      deliver_webhook(event, webhook, webhook_mode)
     end)
+  end
+
+  defp deliver_webhook(event, webhook, :sync) do
+    WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+  end
+
+  defp deliver_webhook(event, webhook, _mode) do
+    WebhookDelivery.deliver_event(event.id, webhook.id)
   end
 
   defp event_matches_webhook?(webhook, event_type) do
