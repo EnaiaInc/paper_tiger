@@ -155,12 +155,13 @@ defmodule PaperTiger.Resources.InvoiceItem do
   ## Private Functions
 
   defp build_invoice_item(params) do
+    now = PaperTiger.now()
     amount = get_integer(params, :amount)
 
     %{
       id: generate_id("ii"),
       object: "invoiceitem",
-      created: PaperTiger.now(),
+      date: now,
       customer: Map.get(params, :customer),
       invoice: Map.get(params, :invoice),
       amount: amount,

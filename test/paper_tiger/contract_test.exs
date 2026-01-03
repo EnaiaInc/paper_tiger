@@ -793,6 +793,285 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "InvoiceItem Operations" do
+    @tag :contract
+    test "creates an invoice item with amount and currency" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "invoiceitem@example.com"})
+      {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+      params = %{
+        "amount" => 4900,
+        "currency" => "usd",
+        "customer" => customer["id"],
+        "description" => "Test charge for contract testing",
+        "invoice" => invoice["id"]
+      }
+
+      {:ok, item} = TestClient.create_invoice_item(params)
+
+      assert item["object"] == "invoiceitem"
+      assert item["amount"] == 4900
+      assert item["currency"] == "usd"
+      assert item["customer"] == customer["id"]
+      assert item["invoice"] == invoice["id"]
+      assert String.starts_with?(item["id"], "ii_")
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
+    test "invoice item object has required fields" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "invoiceitem-fields@example.com"})
+      {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+      params = %{
+        "amount" => 2500,
+        "currency" => "usd",
+        "customer" => customer["id"],
+        "invoice" => invoice["id"]
+      }
+
+      {:ok, item} = TestClient.create_invoice_item(params)
+
+      # Core required fields
+      assert Map.has_key?(item, "id")
+      assert Map.has_key?(item, "object")
+      assert Map.has_key?(item, "amount")
+      assert Map.has_key?(item, "currency")
+      assert Map.has_key?(item, "customer")
+      assert Map.has_key?(item, "date")
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
+    test "retrieves an invoice item by ID" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "get-invoiceitem@example.com"})
+      {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+      params = %{
+        "amount" => 1500,
+        "currency" => "usd",
+        "customer" => customer["id"],
+        "invoice" => invoice["id"]
+      }
+
+      {:ok, created} = TestClient.create_invoice_item(params)
+      {:ok, retrieved} = TestClient.get_invoice_item(created["id"])
+
+      assert retrieved["id"] == created["id"]
+      assert retrieved["object"] == "invoiceitem"
+      assert retrieved["amount"] == 1500
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+  end
+
+  describe "Invoice Finalize and Pay Operations" do
+    @tag :contract
+    test "finalizes a draft invoice" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "finalize@example.com"})
+      {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+      # Add an item so there's something to pay
+      {:ok, _item} =
+        TestClient.create_invoice_item(%{
+          "amount" => 3000,
+          "currency" => "usd",
+          "customer" => customer["id"],
+          "invoice" => invoice["id"]
+        })
+
+      # Invoice should be in draft status
+      {:ok, retrieved} = TestClient.get_invoice(invoice["id"])
+      assert retrieved["status"] == "draft"
+
+      # Finalize the invoice
+      {:ok, finalized} = TestClient.finalize_invoice(invoice["id"])
+
+      assert finalized["id"] == invoice["id"]
+      assert finalized["status"] == "open"
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
+    @tag :skip_real_stripe
+    test "pays a finalized invoice" do
+      # Skip for real Stripe - paying requires a valid payment method attached
+      if TestClient.real_stripe?() do
+        :ok
+      else
+        {:ok, customer} = TestClient.create_customer(%{"email" => "payinvoice@example.com"})
+        {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+        # Add an item
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 5000,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+
+        # Finalize first
+        {:ok, _finalized} = TestClient.finalize_invoice(invoice["id"])
+
+        # Pay the invoice
+        {:ok, paid} = TestClient.pay_invoice(invoice["id"])
+
+        assert paid["id"] == invoice["id"]
+        assert paid["status"] == "paid"
+        assert paid["amount_paid"] == paid["amount_due"]
+
+        cleanup_invoice(invoice["id"])
+        cleanup_customer(customer["id"])
+      end
+    end
+
+    @tag :contract
+    test "invoice status transitions correctly through lifecycle" do
+      # Skip complex payment for real Stripe - focus on structure
+      if TestClient.real_stripe?() do
+        {:ok, customer} = TestClient.create_customer(%{"email" => "lifecycle@example.com"})
+        {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+        # Verify draft status
+        assert invoice["status"] == "draft"
+
+        # Add item and finalize
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 1000,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+
+        {:ok, finalized} = TestClient.finalize_invoice(invoice["id"])
+        assert finalized["status"] == "open"
+
+        cleanup_invoice(invoice["id"])
+        cleanup_customer(customer["id"])
+      else
+        {:ok, customer} = TestClient.create_customer(%{"email" => "lifecycle@example.com"})
+        {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+        # Verify draft status
+        assert invoice["status"] == "draft"
+
+        # Add item
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 1000,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+
+        # Finalize
+        {:ok, finalized} = TestClient.finalize_invoice(invoice["id"])
+        assert finalized["status"] == "open"
+
+        # Pay
+        {:ok, paid} = TestClient.pay_invoice(invoice["id"])
+        assert paid["status"] == "paid"
+
+        cleanup_invoice(invoice["id"])
+        cleanup_customer(customer["id"])
+      end
+    end
+  end
+
+  describe "Card Error Responses" do
+    @tag :contract
+    @tag :skip_real_stripe
+    test "card decline returns card_error type with decline_code" do
+      # This test only works with PaperTiger chaos simulation
+      # Real Stripe would require actual card declines which we can't trigger reliably
+      if TestClient.real_stripe?() do
+        :ok
+      else
+        # Set up ChaosCoordinator to simulate a decline for this customer
+        {:ok, customer} = TestClient.create_customer(%{"email" => "decline@example.com"})
+
+        # Configure chaos to fail this customer
+        PaperTiger.ChaosCoordinator.simulate_failure(customer["id"], :insufficient_funds)
+
+        {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 5000,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+
+        {:ok, _finalized} = TestClient.finalize_invoice(invoice["id"])
+
+        # Pay should fail with card error
+        {:error, error} = TestClient.pay_invoice(invoice["id"])
+
+        assert error["error"]["type"] == "card_error"
+        assert error["error"]["code"] == "card_declined"
+        assert error["error"]["decline_code"] == "insufficient_funds"
+
+        # Reset chaos
+        PaperTiger.ChaosCoordinator.reset()
+
+        cleanup_invoice(invoice["id"])
+        cleanup_customer(customer["id"])
+      end
+    end
+
+    @tag :contract
+    @tag :skip_real_stripe
+    test "various decline codes are returned correctly" do
+      if TestClient.real_stripe?() do
+        :ok
+      else
+        decline_codes = [
+          :card_declined,
+          :insufficient_funds,
+          :expired_card,
+          :incorrect_cvc,
+          :fraudulent
+        ]
+
+        for decline_code <- decline_codes do
+          {:ok, customer} = TestClient.create_customer(%{"email" => "decline-#{decline_code}@example.com"})
+          PaperTiger.ChaosCoordinator.simulate_failure(customer["id"], decline_code)
+
+          {:ok, invoice} = TestClient.create_invoice(%{"customer" => customer["id"]})
+
+          {:ok, _item} =
+            TestClient.create_invoice_item(%{
+              "amount" => 1000,
+              "currency" => "usd",
+              "customer" => customer["id"],
+              "invoice" => invoice["id"]
+            })
+
+          {:ok, _finalized} = TestClient.finalize_invoice(invoice["id"])
+          {:error, error} = TestClient.pay_invoice(invoice["id"])
+
+          assert error["error"]["type"] == "card_error",
+                 "Expected card_error for #{decline_code}, got: #{inspect(error["error"]["type"])}"
+
+          assert error["error"]["decline_code"] == to_string(decline_code),
+                 "Expected decline_code #{decline_code}, got: #{inspect(error["error"]["decline_code"])}"
+
+          PaperTiger.ChaosCoordinator.reset()
+        end
+      end
+    end
+  end
+
   describe "Subscription latest_invoice Validation" do
     @tag :contract
     test "subscription has latest_invoice field" do

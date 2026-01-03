@@ -582,6 +582,60 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Finalizes an invoice.
+  """
+  def finalize_invoice(invoice_id) do
+    case mode() do
+      :real_stripe ->
+        finalize_invoice_real(invoice_id)
+
+      :paper_tiger ->
+        finalize_invoice_mock(invoice_id)
+    end
+  end
+
+  @doc """
+  Pays an invoice.
+  """
+  def pay_invoice(invoice_id) do
+    case mode() do
+      :real_stripe ->
+        pay_invoice_real(invoice_id)
+
+      :paper_tiger ->
+        pay_invoice_mock(invoice_id)
+    end
+  end
+
+  ## InvoiceItem Operations
+
+  @doc """
+  Creates an invoice item.
+  """
+  def create_invoice_item(params) do
+    case mode() do
+      :real_stripe ->
+        create_invoice_item_real(params)
+
+      :paper_tiger ->
+        create_invoice_item_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves an invoice item by ID.
+  """
+  def get_invoice_item(invoice_item_id) do
+    case mode() do
+      :real_stripe ->
+        get_invoice_item_real(invoice_item_id)
+
+      :paper_tiger ->
+        get_invoice_item_mock(invoice_item_id)
+    end
+  end
+
   ## Private - Real Stripe API
 
   defp stripe_opts do
@@ -688,6 +742,34 @@ defmodule PaperTiger.TestClient do
   defp get_invoice_real(invoice_id) do
     case Stripe.Invoice.retrieve(invoice_id, %{}, stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp finalize_invoice_real(invoice_id) do
+    case Stripe.Invoice.finalize_invoice(invoice_id, %{}, stripe_opts()) do
+      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp pay_invoice_real(invoice_id) do
+    case Stripe.Invoice.pay(invoice_id, %{}, stripe_opts()) do
+      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp create_invoice_item_real(params) do
+    case Stripe.Invoiceitem.create(normalize_params(params), stripe_opts()) do
+      {:ok, item} -> {:ok, stripe_to_map(item)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_invoice_item_real(invoice_item_id) do
+    case Stripe.Invoiceitem.retrieve(invoice_item_id, %{}, stripe_opts()) do
+      {:ok, item} -> {:ok, stripe_to_map(item)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
   end
@@ -855,6 +937,26 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp finalize_invoice_mock(invoice_id) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+    handle_response(conn)
+  end
+
+  defp pay_invoice_mock(invoice_id) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}/pay", %{})
+    handle_response(conn)
+  end
+
+  defp create_invoice_item_mock(params) do
+    conn = request(:post, "/v1/invoiceitems", params)
+    handle_response(conn)
+  end
+
+  defp get_invoice_item_mock(invoice_item_id) do
+    conn = request(:get, "/v1/invoiceitems/#{invoice_item_id}", %{})
+    handle_response(conn)
+  end
+
   defp create_product_mock(params) do
     conn = request(:post, "/v1/products", params)
     handle_response(conn)
@@ -1018,18 +1120,18 @@ defmodule PaperTiger.TestClient do
   defp normalize_value(other), do: other
 
   defp stripe_error_to_map(%Stripe.Error{extra: extra} = error) when is_map(extra) do
-    # Stripe API errors have the full error structure in extra
-    # e.g., %{code: "resource_missing", type: "invalid_request_error", param: "id", ...}
+    raw_error = Map.get(extra, :raw_error, %{})
+
     error_body = %{
       "message" => error.message,
-      "type" => Map.get(extra, :type, error.code)
+      "type" => raw_error["type"] || to_string(Map.get(extra, :type, error.code))
     }
 
-    error_body =
-      if code = Map.get(extra, :code), do: Map.put(error_body, "code", code), else: error_body
+    code = raw_error["code"] || Map.get(extra, :card_code)
+    error_body = if code, do: Map.put(error_body, "code", to_string(code)), else: error_body
 
-    error_body =
-      if param = Map.get(extra, :param), do: Map.put(error_body, "param", param), else: error_body
+    param = raw_error["param"] || Map.get(extra, :param)
+    error_body = if param, do: Map.put(error_body, "param", to_string(param)), else: error_body
 
     %{"error" => error_body}
   end
@@ -1037,9 +1139,9 @@ defmodule PaperTiger.TestClient do
   defp stripe_error_to_map(%Stripe.Error{} = error) do
     %{
       "error" => %{
-        "code" => error.code,
+        "code" => to_string(error.code),
         "message" => error.message,
-        "type" => error.code
+        "type" => to_string(error.code)
       }
     }
   end
