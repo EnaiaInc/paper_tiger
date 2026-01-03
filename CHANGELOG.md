@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-01-02
+
+### Added
+
+- **ChaosCoordinator for unified chaos testing**: New module consolidating all chaos testing capabilities
+  - Payment chaos: configurable failure rates, decline codes, per-customer overrides
+  - Event chaos: out-of-order delivery, duplicate events, buffered delivery windows
+  - API chaos: timeout simulation, rate limiting, server errors
+  - Statistics tracking for all chaos types
+  - Integrated with `Invoice.pay` for realistic payment failure simulation
+
+- **Contract tests for InvoiceItem, Invoice finalize/pay, and card decline errors**
+
+### Fixed
+
+- **Subscription status now matches Stripe API exactly** (e.g., `active` vs `trialing`)
+- **TestClient normalizes delete responses** with `deleted=true` field
+- **Card decline test assertions** check correct fields
+
+### Changed
+
+- **Clock uses ETS for lock-free reads**: `now/0` reads directly from ETS instead of GenServer call, avoiding bottleneck under load
+- **Hydrator uses compile-time prefix registry**: No runtime map traversal for ID prefix lookups
+- **Idempotency uses atomic select_delete**: Fixes potential race condition
+- **ChaosCoordinator uses namespace isolation**: Per-namespace ETS state with proper timer cancellation on reset
+- **Store modules export `prefix` option** for Hydrator registry
+- **Tests use `assert_receive` instead of `Process.sleep`** for reliability
+
 ## [0.9.3] - 2026-01-02
 
 ### Added
