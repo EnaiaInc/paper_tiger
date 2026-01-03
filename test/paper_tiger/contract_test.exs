@@ -147,10 +147,8 @@ defmodule PaperTiger.ContractTest do
     test "returns 404 for non-existent customer" do
       {:error, error} = TestClient.get_customer("cus_nonexistent")
 
-      # Type may be atom or string depending on backend
-      error_type = error["error"]["type"]
-
-      assert error_type in ["invalid_request_error", "invalid_request", :invalid_request_error]
+      assert error["error"]["type"] == "invalid_request_error"
+      assert error["error"]["code"] == "resource_missing"
     end
 
     @tag :contract
@@ -315,9 +313,7 @@ defmodule PaperTiger.ContractTest do
       {:ok, result} = TestClient.delete_subscription(subscription_id)
 
       assert result["id"] == subscription_id
-      # Stripe returns "incomplete_expired" for incomplete subscriptions that are canceled
-      # PaperTiger returns "canceled" - both indicate a terminated subscription
-      assert result["status"] in ["canceled", "incomplete_expired"]
+      assert result["status"] == "incomplete_expired"
 
       cleanup_customer(customer["id"])
       cleanup_product(product["id"])

@@ -276,11 +276,19 @@ defmodule PaperTiger.Resources.Subscription do
     current_period_start = trial_end || now
     current_period_end = current_period_start + period_days * 86_400
 
+    # Determine initial status based on payment_behavior
+    status =
+      cond do
+        trial_end -> "trialing"
+        Map.get(params, :payment_behavior) == "default_incomplete" -> "incomplete"
+        true -> "active"
+      end
+
     %{
       id: generate_id("sub", Map.get(params, :id)),
       object: "subscription",
       created: now,
-      status: if(trial_end, do: "trialing", else: "active"),
+      status: status,
       customer: Map.get(params, :customer),
       # items will be loaded separately
       items: %{data: [], has_more: false, object: "list", url: "/v1/subscription_items"},
@@ -460,11 +468,19 @@ defmodule PaperTiger.Resources.Subscription do
   defp cancel_subscription(subscription) do
     now = PaperTiger.now()
 
+    # Stripe returns "incomplete_expired" when cancelling incomplete subscriptions
+    new_status =
+      if subscription.status == "incomplete" do
+        "incomplete_expired"
+      else
+        "canceled"
+      end
+
     %{
       subscription
       | canceled_at: now,
         ended_at: now,
-        status: "canceled"
+        status: new_status
     }
   end
 
