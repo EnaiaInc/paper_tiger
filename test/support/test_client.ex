@@ -429,6 +429,34 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Lists payment methods for a customer.
+
+  Requires a customer parameter.
+  """
+  def list_payment_methods(params) do
+    case mode() do
+      :real_stripe ->
+        list_payment_methods_real(params)
+
+      :paper_tiger ->
+        list_payment_methods_mock(params)
+    end
+  end
+
+  @doc """
+  Attaches a payment method to a customer.
+  """
+  def attach_payment_method(payment_method_id, params) do
+    case mode() do
+      :real_stripe ->
+        attach_payment_method_real(payment_method_id, params)
+
+      :paper_tiger ->
+        attach_payment_method_mock(payment_method_id, params)
+    end
+  end
+
   ## Charge Operations
 
   @doc """
@@ -768,6 +796,23 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp list_payment_methods_real(params) do
+    case Stripe.PaymentMethod.list(normalize_params(params), stripe_opts()) do
+      {:ok, %{data: payment_methods, has_more: has_more}} ->
+        {:ok, %{"data" => Enum.map(payment_methods, &stripe_to_map/1), "has_more" => has_more, "object" => "list"}}
+
+      {:error, error} ->
+        {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp attach_payment_method_real(payment_method_id, params) do
+    case Stripe.PaymentMethod.attach(payment_method_id, normalize_params(params), stripe_opts()) do
+      {:ok, payment_method} -> {:ok, stripe_to_map(payment_method)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   defp create_invoice_real(params) do
     case Stripe.Invoice.create(normalize_params(params), stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
@@ -806,7 +851,7 @@ defmodule PaperTiger.TestClient do
   defp list_invoices_real(params) do
     case Stripe.Invoice.list(normalize_params(params), stripe_opts()) do
       {:ok, %{data: invoices, has_more: has_more}} ->
-        {:ok, %{"object" => "list", "data" => Enum.map(invoices, &stripe_to_map/1), "has_more" => has_more}}
+        {:ok, %{"data" => Enum.map(invoices, &stripe_to_map/1), "has_more" => has_more, "object" => "list"}}
 
       {:error, error} ->
         {:error, stripe_error_to_map(error)}
@@ -977,6 +1022,16 @@ defmodule PaperTiger.TestClient do
 
   defp get_payment_method_mock(payment_method_id) do
     conn = request(:get, "/v1/payment_methods/#{payment_method_id}", %{})
+    handle_response(conn)
+  end
+
+  defp list_payment_methods_mock(params) do
+    conn = request(:get, "/v1/payment_methods", params)
+    handle_response(conn)
+  end
+
+  defp attach_payment_method_mock(payment_method_id, params) do
+    conn = request(:post, "/v1/payment_methods/#{payment_method_id}/attach", params)
     handle_response(conn)
   end
 

@@ -395,9 +395,40 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
-  # NOTE: PaymentMethod tests removed because they use raw card numbers
-  # which don't work with real Stripe API. PaperTiger should accept
-  # test tokens (pm_card_visa) like real Stripe does instead of raw cards.
+  describe "PaymentMethod Operations" do
+    @tag :contract
+    test "lists payment methods for a customer filters correctly" do
+      # Create a customer
+      {:ok, customer} = TestClient.create_customer(%{"email" => "pm-list@example.com"})
+
+      # Create and attach payment methods to this customer
+      {:ok, pm1} = TestClient.create_payment_method(%{"type" => "card"})
+      {:ok, pm1} = TestClient.attach_payment_method(pm1["id"], %{"customer" => customer["id"]})
+
+      {:ok, pm2} = TestClient.create_payment_method(%{"type" => "card"})
+      {:ok, pm2} = TestClient.attach_payment_method(pm2["id"], %{"customer" => customer["id"]})
+
+      # Create another customer with their own payment method
+      {:ok, other_customer} = TestClient.create_customer(%{"email" => "other-pm@example.com"})
+      {:ok, other_pm} = TestClient.create_payment_method(%{"type" => "card"})
+      {:ok, _other_pm} = TestClient.attach_payment_method(other_pm["id"], %{"customer" => other_customer["id"]})
+
+      # List payment methods for first customer - should only get their 2 PMs
+      {:ok, result} = TestClient.list_payment_methods(%{"customer" => customer["id"]})
+
+      assert result["object"] == "list"
+      assert length(result["data"]) == 2
+
+      pm_ids = Enum.map(result["data"], & &1["id"])
+      assert pm1["id"] in pm_ids
+      assert pm2["id"] in pm_ids
+      refute other_pm["id"] in pm_ids
+
+      # Cleanup
+      cleanup_customer(customer["id"])
+      cleanup_customer(other_customer["id"])
+    end
+  end
 
   describe "Invoice Operations" do
     @tag :contract
@@ -446,22 +477,22 @@ defmodule PaperTiger.ContractTest do
 
       # Create a draft invoice with auto_advance=false to prevent auto-finalization
       {:ok, draft_invoice} =
-        TestClient.create_invoice(%{"customer" => customer["id"], "auto_advance" => false})
+        TestClient.create_invoice(%{"auto_advance" => false, "customer" => customer["id"]})
 
       assert draft_invoice["status"] == "draft"
 
       # Add a line item so it's not a $0 invoice (which auto-pays)
       {:ok, _item} =
         TestClient.create_invoice_item(%{
-          "customer" => customer["id"],
-          "invoice" => draft_invoice["id"],
           "amount" => 1000,
-          "currency" => "usd"
+          "currency" => "usd",
+          "customer" => customer["id"],
+          "invoice" => draft_invoice["id"]
         })
 
       # Create another draft invoice
       {:ok, another_draft} =
-        TestClient.create_invoice(%{"customer" => customer["id"], "auto_advance" => false})
+        TestClient.create_invoice(%{"auto_advance" => false, "customer" => customer["id"]})
 
       assert another_draft["status"] == "draft"
 

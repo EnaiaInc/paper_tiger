@@ -56,6 +56,7 @@ defmodule PaperTiger.Resources.PaymentMethod do
 
   ## Optional Parameters
 
+  - id - Custom ID (must start with "pm_"). Useful for seeding deterministic data.
   - customer - Customer ID to associate with
   - metadata - Key-value metadata
   - card - Card details (when type=card)
@@ -151,23 +152,38 @@ defmodule PaperTiger.Resources.PaymentMethod do
   end
 
   @doc """
-  Lists all payment methods with pagination.
+  Lists payment methods for a customer.
 
-  ## Parameters
+  Stripe API requires customer parameter for listing payment methods.
+
+  ## Required Parameters
+
+  - customer - Customer ID (required)
+
+  ## Optional Parameters
 
   - limit - Number of items (default: 10, max: 100)
   - starting_after - Cursor for pagination
   - ending_before - Reverse cursor
-  - customer - Filter by customer ID
   - type - Filter by payment method type
   """
   @spec list(Plug.Conn.t()) :: Plug.Conn.t()
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
+    customer_id = get_string_param(conn.params, :customer)
 
-    result = PaymentMethods.list(pagination_opts)
+    payment_methods = PaymentMethods.find_by_customer(customer_id)
+    result = PaperTiger.List.paginate(payment_methods, Map.put(pagination_opts, :url, "/v1/payment_methods"))
 
     json_response(conn, 200, result)
+  end
+
+  defp get_string_param(params, key) do
+    case Map.get(params, key) do
+      nil -> nil
+      val when is_binary(val) -> val
+      val when is_atom(val) -> Atom.to_string(val)
+    end
   end
 
   @doc """
@@ -223,7 +239,7 @@ defmodule PaperTiger.Resources.PaymentMethod do
 
   defp build_payment_method(params) do
     %{
-      id: generate_id("pm"),
+      id: generate_id("pm", Map.get(params, :id)),
       object: "payment_method",
       created: PaperTiger.now(),
       type: Map.get(params, :type),

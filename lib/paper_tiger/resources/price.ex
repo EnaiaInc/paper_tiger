@@ -159,6 +159,8 @@ defmodule PaperTiger.Resources.Price do
         value -> to_integer(value)
       end
 
+    recurring = build_recurring(Map.get(params, :recurring))
+
     %{
       id: generate_id("price", Map.get(params, :id)),
       object: "price",
@@ -169,7 +171,7 @@ defmodule PaperTiger.Resources.Price do
       unit_amount_decimal: Map.get(params, :unit_amount_decimal),
       product: Map.get(params, :product),
       metadata: Map.get(params, :metadata, %{}),
-      recurring: Map.get(params, :recurring),
+      recurring: recurring,
       # Additional fields
       livemode: false,
       type: if(Map.get(params, :recurring), do: "recurring", else: "one_time"),
@@ -186,5 +188,15 @@ defmodule PaperTiger.Resources.Price do
   defp maybe_expand(price, params) do
     expand_params = parse_expand_params(params)
     PaperTiger.Hydrator.hydrate(price, expand_params)
+  end
+
+  # Build recurring structure with defaults (matching Stripe API behavior)
+  defp build_recurring(nil), do: nil
+
+  defp build_recurring(%{} = recurring) do
+    %{
+      interval: Map.get(recurring, :interval) || Map.get(recurring, "interval"),
+      interval_count: Map.get(recurring, :interval_count) || Map.get(recurring, "interval_count") || 1
+    }
   end
 end

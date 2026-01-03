@@ -321,19 +321,7 @@ defmodule PaperTiger.Resources.Subscription do
     items
     |> Enum.with_index()
     |> Enum.each(fn {item, index} ->
-      price_id = get_item_field(item, :price)
-      price_object = fetch_price_object(price_id)
-
-      subscription_item = %{
-        created: now + index,
-        id: generate_id("si"),
-        metadata: get_item_field(item, :metadata, %{}),
-        object: "subscription_item",
-        price: price_object,
-        quantity: item |> get_item_field(:quantity, 1) |> to_integer(),
-        subscription: subscription_id
-      }
-
+      subscription_item = build_subscription_item(subscription_id, item, now + index, nil)
       SubscriptionItems.insert(subscription_item)
     end)
 
@@ -443,26 +431,52 @@ defmodule PaperTiger.Resources.Subscription do
     price_id = get_item_field(item, :price)
     price_object = fetch_price_object(price_id)
 
+    # Build plan object from price for backwards compatibility (Stripe API populates both)
+    plan_object = build_plan_from_price(price_object)
+
     %{
       created: created_at,
       id: custom_id || generate_id("si"),
       metadata: get_item_field(item, :metadata, %{}),
       object: "subscription_item",
+      plan: plan_object,
       price: price_object,
       quantity: item |> get_item_field(:quantity, 1) |> to_integer(),
       subscription: subscription_id
     }
   end
 
+  # Builds a plan object from a price for backwards compatibility
+  # The real Stripe API populates both plan and price on subscription items
+  defp build_plan_from_price(nil), do: nil
+
+  defp build_plan_from_price(price) do
+    %{
+      active: price.active,
+      amount: price.unit_amount,
+      created: price.created,
+      currency: price.currency,
+      id: price.id,
+      interval: get_in(price, [:recurring, :interval]),
+      interval_count: get_in(price, [:recurring, :interval_count]) || 1,
+      livemode: price.livemode,
+      metadata: price.metadata,
+      nickname: price.nickname,
+      object: "plan",
+      product: price.product
+    }
+  end
+
   defp update_existing_item(existing, updates) do
     price_id = get_item_field(updates, :price)
+    new_price = if(price_id, do: fetch_price_object(price_id), else: existing.price)
+    new_plan = if(price_id, do: build_plan_from_price(new_price), else: existing[:plan])
 
-    %{
-      existing
-      | metadata: get_item_field(updates, :metadata, existing.metadata),
-        price: if(price_id, do: fetch_price_object(price_id), else: existing.price),
-        quantity: updates |> get_item_field(:quantity, existing.quantity) |> to_integer()
-    }
+    existing
+    |> Map.put(:metadata, get_item_field(updates, :metadata, existing.metadata))
+    |> Map.put(:price, new_price)
+    |> Map.put(:plan, new_plan)
+    |> Map.put(:quantity, updates |> get_item_field(:quantity, existing.quantity) |> to_integer())
   end
 
   defp cancel_subscription(subscription) do

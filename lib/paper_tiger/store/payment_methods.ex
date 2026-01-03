@@ -35,10 +35,15 @@ defmodule PaperTiger.Store.PaymentMethods do
   Finds payment methods by customer ID.
 
   **Direct ETS access** - does not go through GenServer.
+  Returns empty list if customer_id is nil (Stripe requires customer param).
   """
-  @spec find_by_customer(String.t()) :: [map()]
+  @spec find_by_customer(String.t() | nil) :: [map()]
+  def find_by_customer(nil), do: []
+
   def find_by_customer(customer_id) when is_binary(customer_id) do
-    :ets.match_object(@table, {:_, %{customer: customer_id}})
-    |> Enum.map(fn {_id, payment_method} -> payment_method end)
+    namespace = PaperTiger.Test.current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{customer: customer_id}})
+    |> Enum.map(fn {_key, payment_method} -> payment_method end)
   end
 end

@@ -495,13 +495,19 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
   end
 
   describe "GET /v1/payment_methods - List payment methods" do
-    test "lists payment methods with default limit" do
-      # Create 3 payment methods
+    # Stripe API requires customer parameter for listing payment methods
+
+    test "lists payment methods for a customer" do
+      customer_id = create_customer("list-pm@example.com")
+
+      # Create and attach 3 payment methods
       for _i <- 1..3 do
-        request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_id = json_response(pm_conn)["id"]
+        request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
       end
 
-      conn = request(:get, "/v1/payment_methods")
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}")
 
       assert conn.status == 200
       result = json_response(conn)
@@ -513,12 +519,16 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     end
 
     test "respects limit parameter" do
-      # Create 5 payment methods
+      customer_id = create_customer("list-limit@example.com")
+
+      # Create and attach 5 payment methods
       for _i <- 1..5 do
-        request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_id = json_response(pm_conn)["id"]
+        request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
       end
 
-      conn = request(:get, "/v1/payment_methods?limit=2")
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}&limit=2")
 
       assert conn.status == 200
       result = json_response(conn)
@@ -527,12 +537,16 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     end
 
     test "returns all when limit is greater than total" do
-      # Create 2 payment methods
+      customer_id = create_customer("list-all@example.com")
+
+      # Create and attach 2 payment methods
       for _i <- 1..2 do
-        request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_id = json_response(pm_conn)["id"]
+        request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
       end
 
-      conn = request(:get, "/v1/payment_methods?limit=100")
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}&limit=100")
 
       assert conn.status == 200
       result = json_response(conn)
@@ -541,14 +555,18 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     end
 
     test "supports starting_after cursor pagination" do
-      # Create 5 payment methods with delays
+      customer_id = create_customer("list-cursor@example.com")
+
+      # Create and attach 5 payment methods with delays
       for _i <- 1..5 do
-        request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_id = json_response(pm_conn)["id"]
+        request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
         Process.sleep(2)
       end
 
       # Get first page with limit 2
-      conn1 = request(:get, "/v1/payment_methods?limit=2")
+      conn1 = request(:get, "/v1/payment_methods?customer=#{customer_id}&limit=2")
       assert conn1.status == 200
       page1 = json_response(conn1)
       assert length(page1["data"]) == 2
@@ -556,7 +574,7 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
 
       # Get second page using starting_after
       last_pm_id = Enum.at(page1["data"], 1)["id"]
-      conn2 = request(:get, "/v1/payment_methods?limit=2&starting_after=#{last_pm_id}")
+      conn2 = request(:get, "/v1/payment_methods?customer=#{customer_id}&limit=2&starting_after=#{last_pm_id}")
 
       assert conn2.status == 200
       page2 = json_response(conn2)
@@ -567,7 +585,18 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert not Enum.member?(page2_ids, last_pm_id)
     end
 
-    test "returns empty list when no payment methods exist" do
+    test "returns empty list when customer has no payment methods" do
+      customer_id = create_customer("no-pm@example.com")
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}")
+
+      assert conn.status == 200
+      result = json_response(conn)
+      assert result["data"] == []
+      assert result["has_more"] == false
+    end
+
+    test "returns empty list when no customer parameter provided" do
+      # Stripe requires customer parameter - returns empty without it
       conn = request(:get, "/v1/payment_methods")
 
       assert conn.status == 200
@@ -577,13 +606,17 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     end
 
     test "payment methods are sorted by creation time (descending)" do
-      # Create 3 payment methods with delays
+      customer_id = create_customer("list-sorted@example.com")
+
+      # Create and attach 3 payment methods with delays
       for _i <- 1..3 do
-        request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
+        pm_id = json_response(pm_conn)["id"]
+        request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
         Process.sleep(1)
       end
 
-      conn = request(:get, "/v1/payment_methods?limit=10")
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}&limit=10")
 
       assert conn.status == 200
       result = json_response(conn)
@@ -596,13 +629,19 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
     end
 
     test "list includes all payment method fields" do
-      request(:post, "/v1/payment_methods", %{
-        "card" => %{"brand" => "visa", "last4" => "4242"},
-        "metadata" => %{"key" => "value"},
-        "type" => "card"
-      })
+      customer_id = create_customer("list-fields@example.com")
 
-      conn = request(:get, "/v1/payment_methods")
+      pm_conn =
+        request(:post, "/v1/payment_methods", %{
+          "card" => %{"brand" => "visa", "last4" => "4242"},
+          "metadata" => %{"key" => "value"},
+          "type" => "card"
+        })
+
+      pm_id = json_response(pm_conn)["id"]
+      request(:post, "/v1/payment_methods/#{pm_id}/attach", %{"customer" => customer_id})
+
+      conn = request(:get, "/v1/payment_methods?customer=#{customer_id}")
 
       assert conn.status == 200
       pm = Enum.at(json_response(conn)["data"], 0)
@@ -955,8 +994,8 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert attach2_conn.status == 200
       assert json_response(attach2_conn)["customer"] == customer2_id
 
-      # 8. List payment methods
-      list_conn = request(:get, "/v1/payment_methods")
+      # 8. List payment methods for customer2
+      list_conn = request(:get, "/v1/payment_methods?customer=#{customer2_id}")
       assert list_conn.status == 200
       pms = json_response(list_conn)["data"]
       found = Enum.find(pms, &(&1["id"] == pm_id))
@@ -1003,20 +1042,23 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       # Detach first
       request(:post, "/v1/payment_methods/#{Enum.at(pm_ids, 0)}/detach", %{})
 
-      # List and verify states
-      list_conn = request(:get, "/v1/payment_methods")
+      # List payment methods for customer - should only show pm2 (attached)
+      list_conn = request(:get, "/v1/payment_methods?customer=#{customer_id}")
       pms = json_response(list_conn)["data"]
 
-      # Find each payment method and verify its state
-      pm1 = Enum.find(pms, &(&1["metadata"]["index"] == "1"))
-      pm2 = Enum.find(pms, &(&1["metadata"]["index"] == "2"))
-      pm3 = Enum.find(pms, &(&1["metadata"]["index"] == "3"))
-
-      # detached
-      assert is_nil(pm1["customer"])
-      # attached
+      # Only pm2 should be in the list (attached to customer)
+      assert length(pms) == 1
+      pm2 = Enum.at(pms, 0)
+      assert pm2["metadata"]["index"] == "2"
       assert pm2["customer"] == customer_id
-      # never attached
+
+      # Verify detached and never-attached via direct get
+      pm1_conn = request(:get, "/v1/payment_methods/#{Enum.at(pm_ids, 0)}")
+      pm1 = json_response(pm1_conn)
+      assert is_nil(pm1["customer"])
+
+      pm3_conn = request(:get, "/v1/payment_methods/#{Enum.at(pm_ids, 2)}")
+      pm3 = json_response(pm3_conn)
       assert is_nil(pm3["customer"])
     end
 

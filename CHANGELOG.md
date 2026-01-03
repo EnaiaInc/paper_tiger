@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-01-03
+
+### Added
+
+- **Subscription items include `plan` field for backwards compatibility**: Stripe API populates both `plan` and `price` on subscription items. PaperTiger now does the same via `build_plan_from_price/1`.
+- **PaymentMethod.create supports custom IDs**: Use `id` parameter to create payment methods with deterministic IDs for testing.
+- **Contract tests for subscription item plan field and payment method custom IDs**
+
+### Fixed
+
+- **Price.recurring now includes `interval_count`**: Added `build_recurring/1` function that defaults `interval_count` to 1 when not specified, matching Stripe API behavior.
+- **Invoice list filtering by status**: Fixed status filter to work correctly with string status values.
+- **PaymentMethod.list now requires customer parameter**: Matches real Stripe API behavior. Returns empty list without customer param.
+- **PaymentMethods.find_by_customer uses proper namespacing**: Fixed ETS query to use namespace-scoped keys for test isolation.
+
 ## [0.9.4] - 2026-01-02
 
 ### Added

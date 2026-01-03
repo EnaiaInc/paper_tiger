@@ -171,9 +171,9 @@ defmodule PaperTiger.Resources.Invoice do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    customer = Map.get(conn.params, :customer)
-    status = Map.get(conn.params, :status)
-    subscription = Map.get(conn.params, :subscription)
+    customer = Map.get(conn.params, :customer) |> to_string_or_nil()
+    status = Map.get(conn.params, :status) |> to_string_or_nil()
+    subscription = Map.get(conn.params, :subscription) |> to_string_or_nil()
 
     # Get invoices with filters applied
     invoices = get_filtered_invoices(customer, status, subscription)
@@ -182,6 +182,10 @@ defmodule PaperTiger.Resources.Invoice do
 
     json_response(conn, 200, result)
   end
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(val) when is_binary(val), do: val
+  defp to_string_or_nil(val) when is_atom(val), do: Atom.to_string(val)
 
   defp get_filtered_invoices(nil, nil, nil) do
     # No filters - return all
@@ -213,8 +217,7 @@ defmodule PaperTiger.Resources.Invoice do
     |> Enum.filter(fn inv -> inv.subscription == subscription_id end)
   end
 
-  defp get_filtered_invoices(nil, status, subscription_id)
-       when is_binary(status) and is_binary(subscription_id) do
+  defp get_filtered_invoices(nil, status, subscription_id) when is_binary(status) and is_binary(subscription_id) do
     # Filter by both status and subscription
     Invoices.find_by_subscription(subscription_id)
     |> Enum.filter(fn inv -> inv.status == status end)
