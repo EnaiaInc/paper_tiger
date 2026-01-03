@@ -439,6 +439,60 @@ defmodule PaperTiger.ContractTest do
       cleanup_invoice(invoice_id)
       cleanup_customer(customer["id"])
     end
+
+    @tag :contract
+    test "lists invoices filtered by status" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "list-invoice@example.com"})
+
+      # Create a draft invoice with auto_advance=false to prevent auto-finalization
+      {:ok, draft_invoice} =
+        TestClient.create_invoice(%{"customer" => customer["id"], "auto_advance" => false})
+
+      assert draft_invoice["status"] == "draft"
+
+      # Add a line item so it's not a $0 invoice (which auto-pays)
+      {:ok, _item} =
+        TestClient.create_invoice_item(%{
+          "customer" => customer["id"],
+          "invoice" => draft_invoice["id"],
+          "amount" => 1000,
+          "currency" => "usd"
+        })
+
+      # Create another draft invoice
+      {:ok, another_draft} =
+        TestClient.create_invoice(%{"customer" => customer["id"], "auto_advance" => false})
+
+      assert another_draft["status"] == "draft"
+
+      # List only draft invoices - should return 2
+      {:ok, draft_list} = TestClient.list_invoices(%{"customer" => customer["id"], "status" => "draft"})
+      assert draft_list["object"] == "list"
+      assert length(draft_list["data"]) == 2
+      assert Enum.all?(draft_list["data"], fn inv -> inv["status"] == "draft" end)
+
+      # Finalize the first one to make it "open"
+      # Use collection_method=send_invoice to prevent auto-payment
+      {:ok, _} =
+        TestClient.update_invoice(draft_invoice["id"], %{"collection_method" => "send_invoice", "days_until_due" => 30})
+
+      {:ok, open_invoice} = TestClient.finalize_invoice(draft_invoice["id"])
+      assert open_invoice["status"] == "open"
+
+      # List only open invoices - should return 1
+      {:ok, open_list} = TestClient.list_invoices(%{"customer" => customer["id"], "status" => "open"})
+      assert open_list["object"] == "list"
+      assert length(open_list["data"]) == 1
+      assert Enum.all?(open_list["data"], fn inv -> inv["status"] == "open" end)
+
+      # List draft invoices - now should return 1
+      {:ok, draft_list2} = TestClient.list_invoices(%{"customer" => customer["id"], "status" => "draft"})
+      assert draft_list2["object"] == "list"
+      assert length(draft_list2["data"]) == 1
+      assert Enum.all?(draft_list2["data"], fn inv -> inv["status"] == "draft" end)
+
+      cleanup_customer(customer["id"])
+    end
   end
 
   describe "Charge Structure Validation" do

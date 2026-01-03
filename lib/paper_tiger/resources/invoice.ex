@@ -171,9 +171,60 @@ defmodule PaperTiger.Resources.Invoice do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    result = Invoices.list(pagination_opts)
+    customer = Map.get(conn.params, :customer)
+    status = Map.get(conn.params, :status)
+    subscription = Map.get(conn.params, :subscription)
+
+    # Get invoices with filters applied
+    invoices = get_filtered_invoices(customer, status, subscription)
+
+    result = PaperTiger.List.paginate(invoices, Map.put(pagination_opts, :url, "/v1/invoices"))
 
     json_response(conn, 200, result)
+  end
+
+  defp get_filtered_invoices(nil, nil, nil) do
+    # No filters - return all
+    Invoices.all()
+  end
+
+  defp get_filtered_invoices(customer_id, nil, nil) when is_binary(customer_id) do
+    Invoices.find_by_customer(customer_id)
+  end
+
+  defp get_filtered_invoices(nil, status, nil) when is_binary(status) do
+    Invoices.find_by_status(status)
+  end
+
+  defp get_filtered_invoices(nil, nil, subscription_id) when is_binary(subscription_id) do
+    Invoices.find_by_subscription(subscription_id)
+  end
+
+  defp get_filtered_invoices(customer_id, status, nil) when is_binary(customer_id) and is_binary(status) do
+    # Filter by both customer and status
+    Invoices.find_by_customer(customer_id)
+    |> Enum.filter(fn inv -> inv.status == status end)
+  end
+
+  defp get_filtered_invoices(customer_id, nil, subscription_id)
+       when is_binary(customer_id) and is_binary(subscription_id) do
+    # Filter by both customer and subscription
+    Invoices.find_by_customer(customer_id)
+    |> Enum.filter(fn inv -> inv.subscription == subscription_id end)
+  end
+
+  defp get_filtered_invoices(nil, status, subscription_id)
+       when is_binary(status) and is_binary(subscription_id) do
+    # Filter by both status and subscription
+    Invoices.find_by_subscription(subscription_id)
+    |> Enum.filter(fn inv -> inv.status == status end)
+  end
+
+  defp get_filtered_invoices(customer_id, status, subscription_id)
+       when is_binary(customer_id) and is_binary(status) and is_binary(subscription_id) do
+    # Filter by all three
+    Invoices.find_by_customer(customer_id)
+    |> Enum.filter(fn inv -> inv.status == status and inv.subscription == subscription_id end)
   end
 
   @doc """

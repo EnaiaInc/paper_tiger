@@ -583,6 +583,19 @@ defmodule PaperTiger.TestClient do
   end
 
   @doc """
+  Updates an invoice.
+  """
+  def update_invoice(invoice_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_invoice_real(invoice_id, params)
+
+      :paper_tiger ->
+        update_invoice_mock(invoice_id, params)
+    end
+  end
+
+  @doc """
   Finalizes an invoice.
   """
   def finalize_invoice(invoice_id) do
@@ -605,6 +618,23 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         pay_invoice_mock(invoice_id)
+    end
+  end
+
+  @doc """
+  Lists invoices with optional filters.
+
+  Supports:
+  - customer: Filter by customer ID
+  - status: Filter by status (draft, open, paid, uncollectible, void)
+  """
+  def list_invoices(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_invoices_real(params)
+
+      :paper_tiger ->
+        list_invoices_mock(params)
     end
   end
 
@@ -752,6 +782,13 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp update_invoice_real(invoice_id, params) do
+    case Stripe.Invoice.update(invoice_id, normalize_params(params), stripe_opts()) do
+      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   defp finalize_invoice_real(invoice_id) do
     case Stripe.Invoice.finalize_invoice(invoice_id, %{}, stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
@@ -763,6 +800,16 @@ defmodule PaperTiger.TestClient do
     case Stripe.Invoice.pay(invoice_id, %{}, stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp list_invoices_real(params) do
+    case Stripe.Invoice.list(normalize_params(params), stripe_opts()) do
+      {:ok, %{data: invoices, has_more: has_more}} ->
+        {:ok, %{"object" => "list", "data" => Enum.map(invoices, &stripe_to_map/1), "has_more" => has_more}}
+
+      {:error, error} ->
+        {:error, stripe_error_to_map(error)}
     end
   end
 
@@ -943,6 +990,11 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp update_invoice_mock(invoice_id, params) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}", params)
+    handle_response(conn)
+  end
+
   defp finalize_invoice_mock(invoice_id) do
     conn = request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
     handle_response(conn)
@@ -950,6 +1002,11 @@ defmodule PaperTiger.TestClient do
 
   defp pay_invoice_mock(invoice_id) do
     conn = request(:post, "/v1/invoices/#{invoice_id}/pay", %{})
+    handle_response(conn)
+  end
+
+  defp list_invoices_mock(params) do
+    conn = request(:get, "/v1/invoices", params)
     handle_response(conn)
   end
 
