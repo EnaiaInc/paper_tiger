@@ -156,6 +156,9 @@ defmodule PaperTiger do
     # Also clear idempotency cache via its API
     PaperTiger.Idempotency.clear()
 
+    # Reset chaos coordinator
+    PaperTiger.ChaosCoordinator.reset()
+
     :ok
   end
 

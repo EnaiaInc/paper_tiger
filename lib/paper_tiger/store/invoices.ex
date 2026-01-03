@@ -29,7 +29,8 @@ defmodule PaperTiger.Store.Invoices do
 
   use PaperTiger.Store,
     table: :paper_tiger_invoices,
-    resource: "invoice"
+    resource: "invoice",
+    prefix: "in"
 
   @doc """
   Finds invoices by customer ID.

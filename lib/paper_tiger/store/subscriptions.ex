@@ -29,7 +29,8 @@ defmodule PaperTiger.Store.Subscriptions do
 
   use PaperTiger.Store,
     table: :paper_tiger_subscriptions,
-    resource: "subscription"
+    resource: "subscription",
+    prefix: "sub"
 
   @doc """
   Finds subscriptions by customer ID.

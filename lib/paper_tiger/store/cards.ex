@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Cards do
 
   use PaperTiger.Store,
     table: :paper_tiger_cards,
-    resource: "card"
+    resource: "card",
+    prefix: "card"
 
   @doc """
   Finds cards by customer ID.

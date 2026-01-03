@@ -25,5 +25,6 @@ defmodule PaperTiger.Store.Tokens do
 
   use PaperTiger.Store,
     table: :paper_tiger_tokens,
-    resource: "token"
+    resource: "token",
+    prefix: "tok"
 end

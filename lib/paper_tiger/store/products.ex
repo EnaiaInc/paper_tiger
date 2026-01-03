@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Products do
 
   use PaperTiger.Store,
     table: :paper_tiger_products,
-    resource: "product"
+    resource: "product",
+    prefix: "prod"
 
   @doc """
   Finds all active products.

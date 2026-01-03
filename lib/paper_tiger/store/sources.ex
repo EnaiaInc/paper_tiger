@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Sources do
 
   use PaperTiger.Store,
     table: :paper_tiger_sources,
-    resource: "source"
+    resource: "source",
+    prefix: "src"
 
   @doc """
   Finds sources by customer ID.

@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Topups do
 
   use PaperTiger.Store,
     table: :paper_tiger_topups,
-    resource: "topup"
+    resource: "topup",
+    prefix: "tu"
 
   @doc """
   Finds top-ups by status.

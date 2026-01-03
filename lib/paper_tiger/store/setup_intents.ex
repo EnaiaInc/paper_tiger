@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.SetupIntents do
 
   use PaperTiger.Store,
     table: :paper_tiger_setup_intents,
-    resource: "setup_intent"
+    resource: "setup_intent",
+    prefix: "seti"
 
   @doc """
   Finds setup intents by customer ID.

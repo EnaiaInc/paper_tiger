@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.CheckoutSessions do
 
   use PaperTiger.Store,
     table: :paper_tiger_checkout_sessions,
-    resource: "checkout_session"
+    resource: "checkout_session",
+    prefix: "cs"
 
   @doc """
   Finds checkout sessions by customer ID.

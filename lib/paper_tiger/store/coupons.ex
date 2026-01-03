@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Coupons do
 
   use PaperTiger.Store,
     table: :paper_tiger_coupons,
-    resource: "coupon"
+    resource: "coupon",
+    prefix: "coupon"
 
   @doc """
   Finds active coupons.

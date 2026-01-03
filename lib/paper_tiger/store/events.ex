@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Events do
 
   use PaperTiger.Store,
     table: :paper_tiger_events,
-    resource: "event"
+    resource: "event",
+    prefix: "evt"
 
   @doc """
   Finds events by type.

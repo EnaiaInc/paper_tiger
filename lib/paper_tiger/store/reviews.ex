@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Reviews do
 
   use PaperTiger.Store,
     table: :paper_tiger_reviews,
-    resource: "review"
+    resource: "review",
+    prefix: "prv"
 
   @doc """
   Finds reviews by payment intent ID.

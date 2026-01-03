@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.BalanceTransactions do
 
   use PaperTiger.Store,
     table: :paper_tiger_balance_transactions,
-    resource: "balance_transaction"
+    resource: "balance_transaction",
+    prefix: "txn"
 
   @doc """
   Finds balance transactions by source ID.

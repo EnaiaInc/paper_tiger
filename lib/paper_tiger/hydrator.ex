@@ -59,19 +59,45 @@ defmodule PaperTiger.Hydrator do
 
   require Logger
 
+  @stores [
+    ApplicationFees,
+    BalanceTransactions,
+    BankAccounts,
+    Cards,
+    Charges,
+    CheckoutSessions,
+    Coupons,
+    Customers,
+    Disputes,
+    Events,
+    InvoiceItems,
+    Invoices,
+    PaymentIntents,
+    PaymentMethods,
+    Payouts,
+    Plans,
+    Prices,
+    Products,
+    Refunds,
+    Reviews,
+    SetupIntents,
+    Sources,
+    SubscriptionItems,
+    Subscriptions,
+    TaxRates,
+    Tokens,
+    Topups,
+    Webhooks
+  ]
+
+  # Map of "prefix_" to store module
+  @prefix_registry Map.new(@stores, fn module ->
+                     {"#{module.prefix()}_", module}
+                   end)
+
   @doc """
   Hydrates a resource by expanding specified fields.
-
-  ## Parameters
-
-  - `resource` - The struct to hydrate
-  - `expand_params` - List of paths to expand (e.g., ["customer", "customer.default_source"])
-
-  ## Examples
-
-      subscription = %{customer: "cus_123", ...}
-      PaperTiger.Hydrator.hydrate(subscription, ["customer"])
-      # => %{customer: %{id: "cus_123", email: "...", ...}, ...}
+  ...
   """
   @spec hydrate(map() | struct(), [String.t()]) :: map() | struct()
   def hydrate(resource, expand_params) when is_list(expand_params) do
@@ -151,49 +177,26 @@ defmodule PaperTiger.Hydrator do
   @doc """
   Fetches a resource by ID from the appropriate store.
 
-  Uses ID prefix to determine which store to query:
-  - `cus_*` -> Customers
-  - `sub_*` -> Subscriptions
-  - `pm_*` -> PaymentMethods
-  - etc.
+  Automatically determines the correct store based on the ID prefix.
   """
   @spec fetch_by_id(String.t()) :: {:ok, map()} | {:error, :not_found | :unknown_prefix}
-  def fetch_by_id("cus_" <> _rest = id) do
-    Customers.get(id)
+  def fetch_by_id(id) when is_binary(id) do
+    case String.split(id, "_", parts: 2) do
+      [prefix, _rest] -> lookup_store_and_fetch(prefix, id)
+      _ -> {:error, :unknown_prefix}
+    end
   end
 
-  def fetch_by_id("sub_" <> _rest = id), do: Subscriptions.get(id)
-  def fetch_by_id("si_" <> _rest = id), do: SubscriptionItems.get(id)
-  def fetch_by_id("in_" <> _rest = id), do: Invoices.get(id)
-  def fetch_by_id("ii_" <> _rest = id), do: InvoiceItems.get(id)
-  def fetch_by_id("pm_" <> _rest = id), do: PaymentMethods.get(id)
-  def fetch_by_id("pi_" <> _rest = id), do: PaymentIntents.get(id)
-  def fetch_by_id("seti_" <> _rest = id), do: SetupIntents.get(id)
-  def fetch_by_id("ch_" <> _rest = id), do: Charges.get(id)
-  def fetch_by_id("re_" <> _rest = id), do: Refunds.get(id)
-  def fetch_by_id("prod_" <> _rest = id), do: Products.get(id)
-  def fetch_by_id("price_" <> _rest = id), do: Prices.get(id)
+  defp lookup_store_and_fetch("whsec", id), do: Webhooks.get(id)
 
-  def fetch_by_id("plan_" <> _rest = id), do: Plans.get(id)
-  def fetch_by_id("card_" <> _rest = id), do: Cards.get(id)
-  def fetch_by_id("ba_" <> _rest = id), do: BankAccounts.get(id)
-  def fetch_by_id("src_" <> _rest = id), do: Sources.get(id)
-  def fetch_by_id("tok_" <> _rest = id), do: Tokens.get(id)
-  def fetch_by_id("txr_" <> _rest = id), do: TaxRates.get(id)
-  def fetch_by_id("coupon_" <> _rest = id), do: Coupons.get(id)
-  def fetch_by_id("txn_" <> _rest = id), do: BalanceTransactions.get(id)
+  defp lookup_store_and_fetch(prefix, id) do
+    case Map.get(@prefix_registry, "#{prefix}_") do
+      nil ->
+        Logger.debug("Hydrator: unknown ID prefix for expansion: #{id}")
+        {:error, :unknown_prefix}
 
-  def fetch_by_id("po_" <> _rest = id), do: Payouts.get(id)
-  def fetch_by_id("cs_" <> _rest = id), do: CheckoutSessions.get(id)
-  def fetch_by_id("evt_" <> _rest = id), do: Events.get(id)
-  def fetch_by_id("whsec_" <> _rest = id), do: Webhooks.get(id)
-  def fetch_by_id("dp_" <> _rest = id), do: Disputes.get(id)
-  def fetch_by_id("fee_" <> _rest = id), do: ApplicationFees.get(id)
-  def fetch_by_id("prv_" <> _rest = id), do: Reviews.get(id)
-  def fetch_by_id("tu_" <> _rest = id), do: Topups.get(id)
-
-  def fetch_by_id(id) do
-    Logger.debug("Hydrator: unknown ID prefix for expansion: #{id}")
-    {:error, :unknown_prefix}
+      module ->
+        module.get(id)
+    end
   end
 end

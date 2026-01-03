@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Webhooks do
 
   use PaperTiger.Store,
     table: :paper_tiger_webhooks,
-    resource: "webhook_endpoint"
+    resource: "webhook_endpoint",
+    prefix: "we"
 
   @doc """
   Finds active webhook endpoints (status: "enabled").

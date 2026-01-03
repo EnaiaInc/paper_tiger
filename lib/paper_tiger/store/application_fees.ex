@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.ApplicationFees do
 
   use PaperTiger.Store,
     table: :paper_tiger_application_fees,
-    resource: "application_fee"
+    resource: "application_fee",
+    prefix: "fee"
 
   @doc """
   Finds application fees by charge ID.

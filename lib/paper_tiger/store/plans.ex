@@ -29,7 +29,8 @@ defmodule PaperTiger.Store.Plans do
 
   use PaperTiger.Store,
     table: :paper_tiger_plans,
-    resource: "plan"
+    resource: "plan",
+    prefix: "plan"
 
   @doc """
   Finds plans by product ID.

@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Payouts do
 
   use PaperTiger.Store,
     table: :paper_tiger_payouts,
-    resource: "payout"
+    resource: "payout",
+    prefix: "po"
 
   @doc """
   Finds payouts by status.

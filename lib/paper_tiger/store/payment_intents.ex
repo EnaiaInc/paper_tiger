@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.PaymentIntents do
 
   use PaperTiger.Store,
     table: :paper_tiger_payment_intents,
-    resource: "payment_intent"
+    resource: "payment_intent",
+    prefix: "pi"
 
   @doc """
   Finds payment intents by customer ID.

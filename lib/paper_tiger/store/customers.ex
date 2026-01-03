@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Customers do
 
   use PaperTiger.Store,
     table: :paper_tiger_customers,
-    resource: "customer"
+    resource: "customer",
+    prefix: "cus"
 
   @doc """
   Finds customers by email address.

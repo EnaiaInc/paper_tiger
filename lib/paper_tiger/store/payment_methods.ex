@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.PaymentMethods do
 
   use PaperTiger.Store,
     table: :paper_tiger_payment_methods,
-    resource: "payment_method"
+    resource: "payment_method",
+    prefix: "pm"
 
   @doc """
   Finds payment methods by customer ID.

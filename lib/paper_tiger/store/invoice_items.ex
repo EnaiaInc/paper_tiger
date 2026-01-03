@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.InvoiceItems do
 
   use PaperTiger.Store,
     table: :paper_tiger_invoice_items,
-    resource: "invoice_item"
+    resource: "invoice_item",
+    prefix: "ii"
 
   @doc """
   Finds invoice items by invoice ID.

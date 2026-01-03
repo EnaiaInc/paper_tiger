@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.BankAccounts do
 
   use PaperTiger.Store,
     table: :paper_tiger_bank_accounts,
-    resource: "bank_account"
+    resource: "bank_account",
+    prefix: "ba"
 
   @doc """
   Finds bank accounts by customer ID.

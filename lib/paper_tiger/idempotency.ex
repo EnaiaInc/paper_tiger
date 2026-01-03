@@ -62,36 +62,24 @@ defmodule PaperTiger.Idempotency do
   def check(idempotency_key) when is_binary(idempotency_key) do
     namespace = PaperTiger.Test.current_namespace()
     key = {namespace, idempotency_key}
+    now = PaperTiger.Clock.now()
+
+    # First, try to atomically remove if it's expired (marker or cached response)
+    # This prevents the race where two processes see it expired and both try to delete/re-insert
+    :ets.select_delete(@table, [{{key, :_, :"$1"}, [{:<, :"$1", now}], [true]}])
 
     case :ets.lookup(@table, key) do
-      [{^key, :in_progress, expires_at}] ->
-        now = PaperTiger.Clock.now()
+      [{^key, :in_progress, _expires_at}] ->
+        Logger.debug("Idempotency key in progress: #{idempotency_key}")
+        :in_progress
 
-        if expires_at > now do
-          Logger.debug("Idempotency key in progress: #{idempotency_key}")
-          :in_progress
-        else
-          # Expired in-progress marker, clean up and retry
-          Logger.debug("Idempotency in-progress marker expired: #{idempotency_key}")
-          :ets.delete(@table, key)
-          check(idempotency_key)
-        end
-
-      [{^key, response, expires_at}] ->
-        now = PaperTiger.Clock.now()
-
-        if expires_at > now do
-          Logger.debug("Idempotency cache hit: #{idempotency_key}")
-          {:cached, response}
-        else
-          Logger.debug("Idempotency cache expired: #{idempotency_key}")
-          :ets.delete(@table, key)
-          check(idempotency_key)
-        end
+      [{^key, response, _expires_at}] ->
+        Logger.debug("Idempotency cache hit: #{idempotency_key}")
+        {:cached, response}
 
       [] ->
         # Atomically reserve this key with in-progress marker
-        expires_at = PaperTiger.Clock.now() + @ttl_seconds
+        expires_at = now + @ttl_seconds
 
         case :ets.insert_new(@table, {key, :in_progress, expires_at}) do
           true ->

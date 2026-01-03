@@ -42,11 +42,12 @@ defmodule PaperTiger.Store do
   defmacro __using__(opts) do
     table = Keyword.fetch!(opts, :table)
     resource = Keyword.fetch!(opts, :resource)
+    prefix = Keyword.get(opts, :prefix)
     plural = Keyword.get(opts, :plural, "#{resource}s")
     url_path = Keyword.get(opts, :url_path, "/v1/#{plural}")
 
     [
-      quote_module_setup(table, resource, plural, url_path),
+      quote_module_setup(table, resource, prefix, plural, url_path),
       quote_read_functions(table, resource, plural, url_path),
       quote_write_functions(resource, plural),
       quote_namespace_functions(table, plural),
@@ -54,7 +55,7 @@ defmodule PaperTiger.Store do
     ]
   end
 
-  defp quote_module_setup(table, resource, plural, url_path) do
+  defp quote_module_setup(table, resource, prefix, plural, url_path) do
     quote do
       use GenServer
 
@@ -62,6 +63,7 @@ defmodule PaperTiger.Store do
 
       @table unquote(table)
       @resource unquote(resource)
+      @prefix unquote(prefix)
       @plural unquote(plural)
       @url_path unquote(url_path)
 
@@ -78,6 +80,12 @@ defmodule PaperTiger.Store do
       """
       @spec table_name() :: atom()
       def table_name, do: @table
+
+      @doc """
+      Returns the ID prefix for this resource.
+      """
+      @spec prefix() :: String.t() | nil
+      def prefix, do: @prefix
 
       # Returns the current namespace for data isolation
       defp current_namespace do

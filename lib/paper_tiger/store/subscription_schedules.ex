@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.SubscriptionSchedules do
 
   use PaperTiger.Store,
     table: :paper_tiger_subscription_schedules,
-    resource: "subscription_schedule"
+    resource: "subscription_schedule",
+    prefix: "sub_sched"
 
   @doc """
   Finds subscription schedules by customer ID.

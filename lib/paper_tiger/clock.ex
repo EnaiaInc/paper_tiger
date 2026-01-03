@@ -22,12 +22,18 @@ defmodule PaperTiger.Clock do
       # Advance time in tests
       PaperTiger.advance_time(days: 30)
       PaperTiger.advance_time(seconds: 3600)
+
+  ## Performance
+
+  The `now/0` function reads directly from ETS to avoid GenServer bottleneck.
+  Only mode changes and time advances go through the GenServer.
   """
 
   use GenServer
 
   require Logger
 
+  @table :paper_tiger_clock
   @type mode :: :real | :accelerated | :manual
   @type state :: %{
           mode: mode(),
@@ -53,10 +59,26 @@ defmodule PaperTiger.Clock do
   - `:real` - Returns actual system time
   - `:accelerated` - Returns system time × multiplier
   - `:manual` - Returns frozen time + manual offset
+
+  This reads directly from ETS to avoid GenServer bottleneck.
   """
   @spec now() :: integer()
   def now do
-    GenServer.call(__MODULE__, :now)
+    case :ets.lookup(@table, :state) do
+      [{:state, %{mode: :real}}] ->
+        System.system_time(:second)
+
+      [{:state, %{mode: :accelerated, multiplier: m, offset: offset, started_at: start}}] ->
+        elapsed = System.system_time(:second) - start
+        start + elapsed * m + offset
+
+      [{:state, %{mode: :manual, offset: offset, started_at: start}}] ->
+        start + offset
+
+      [] ->
+        # Fallback if ETS not initialized yet
+        System.system_time(:second)
+    end
   end
 
   @doc """
@@ -126,6 +148,9 @@ defmodule PaperTiger.Clock do
 
   @impl true
   def init(_opts) do
+    # Create ETS table for lock-free reads
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+
     mode = Application.get_env(:paper_tiger, :time_mode, :real)
     multiplier = Application.get_env(:paper_tiger, :time_multiplier, 1)
 
@@ -136,52 +161,49 @@ defmodule PaperTiger.Clock do
       started_at: System.system_time(:second)
     }
 
+    sync_to_ets(state)
     Logger.info("PaperTiger.Clock started in #{mode} mode (multiplier: #{multiplier}x)")
 
     {:ok, state}
   end
 
   @impl true
-  def handle_call(:now, _from, %{mode: :real} = state) do
-    {:reply, System.system_time(:second), state}
-  end
-
-  def handle_call(:now, _from, %{mode: :accelerated, multiplier: m, offset: offset, started_at: start} = state) do
-    elapsed = System.system_time(:second) - start
-    accelerated_time = start + elapsed * m + offset
-    {:reply, accelerated_time, state}
-  end
-
-  def handle_call(:now, _from, %{mode: :manual, offset: offset, started_at: start} = state) do
-    {:reply, start + offset, state}
-  end
-
   def handle_call({:advance, seconds}, _from, state) do
     new_offset = state.offset + seconds
+    new_state = %{state | offset: new_offset}
+    sync_to_ets(new_state)
     Logger.debug("PaperTiger.Clock advanced by #{seconds}s (total offset: #{new_offset}s)")
-    {:reply, :ok, %{state | offset: new_offset}}
+    {:reply, :ok, new_state}
   end
 
   def handle_call({:set_mode, mode, multiplier}, _from, state) do
     Logger.info("PaperTiger.Clock mode changed: #{state.mode} -> #{mode}")
 
-    {:reply, :ok,
-     %{
-       state
-       | mode: mode,
-         multiplier: multiplier,
-         offset: 0,
-         started_at: System.system_time(:second)
-     }}
+    new_state = %{
+      state
+      | mode: mode,
+        multiplier: multiplier,
+        offset: 0,
+        started_at: System.system_time(:second)
+    }
+
+    sync_to_ets(new_state)
+    {:reply, :ok, new_state}
   end
 
   def handle_call(:reset, _from, state) do
     Logger.debug("PaperTiger.Clock reset")
-
-    {:reply, :ok, %{state | offset: 0, started_at: System.system_time(:second)}}
+    new_state = %{state | offset: 0, started_at: System.system_time(:second)}
+    sync_to_ets(new_state)
+    {:reply, :ok, new_state}
   end
 
   def handle_call(:get_mode, _from, state) do
     {:reply, state.mode, state}
+  end
+
+  # Sync state to ETS for lock-free reads
+  defp sync_to_ets(state) do
+    :ets.insert(@table, {:state, state})
   end
 end

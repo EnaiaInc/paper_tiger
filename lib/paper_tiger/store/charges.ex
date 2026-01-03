@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Charges do
 
   use PaperTiger.Store,
     table: :paper_tiger_charges,
-    resource: "charge"
+    resource: "charge",
+    prefix: "ch"
 
   @doc """
   Finds charges by customer ID.

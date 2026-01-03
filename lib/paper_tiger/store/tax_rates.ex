@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.TaxRates do
 
   use PaperTiger.Store,
     table: :paper_tiger_tax_rates,
-    resource: "tax_rate"
+    resource: "tax_rate",
+    prefix: "txr"
 
   @doc """
   Finds active tax rates.

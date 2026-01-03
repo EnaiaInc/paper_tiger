@@ -28,7 +28,8 @@ defmodule PaperTiger.Store.Refunds do
 
   use PaperTiger.Store,
     table: :paper_tiger_refunds,
-    resource: "refund"
+    resource: "refund",
+    prefix: "re"
 
   @doc """
   Finds refunds by charge ID.

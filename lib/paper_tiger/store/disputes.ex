@@ -29,7 +29,8 @@ defmodule PaperTiger.Store.Disputes do
 
   use PaperTiger.Store,
     table: :paper_tiger_disputes,
-    resource: "dispute"
+    resource: "dispute",
+    prefix: "dp"
 
   @doc """
   Finds disputes by charge ID.

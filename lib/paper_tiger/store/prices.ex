@@ -29,7 +29,8 @@ defmodule PaperTiger.Store.Prices do
 
   use PaperTiger.Store,
     table: :paper_tiger_prices,
-    resource: "price"
+    resource: "price",
+    prefix: "price"
 
   @doc """
   Finds prices by product ID.

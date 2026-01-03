@@ -124,34 +124,39 @@ defmodule PaperTiger.ChaosCoordinatorTest do
 
   describe "event chaos" do
     test "queue_event/2 delivers immediately with no chaos" do
-      delivered = :ets.new(:delivered, [:set, :public])
-      deliver_fn = fn event -> :ets.insert(delivered, {event.id, event}) end
+      test_pid = self()
 
       event = %{id: "evt_123", type: "test.event"}
-      ChaosCoordinator.queue_event(event, deliver_fn)
 
-      # Give the cast a moment to process
-      Process.sleep(10)
+      ChaosCoordinator.queue_event(event, fn evt ->
+        send(test_pid, {:delivered, evt})
+      end)
 
-      # Should be delivered immediately
-      assert [{_, ^event}] = :ets.lookup(delivered, "evt_123")
+      # Should be delivered almost immediately (no buffering)
+      assert_receive {:delivered, ^event}, 100
     end
 
     test "queue_event/2 buffers when buffer_window_ms is set" do
-      delivered = :ets.new(:delivered, [:set, :public])
-      deliver_fn = fn event -> :ets.insert(delivered, {event.id, event}) end
+      test_pid = self()
 
-      ChaosCoordinator.configure(%{events: %{buffer_window_ms: 100}})
+      # Use a longer buffer window and message-based notification
+      ChaosCoordinator.configure(%{events: %{buffer_window_ms: 50}})
 
-      event = %{id: "evt_123", type: "test.event"}
-      ChaosCoordinator.queue_event(event, deliver_fn)
+      event = %{id: "evt_buf_test", type: "test.event"}
 
-      # Not delivered yet
-      assert [] = :ets.lookup(delivered, "evt_123")
+      ChaosCoordinator.queue_event(event, fn evt ->
+        send(test_pid, {:delivered, evt})
+      end)
 
-      # Wait for buffer to flush
-      Process.sleep(150)
-      assert [{_, ^event}] = :ets.lookup(delivered, "evt_123")
+      # Ensure cast is processed by making a synchronous call
+      _ = ChaosCoordinator.get_config()
+
+      # Should NOT be delivered yet - refute any immediate delivery
+      refute_receive {:delivered, _}, 10
+
+      # Now wait for the buffer to actually flush (50ms + some margin)
+      # Use assert_receive with a timeout that's long enough
+      assert_receive {:delivered, ^event}, 200
     end
 
     test "flush_events/0 delivers buffered events immediately" do
@@ -172,61 +177,67 @@ defmodule PaperTiger.ChaosCoordinatorTest do
     end
 
     test "duplicate_rate causes some events to be delivered twice" do
-      # Use a counter to track delivery count
-      counter = :counters.new(1, [])
-      deliver_fn = fn _event -> :counters.add(counter, 1, 1) end
+      test_pid = self()
 
       ChaosCoordinator.configure(%{events: %{duplicate_rate: 1.0}})
 
       event = %{id: "evt_123", type: "test.event"}
-      ChaosCoordinator.queue_event(event, deliver_fn)
 
-      # Give cast time to process
-      Process.sleep(10)
-      ChaosCoordinator.flush_events()
+      ChaosCoordinator.queue_event(event, fn evt ->
+        send(test_pid, {:delivered, evt})
+      end)
 
-      # Should be delivered twice (100% duplicate rate)
-      delivery_count = :counters.get(counter, 1)
-      assert delivery_count == 2
+      # Should receive the event twice (100% duplicate rate, immediate delivery)
+      assert_receive {:delivered, ^event}, 100
+      assert_receive {:delivered, ^event}, 100
     end
 
     test "out_of_order shuffles events" do
-      delivered = :ets.new(:delivered, [:ordered_set, :public])
+      test_pid = self()
       counter = :counters.new(1, [])
 
-      deliver_fn = fn event ->
-        :counters.add(counter, 1, 1)
-        order = :counters.get(counter, 1)
-        :ets.insert(delivered, {order, event.id})
-      end
+      ChaosCoordinator.configure(%{events: %{buffer_window_ms: 5000, out_of_order: true}})
 
-      ChaosCoordinator.configure(%{events: %{buffer_window_ms: 50, out_of_order: true}})
-
-      # Queue many events
+      # Queue many events (buffer_window is long, so they'll accumulate)
       for i <- 1..20 do
-        ChaosCoordinator.queue_event(%{id: "evt_#{i}", type: "test"}, deliver_fn)
+        ChaosCoordinator.queue_event(%{id: "evt_#{i}", type: "test"}, fn event ->
+          :counters.add(counter, 1, 1)
+          order = :counters.get(counter, 1)
+          send(test_pid, {:delivered, order, event.id})
+        end)
       end
 
-      # Give casts time to queue
-      Process.sleep(20)
+      # Ensure all casts are queued by making a sync call
+      _ = ChaosCoordinator.get_config()
+
+      # Force flush (don't wait for timer)
       ChaosCoordinator.flush_events()
 
-      # Get delivery order
-      delivery_order = :ets.tab2list(delivered) |> Enum.map(fn {_, id} -> id end)
+      # Collect all deliveries
+      delivery_order =
+        for _ <- 1..20 do
+          assert_receive {:delivered, _order, event_id}, 100
+          event_id
+        end
 
-      # With 20 events, extremely unlikely to be in original order
+      # With 20 events, extremely unlikely to be in original order after shuffle
       original_order = for i <- 1..20, do: "evt_#{i}"
       assert delivery_order != original_order
     end
 
     test "tracks event chaos statistics" do
+      test_pid = self()
+
       ChaosCoordinator.configure(%{events: %{duplicate_rate: 1.0}})
 
       for i <- 1..3 do
-        ChaosCoordinator.queue_event(%{id: "evt_#{i}"}, fn _ -> :ok end)
+        ChaosCoordinator.queue_event(%{id: "evt_#{i}"}, fn evt ->
+          send(test_pid, {:delivered, evt.id})
+        end)
       end
 
-      ChaosCoordinator.flush_events()
+      # Wait for all deliveries (3 events × 2 each = 6 messages)
+      for _ <- 1..6, do: assert_receive({:delivered, _}, 100)
 
       stats = ChaosCoordinator.get_stats()
       assert stats.events_duplicated == 3

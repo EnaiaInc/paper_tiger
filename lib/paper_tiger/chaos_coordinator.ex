@@ -35,11 +35,18 @@ defmodule PaperTiger.ChaosCoordinator do
 
       # Clear override
       PaperTiger.ChaosCoordinator.clear_simulation("cus_xxx")
+
+  ## Namespace Isolation
+
+  Uses ETS with namespace isolation for test concurrency.
+  Each test process can have its own chaos state.
   """
 
   use GenServer
 
   require Logger
+
+  @table :paper_tiger_chaos
 
   @default_decline_codes [
     :card_declined,
@@ -243,8 +250,18 @@ defmodule PaperTiger.ChaosCoordinator do
 
   @impl true
   def init(_opts) do
+    # Create ETS table for namespace-isolated chaos state
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+
+    # Initialize default state for global namespace
+    init_namespace_state(nil)
+
+    Logger.info("PaperTiger.ChaosCoordinator started")
+    {:ok, %{timers: %{}}}
+  end
+
+  defp init_namespace_state(namespace) do
     state = %{
-      buffer_timer: nil,
       config: load_config_from_app_env(),
       customer_overrides: %{},
       event_buffer: [],
@@ -259,27 +276,57 @@ defmodule PaperTiger.ChaosCoordinator do
       }
     }
 
-    Logger.info("PaperTiger.ChaosCoordinator started")
-    {:ok, state}
+    :ets.insert(@table, {{namespace, :state}, state})
+    state
+  end
+
+  defp get_namespace_state do
+    namespace = PaperTiger.Test.current_namespace()
+
+    case :ets.lookup(@table, {namespace, :state}) do
+      [{{^namespace, :state}, state}] -> state
+      [] -> init_namespace_state(namespace)
+    end
+  end
+
+  defp put_namespace_state(state) do
+    namespace = PaperTiger.Test.current_namespace()
+    :ets.insert(@table, {{namespace, :state}, state})
+  end
+
+  defp current_namespace do
+    PaperTiger.Test.current_namespace()
   end
 
   @impl true
-  def handle_call({:configure, new_config}, _from, state) do
+  def handle_call({:configure, new_config}, _from, genserver_state) do
+    state = get_namespace_state()
     merged = deep_merge(state.config, new_config)
     Logger.debug("ChaosCoordinator config updated: #{inspect(merged)}")
-    {:reply, :ok, %{state | config: merged}}
+    put_namespace_state(%{state | config: merged})
+    {:reply, :ok, genserver_state}
   end
 
-  def handle_call(:get_config, _from, state) do
-    {:reply, state.config, state}
+  def handle_call(:get_config, _from, genserver_state) do
+    state = get_namespace_state()
+    {:reply, state.config, genserver_state}
   end
 
-  def handle_call(:reset, _from, state) do
-    # Cancel any pending buffer timer
-    if state.buffer_timer, do: Process.cancel_timer(state.buffer_timer)
+  def handle_call(:reset, _from, genserver_state) do
+    namespace = current_namespace()
+
+    # Cancel any pending timer for this namespace
+    new_timers =
+      case Map.get(genserver_state.timers, namespace) do
+        nil ->
+          genserver_state.timers
+
+        timer_ref ->
+          Process.cancel_timer(timer_ref)
+          Map.delete(genserver_state.timers, namespace)
+      end
 
     new_state = %{
-      buffer_timer: nil,
       config: @default_config,
       customer_overrides: %{},
       event_buffer: [],
@@ -294,51 +341,98 @@ defmodule PaperTiger.ChaosCoordinator do
       }
     }
 
-    {:reply, :ok, new_state}
+    put_namespace_state(new_state)
+    {:reply, :ok, %{genserver_state | timers: new_timers}}
   end
 
-  def handle_call(:get_stats, _from, state) do
-    {:reply, state.stats, state}
+  def handle_call(:get_stats, _from, genserver_state) do
+    state = get_namespace_state()
+    {:reply, state.stats, genserver_state}
   end
 
   # Payment chaos handlers
-  def handle_call({:should_payment_fail, customer_id}, _from, state) do
+  def handle_call({:should_payment_fail, customer_id}, _from, genserver_state) do
+    state = get_namespace_state()
     {result, new_state} = determine_payment_result(customer_id, state)
-    {:reply, result, new_state}
+    put_namespace_state(new_state)
+    {:reply, result, genserver_state}
   end
 
-  def handle_call({:simulate_failure, customer_id, decline_code}, _from, state) do
+  def handle_call({:simulate_failure, customer_id, decline_code}, _from, genserver_state) do
+    state = get_namespace_state()
     overrides = Map.put(state.customer_overrides, customer_id, decline_code)
-    {:reply, :ok, %{state | customer_overrides: overrides}}
+    put_namespace_state(%{state | customer_overrides: overrides})
+    {:reply, :ok, genserver_state}
   end
 
-  def handle_call({:clear_simulation, customer_id}, _from, state) do
+  def handle_call({:clear_simulation, customer_id}, _from, genserver_state) do
+    state = get_namespace_state()
     overrides = Map.delete(state.customer_overrides, customer_id)
-    {:reply, :ok, %{state | customer_overrides: overrides}}
+    put_namespace_state(%{state | customer_overrides: overrides})
+    {:reply, :ok, genserver_state}
   end
 
   # Event chaos handlers
-  def handle_call(:flush_events, _from, state) do
-    new_state = deliver_buffered_events(state)
-    {:reply, :ok, new_state}
+  def handle_call(:flush_events, _from, genserver_state) do
+    state = get_namespace_state()
+    new_state = flush_event_buffer(state)
+    put_namespace_state(new_state)
+    {:reply, :ok, genserver_state}
   end
 
   # API chaos handlers
-  def handle_call({:should_api_fail, path}, _from, state) do
+  def handle_call({:should_api_fail, path}, _from, genserver_state) do
+    state = get_namespace_state()
     {result, new_state} = determine_api_result(path, state)
-    {:reply, result, new_state}
+    put_namespace_state(new_state)
+    {:reply, result, genserver_state}
   end
 
   @impl true
-  def handle_cast({:queue_event, event, deliver_fn}, state) do
-    new_state = handle_event_queue(event, deliver_fn, state)
-    {:noreply, new_state}
+  def handle_cast({:queue_event, event, deliver_fn}, genserver_state) do
+    namespace = current_namespace()
+    state = get_namespace_state()
+    events_config = state.config.events
+    buffer_window = events_config[:buffer_window_ms] || 0
+
+    if buffer_window > 0 do
+      # Buffer the event with its delivery function
+      new_buffer = [{event, deliver_fn} | state.event_buffer]
+      put_namespace_state(%{state | event_buffer: new_buffer})
+
+      # Schedule flush if not already scheduled for this namespace
+      new_timers =
+        if Map.has_key?(genserver_state.timers, namespace) do
+          genserver_state.timers
+        else
+          timer_ref = Process.send_after(self(), {:flush_buffer, namespace}, buffer_window)
+          Map.put(genserver_state.timers, namespace, timer_ref)
+        end
+
+      {:noreply, %{genserver_state | timers: new_timers}}
+    else
+      # No buffering - deliver immediately with possible duplication
+      new_state = deliver_event_with_chaos(event, deliver_fn, state)
+      put_namespace_state(new_state)
+      {:noreply, genserver_state}
+    end
   end
 
   @impl true
-  def handle_info(:flush_buffer, state) do
-    new_state = deliver_buffered_events(%{state | buffer_timer: nil})
-    {:noreply, new_state}
+  def handle_info({:flush_buffer, namespace}, genserver_state) do
+    # Flush the buffer for the specific namespace
+    case :ets.lookup(@table, {namespace, :state}) do
+      [{{^namespace, :state}, state}] ->
+        new_state = flush_event_buffer(state)
+        :ets.insert(@table, {{namespace, :state}, new_state})
+
+      [] ->
+        :ok
+    end
+
+    # Remove the timer reference
+    new_timers = Map.delete(genserver_state.timers, namespace)
+    {:noreply, %{genserver_state | timers: new_timers}}
   end
 
   ## Private - Payment Chaos
@@ -405,78 +499,6 @@ defmodule PaperTiger.ChaosCoordinator do
     :card_declined
   end
 
-  ## Private - Event Chaos
-
-  defp handle_event_queue(event, deliver_fn, state) do
-    events_config = state.config.events
-
-    if event_chaos_enabled?(events_config) do
-      buffer_event(event, deliver_fn, events_config, state)
-    else
-      deliver_fn.(event)
-      state
-    end
-  end
-
-  defp event_chaos_enabled?(events_config) do
-    buffer_window = events_config[:buffer_window_ms] || 0
-    out_of_order = events_config[:out_of_order] || false
-    duplicate_rate = events_config[:duplicate_rate] || 0.0
-
-    buffer_window > 0 or out_of_order or duplicate_rate > 0.0
-  end
-
-  defp buffer_event(event, deliver_fn, events_config, state) do
-    entry = %{deliver_fn: deliver_fn, event: event, queued_at: System.monotonic_time(:millisecond)}
-    {entries, state} = maybe_duplicate_entry(entry, events_config, state)
-    new_buffer = state.event_buffer ++ entries
-    timer = schedule_buffer_flush(events_config, state)
-
-    %{state | buffer_timer: timer, event_buffer: new_buffer}
-  end
-
-  defp maybe_duplicate_entry(entry, events_config, state) do
-    duplicate_rate = events_config[:duplicate_rate] || 0.0
-
-    if duplicate_rate > 0.0 and :rand.uniform() < duplicate_rate do
-      stats = Map.update!(state.stats, :events_duplicated, &(&1 + 1))
-      {[entry, entry], %{state | stats: stats}}
-    else
-      {[entry], state}
-    end
-  end
-
-  defp schedule_buffer_flush(events_config, state) do
-    buffer_window = events_config[:buffer_window_ms] || 0
-
-    if is_nil(state.buffer_timer) and buffer_window > 0 do
-      Process.send_after(self(), :flush_buffer, buffer_window)
-    else
-      state.buffer_timer
-    end
-  end
-
-  defp deliver_buffered_events(state) do
-    events_config = state.config.events
-    out_of_order = events_config[:out_of_order] || false
-
-    buffer =
-      if out_of_order and length(state.event_buffer) > 1 do
-        stats = Map.update!(state.stats, :events_reordered, &(&1 + 1))
-        state = %{state | stats: stats}
-        Enum.shuffle(state.event_buffer)
-      else
-        state.event_buffer
-      end
-
-    # Deliver all events
-    Enum.each(buffer, fn %{deliver_fn: deliver_fn, event: event} ->
-      deliver_fn.(event)
-    end)
-
-    %{state | event_buffer: []}
-  end
-
   ## Private - API Chaos
 
   defp determine_api_result(path, state) do
@@ -532,6 +554,57 @@ defmodule PaperTiger.ChaosCoordinator do
 
   defp check_api_chaos(_random, _timeout_rate, _rate_limit_rate, _error_rate, _api_config, state) do
     {:ok, state}
+  end
+
+  ## Private - Event Chaos
+
+  defp flush_event_buffer(state) do
+    buffer = state.event_buffer
+
+    if Enum.empty?(buffer) do
+      state
+    else
+      events_config = state.config.events
+      out_of_order = events_config[:out_of_order] || false
+
+      # Maybe shuffle events
+      events_to_deliver =
+        if out_of_order do
+          Enum.shuffle(buffer)
+        else
+          Enum.reverse(buffer)
+        end
+
+      # Count reordering if we shuffled
+      reorder_count = if out_of_order and length(buffer) > 1, do: length(buffer), else: 0
+
+      # Deliver each event with possible duplication
+      new_state =
+        Enum.reduce(events_to_deliver, state, fn {event, deliver_fn}, acc ->
+          deliver_event_with_chaos(event, deliver_fn, acc)
+        end)
+
+      # Update reorder stats and clear buffer
+      stats = Map.update!(new_state.stats, :events_reordered, &(&1 + reorder_count))
+      %{new_state | event_buffer: [], stats: stats}
+    end
+  end
+
+  defp deliver_event_with_chaos(event, deliver_fn, state) do
+    events_config = state.config.events
+    duplicate_rate = events_config[:duplicate_rate] || 0.0
+
+    # Always deliver once
+    deliver_fn.(event)
+
+    # Maybe duplicate
+    if duplicate_rate > 0.0 and :rand.uniform() < duplicate_rate do
+      deliver_fn.(event)
+      stats = Map.update!(state.stats, :events_duplicated, &(&1 + 1))
+      %{state | stats: stats}
+    else
+      state
+    end
   end
 
   ## Private - Helpers
