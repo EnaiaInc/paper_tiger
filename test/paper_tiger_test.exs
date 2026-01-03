@@ -147,7 +147,8 @@ defmodule PaperTigerTest do
       error = PaperTiger.Error.card_declined(code: "insufficient_funds")
 
       assert error.type == "card_error"
-      assert error.code == "insufficient_funds"
+      assert error.code == "card_declined"
+      assert error.decline_code == "insufficient_funds"
       assert error.status == 402
     end
 
