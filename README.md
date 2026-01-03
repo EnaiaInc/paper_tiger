@@ -32,7 +32,8 @@ PaperTiger solves this by providing a complete, stateful implementation of the S
 - **Idempotency**: Request deduplication with 24-hour TTL
 - **Object Expansion**: Hydrator system for nested resource expansion
 - **Time Control**: Accelerated, manual, or real-time clock for testing
-- **Billing Engine**: Automated subscription billing simulation with chaos testing support
+- **Billing Engine**: Automated subscription billing simulation
+- **Chaos Testing**: Unified ChaosCoordinator for payment, event, and API chaos
 
 ## Installation
 
@@ -41,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.0"}
+    {:paper_tiger, "~> 0.9.4"}
   ]
 end
 ```
@@ -87,7 +88,7 @@ Add PaperTiger to your dependencies:
 # mix.exs
 def deps do
   [
-    {:paper_tiger, "~> 0.9.0", only: [:dev, :test]},
+    {:paper_tiger, "~> 0.9.4", only: [:dev, :test]},
     {:stripity_stripe, "~> 3.0"}
   ]
 end
@@ -451,20 +452,52 @@ PaperTiger.BillingEngine.start_link([])
 # => %{processed: 5, succeeded: 4, failed: 1}
 ```
 
-### Billing Modes
+## Chaos Testing
 
-**Happy Path** (default): All payments succeed.
+PaperTiger provides a unified `ChaosCoordinator` for comprehensive chaos testing across payment processing, webhook delivery, and API responses.
 
-```elixir
-PaperTiger.BillingEngine.set_mode(:happy_path)
-```
+### Payment Chaos
 
-**Chaos Mode**: Random payment failures with configurable rates and decline codes.
+Simulate payment failures with configurable rates and decline codes:
 
 ```elixir
-PaperTiger.BillingEngine.set_mode(:chaos,
+# Configure global payment failure rate
+PaperTiger.ChaosCoordinator.configure(
   payment_failure_rate: 0.3,  # 30% failure rate
   decline_codes: [:card_declined, :insufficient_funds, :expired_card]
+)
+
+# Per-customer failure simulation
+PaperTiger.ChaosCoordinator.simulate_failure("cus_123", :insufficient_funds)
+
+# Clear per-customer simulation
+PaperTiger.ChaosCoordinator.clear_simulation("cus_123")
+
+# Reset all chaos settings
+PaperTiger.ChaosCoordinator.reset()
+```
+
+### Event Chaos
+
+Test webhook handler resilience with out-of-order and duplicate events:
+
+```elixir
+PaperTiger.ChaosCoordinator.configure(
+  event_out_of_order_rate: 0.2,  # 20% of events delivered out of order
+  event_duplicate_rate: 0.1,     # 10% duplicate events
+  event_delay_range: {100, 5000} # Random delay 100-5000ms
+)
+```
+
+### API Chaos
+
+Simulate API failures and rate limiting:
+
+```elixir
+PaperTiger.ChaosCoordinator.configure(
+  api_timeout_rate: 0.1,      # 10% of requests timeout
+  api_error_rate: 0.05,       # 5% server errors
+  rate_limit_rate: 0.02       # 2% rate limit responses
 )
 ```
 
@@ -478,16 +511,18 @@ PaperTiger supports 22 Stripe decline codes for realistic failure simulation:
 - **Limits**: `card_velocity_exceeded`, `withdrawal_count_limit_exceeded`
 - **Technical**: `processing_error`, `try_again_later`, `issuer_not_available`
 
-### Per-Customer Failure Simulation
+### Chaos Statistics
 
-Force specific customers to fail with specific decline codes:
+Track chaos events for test assertions:
 
 ```elixir
-# This customer will always fail with insufficient_funds
-PaperTiger.BillingEngine.simulate_failure("cus_123", :insufficient_funds)
-
-# Clear simulation
-PaperTiger.BillingEngine.clear_failure("cus_123")
+stats = PaperTiger.ChaosCoordinator.stats()
+# => %{
+#   payment_failures: 5,
+#   events_reordered: 3,
+#   events_duplicated: 2,
+#   api_timeouts: 1
+# }
 ```
 
 ### Subscription Lifecycle
