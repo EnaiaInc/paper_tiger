@@ -159,6 +159,9 @@ defmodule PaperTiger do
     # Reset chaos coordinator
     PaperTiger.ChaosCoordinator.reset()
 
+    # Reload pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
+    {:ok, _stats} = PaperTiger.TestTokens.load()
+
     :ok
   end
 

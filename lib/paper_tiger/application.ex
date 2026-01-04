@@ -90,6 +90,8 @@ defmodule PaperTiger.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, pid} ->
+        # Load pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
+        load_test_tokens()
         # Load init_data after stores are initialized
         load_init_data()
         # Register configured webhooks
@@ -102,6 +104,12 @@ defmodule PaperTiger.Application do
   end
 
   ## Private Functions
+
+  # Loads pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
+  defp load_test_tokens do
+    {:ok, _stats} = PaperTiger.TestTokens.load()
+    :ok
+  end
 
   # Loads init_data if configured
   defp load_init_data do
