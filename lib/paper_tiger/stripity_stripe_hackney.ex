@@ -1,5 +1,4 @@
 defmodule PaperTiger.StripityStripeHackney do
-  @compile {:no_warn_undefined, :hackney}
   @moduledoc """
   HTTP module for stripity_stripe that enables PaperTiger sandbox isolation.
 
@@ -51,6 +50,7 @@ defmodule PaperTiger.StripityStripeHackney do
       end
   """
 
+  @compile {:no_warn_undefined, :hackney}
   @namespace_key :paper_tiger_namespace
   @namespace_header "x-paper-tiger-namespace"
   @shared_namespace_key :paper_tiger_shared_namespace
