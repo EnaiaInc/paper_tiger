@@ -2,7 +2,7 @@ defmodule PaperTiger.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "0.9.9"
+  @version "0.9.10"
   @url "https://github.com/EnaiaInc/paper_tiger"
   @maintainers ["Enaia Inc"]
 
@@ -62,6 +62,10 @@ defmodule PaperTiger.MixProject do
 
       # JSON
       {:jason, "~> 1.4"},
+
+      # Optional: hackney for stripity_stripe sandbox integration
+      # Users of PaperTiger.StripityStripeHackney must have hackney available
+      {:hackney, "~> 1.20", optional: true},
 
       # Testing/dev
       {:bypass, "~> 2.1", only: :test},

@@ -42,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.4"}
+    {:paper_tiger, "~> 0.9.10"}
   ]
 end
 ```
@@ -360,6 +360,58 @@ end
 3. On test exit, only that namespace's data is automatically cleaned up
 
 This allows hundreds of tests to run in parallel without data interference.
+
+### Stripity Stripe Integration
+
+When using `stripity_stripe`, configure it to use `PaperTiger.StripityStripeHackney` for automatic sandbox isolation:
+
+```elixir
+# config/test.exs
+config :stripity_stripe,
+  api_key: "sk_test_paper_tiger",
+  api_base_url: "http://localhost:4001",
+  http_module: PaperTiger.StripityStripeHackney
+```
+
+Or use the helper:
+
+```elixir
+# config/test.exs
+config :stripity_stripe, PaperTiger.stripity_stripe_config()
+```
+
+This ensures that all Stripe API calls made via `stripity_stripe` automatically include the namespace header for test isolation - including calls made from child processes like Phoenix LiveView.
+
+**How it works:**
+
+1. `checkout_paper_tiger/1` sets a shared namespace via Application env
+2. `PaperTiger.StripityStripeHackney` injects the `x-paper-tiger-namespace` header into HTTP requests
+3. Child processes (LiveView, async tasks) automatically pick up the shared namespace
+4. All Stripe operations are scoped to the test's namespace
+
+**Example with LiveView:**
+
+```elixir
+defmodule MyApp.BillingLiveTest do
+  use MyApp.ConnCase, async: true
+
+  import PaperTiger.Test
+
+  setup do
+    checkout_paper_tiger(%{})
+    # ... rest of setup
+  end
+
+  test "billing page shows subscription", %{conn: conn} do
+    # Create subscription in test process
+    {:ok, _sub} = Stripe.Subscription.create(%{...})
+
+    # LiveView's Stripe calls are automatically isolated to same sandbox
+    {:ok, live, _html} = live(conn, "/billing")
+    assert has_element?(live, "[data-subscription]")
+  end
+end
+```
 
 ### Migration from sync tests
 
