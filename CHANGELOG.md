@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10] - 2026-01-04
+
+### Added
+
+- **`PaperTiger.StripityStripeHackney` for automatic sandbox isolation**: New HTTP module that wraps `:hackney` and injects namespace headers for test isolation when using stripity_stripe
+  - Configure stripity_stripe with `http_module: PaperTiger.StripityStripeHackney`
+  - Works with child processes (LiveView, async tasks) via shared namespace in Application env
+  - `checkout_paper_tiger/1` now automatically sets up shared namespace for child process support
+
+### Changed
+
+- **`checkout_paper_tiger/1` sets shared namespace via Application env**: Child processes (like Phoenix LiveView) can now automatically access the same PaperTiger sandbox as the test process without additional configuration
+
 ## [0.9.9] - 2026-01-04
 
 ### Added

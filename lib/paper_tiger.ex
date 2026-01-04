@@ -315,17 +315,28 @@ defmodule PaperTiger do
   - `:port` - PaperTiger port (default: 4001)
   - `:host` - PaperTiger host (default: "localhost")
   - `:webhook_secret` - Webhook signing secret (default: "whsec_paper_tiger_test")
+  - `:sandbox` - Enable sandbox isolation for concurrent tests (default: true)
+
+  ## Sandbox Mode
+
+  When `sandbox: true` (the default), the returned config includes
+  `http_module: PaperTiger.StripityStripeHackney`, which injects namespace
+  headers for test isolation. This allows tests to run concurrently without
+  data leakage between tests.
+
+  Set `sandbox: false` if you want global (non-isolated) mode, though this
+  is rarely needed.
 
   ## Examples
 
-      # In config/test.exs
+      # In config/test.exs (recommended)
       config :stripity_stripe, PaperTiger.stripity_stripe_config()
 
       # With custom options
       config :stripity_stripe, PaperTiger.stripity_stripe_config(port: 4002)
 
-      # At runtime (e.g., in test setup)
-      Application.put_env(:stripity_stripe, PaperTiger.stripity_stripe_config())
+      # Disable sandbox (not recommended for concurrent tests)
+      config :stripity_stripe, PaperTiger.stripity_stripe_config(sandbox: false)
 
   ## Returns
 
@@ -334,14 +345,16 @@ defmodule PaperTiger do
   - `:public_key` - Mock publishable key
   - `:api_base_url` - URL pointing to PaperTiger
   - `:webhook_signing_key` - Webhook signing secret
+  - `:http_module` - Custom HTTP module for sandbox isolation (when sandbox: true)
   """
   @spec stripity_stripe_config(keyword()) :: keyword()
   def stripity_stripe_config(opts \\ []) do
     port = Keyword.get(opts, :port, 4001)
     host = Keyword.get(opts, :host, "localhost")
     webhook_secret = Keyword.get(opts, :webhook_secret, "whsec_paper_tiger_test")
+    sandbox = Keyword.get(opts, :sandbox, true)
 
-    [
+    base_config = [
       api_key: "sk_test_paper_tiger",
       public_key: "pk_test_paper_tiger",
       # NOTE: stripity_stripe appends endpoints like "/v1/products" to this URL,
@@ -349,5 +362,11 @@ defmodule PaperTiger do
       api_base_url: "http://#{host}:#{port}",
       webhook_signing_key: webhook_secret
     ]
+
+    if sandbox do
+      base_config ++ [http_module: PaperTiger.StripityStripeHackney]
+    else
+      base_config
+    end
   end
 end

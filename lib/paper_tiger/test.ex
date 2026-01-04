@@ -63,6 +63,7 @@ defmodule PaperTiger.Test do
 
   @namespace_key :paper_tiger_namespace
   @namespace_header "x-paper-tiger-namespace"
+  @shared_namespace_key :paper_tiger_shared_namespace
   @default_api_key "sk_test_mock"
 
   @doc """
@@ -147,6 +148,13 @@ defmodule PaperTiger.Test do
         :ok
       end
 
+  ## Child Process Support
+
+  This function also sets a shared namespace via Application env, which
+  allows child processes (like Phoenix LiveView) to use the same sandbox.
+  This is essential for integration tests where Stripe calls happen in
+  spawned processes.
+
   Returns `:ok` for use with ExUnit's setup callbacks.
   """
   @spec checkout_paper_tiger(map()) :: :ok
@@ -154,8 +162,14 @@ defmodule PaperTiger.Test do
     namespace = self()
     Process.put(@namespace_key, namespace)
 
+    # Also set shared namespace for child processes (LiveView, async tasks, etc.)
+    # This allows stripity_stripe calls from spawned processes to use the same sandbox
+    Application.put_env(:paper_tiger, @shared_namespace_key, namespace)
+
     ExUnit.Callbacks.on_exit(fn ->
       cleanup_namespace(namespace)
+      # Clear the shared namespace on test exit
+      Application.delete_env(:paper_tiger, @shared_namespace_key)
     end)
 
     :ok
