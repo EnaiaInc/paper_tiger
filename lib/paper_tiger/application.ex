@@ -38,6 +38,15 @@ defmodule PaperTiger.Application do
 
   @impl true
   def start(_type, _args) do
+    if should_start?() do
+      do_start()
+    else
+      # Return empty supervisor - PaperTiger is disabled for this context
+      Supervisor.start_link([], strategy: :one_for_one, name: PaperTiger.Supervisor)
+    end
+  end
+
+  defp do_start do
     Logger.info("Starting PaperTiger Application")
 
     # Attach telemetry handlers for automatic event emission
@@ -45,14 +54,14 @@ defmodule PaperTiger.Application do
 
     children =
       [
-        # Core systems (always running)
+        # Core systems
         PaperTiger.Clock,
         PaperTiger.Idempotency,
         PaperTiger.ChaosCoordinator,
         {Task.Supervisor, name: PaperTiger.TaskSupervisor},
         PaperTiger.WebhookDelivery,
 
-        # Resource stores (always running)
+        # Resource stores
         Customers,
         Subscriptions,
         Products,
@@ -132,42 +141,63 @@ defmodule PaperTiger.Application do
   end
 
   defp maybe_add_http_server(children) do
-    if should_auto_start?() do
-      port = get_port()
+    port = get_port()
 
-      http_spec = {
-        Bandit,
-        plug: PaperTiger.Router, port: port, scheme: :http
-      }
+    http_spec = {
+      Bandit,
+      plug: PaperTiger.Router, port: port, scheme: :http
+    }
 
-      Logger.info("PaperTiger HTTP server will start on port #{port}")
-      children ++ [http_spec]
-    else
-      children
-    end
+    Logger.info("PaperTiger HTTP server starting on port #{port}")
+    children ++ [http_spec]
   end
 
-  # Check if HTTP server should auto-start (env var takes precedence over config)
-  # Defaults to true - the whole point of PaperTiger is to serve HTTP requests
-  defp should_auto_start? do
-    case System.get_env("PAPER_TIGER_AUTO_START") do
-      nil -> Application.get_env(:paper_tiger, :auto_start, true)
+  # Check if PaperTiger should start at all
+  # Env var takes precedence, then config, then smart default based on context
+  defp should_start? do
+    case System.get_env("PAPER_TIGER_START") do
       "true" -> true
       "false" -> false
-      _ -> true
+      nil -> Application.get_env(:paper_tiger, :start, default_should_start?())
     end
   end
 
-  # Get port from env var or config
-  # Precedence: PAPER_TIGER_PORT_{ENV} > PAPER_TIGER_PORT > config > default
-  defp get_port do
-    env_specific_var = "PAPER_TIGER_PORT_#{mix_env_upcase()}"
+  # Smart default: start for test, phx.server, and interactive iex sessions
+  # Don't start for other mix tasks (compile, migrations, openapi generation, etc.)
+  defp default_should_start? do
+    cond do
+      # Always start in test environment
+      Mix.env() == :test -> true
+      # Start if running phx.server
+      running_phx_server?() -> true
+      # Start in interactive iex session (no Mix.TasksServer means not a mix task)
+      interactive_session?() -> true
+      # Don't start for other mix tasks
+      true -> false
+    end
+  end
 
-    case System.get_env(env_specific_var) do
+  defp running_phx_server? do
+    System.argv() |> Enum.any?(&(&1 =~ "phx.server"))
+  end
+
+  defp interactive_session? do
+    # If IEx is running and we're not in a mix task, it's interactive
+    Code.ensure_loaded?(IEx) and IEx.started?() and not mix_task_running?()
+  end
+
+  defp mix_task_running? do
+    Process.whereis(Mix.TasksServer) != nil
+  end
+
+  # Get port from env var or config, with random fallback to avoid conflicts
+  # Precedence: PAPER_TIGER_PORT > config > random high port
+  defp get_port do
+    case System.get_env("PAPER_TIGER_PORT") do
       nil ->
-        case System.get_env("PAPER_TIGER_PORT") do
-          nil -> Application.get_env(:paper_tiger, :port, 4001)
-          port_string -> String.to_integer(port_string)
+        case Application.get_env(:paper_tiger, :port) do
+          nil -> random_high_port()
+          port -> port
         end
 
       port_string ->
@@ -175,9 +205,10 @@ defmodule PaperTiger.Application do
     end
   end
 
-  # Get Mix.env at compile time since Mix isn't available in releases
-  @mix_env_upcase Mix.env() |> Atom.to_string() |> String.upcase()
-  defp mix_env_upcase, do: @mix_env_upcase
+  # Pick a random port in range 51000-52000 to avoid conflicts
+  defp random_high_port do
+    51_000 + :rand.uniform(1000)
+  end
 
   defp maybe_add_workers(children) do
     children
