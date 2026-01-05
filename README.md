@@ -102,8 +102,8 @@ Use PaperTiger's configuration helper in your config files:
 # config/test.exs
 config :stripity_stripe, PaperTiger.stripity_stripe_config()
 
-# Optional: Auto-start HTTP server (runs on port 4001 by default)
-config :paper_tiger, auto_start: true
+# Optional: Start HTTP server (runs on port 4001 by default)
+config :paper_tiger, start: true
 
 # Optional: Register webhooks automatically
 config :paper_tiger,
@@ -118,7 +118,7 @@ For conditional use in development (e.g., PR apps):
 # config/runtime.exs
 if System.get_env("USE_PAPER_TIGER") == "true" do
   config :stripity_stripe, PaperTiger.stripity_stripe_config()
-  config :paper_tiger, auto_start: true
+  config :paper_tiger, start: true
 end
 ```
 
@@ -126,7 +126,7 @@ end
 
 PaperTiger respects environment variables for runtime configuration:
 
-- `PAPER_TIGER_AUTO_START` - Set to "true" to enable HTTP server
+- `PAPER_TIGER_START` - Set to "true" to enable HTTP server
 - `PAPER_TIGER_PORT` - Port to run on (default: 4001)
 - `PAPER_TIGER_PORT_DEV` - Port for dev environment (overrides `PAPER_TIGER_PORT`)
 - `PAPER_TIGER_PORT_TEST` - Port for test environment (overrides `PAPER_TIGER_PORT`)
@@ -141,11 +141,11 @@ export PAPER_TIGER_PORT_DEV=4001
 export PAPER_TIGER_PORT_TEST=4003
 ```
 
-This is also useful for Heroku, Render, or other PaaS deployments:
+This is also useful for Fly.io or other PaaS deployments:
 
 ```bash
 # Enable PaperTiger for PR apps
-heroku config:set PAPER_TIGER_AUTO_START=true -a my-app-pr-123
+fly secrets set PAPER_TIGER_START=true -a my-app-pr-123
 ```
 
 ### Webhook Integration
@@ -164,7 +164,7 @@ PaperTiger automatically emits Stripe events when resources are created, updated
 ```elixir
 # config/test.exs
 config :paper_tiger,
-  auto_start: true,
+  start: true,
   webhooks: [
     [url: "http://localhost:4000/webhooks/stripe"]
   ]
@@ -225,11 +225,11 @@ iex> PaperTiger.register_webhook(url: "http://localhost:4000/webhooks/stripe")
 # Webhooks are delivered to your Phoenix app
 ```
 
-Or use auto-start for zero-config testing:
+Or use start for zero-config testing:
 
 ```elixir
 # config/test.exs
-config :paper_tiger, auto_start: true
+config :paper_tiger, start: true
 config :stripity_stripe, PaperTiger.stripity_stripe_config()
 
 # In tests - PaperTiger runs automatically
