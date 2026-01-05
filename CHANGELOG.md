@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.13] - 2026-01-04
+
+### Fixed
+
+- **Mix.env() check at runtime, not compile time**: Dependencies are compiled in `:dev` environment by default, so the compile-time `@mix_env` module attribute was always `:dev` even when running tests. Now checks `Mix.env()` at runtime (after verifying Mix is available) to correctly detect test environment.
+
+## [0.9.12] - 2026-01-04
+
+### Fixed
+
+- **Namespace isolation for InvoiceItem**: Fixed `InvoiceItem.list` to properly filter by namespace, preventing test isolation leaks when listing invoice items.
+
 ## [0.9.11] - 2026-01-04
 
 ### Fixed

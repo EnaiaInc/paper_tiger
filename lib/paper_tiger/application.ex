@@ -37,9 +37,6 @@ defmodule PaperTiger.Application do
 
   require Logger
 
-  # Capture Mix.env at compile time since Mix isn't available in releases
-  @mix_env Mix.env()
-
   @impl true
   def start(_type, _args) do
     if should_start?() do
@@ -172,8 +169,8 @@ defmodule PaperTiger.Application do
     cond do
       # In a release (no Mix module) - always start, user controls via config/env
       not Code.ensure_loaded?(Mix) -> true
-      # Always start in test environment (compare atoms dynamically to avoid dialyzer warning)
-      Atom.to_string(@mix_env) == "test" -> true
+      # Always start in test environment - Mix.env() is safe here since we already checked Mix is loaded
+      Mix.env() == :test -> true
       # Start if running phx.server
       running_phx_server?() -> true
       # Start in interactive iex session (no Mix.TasksServer means not a mix task)
