@@ -81,12 +81,19 @@ defmodule PaperTiger.Initializer do
 
   @doc """
   Loads initial data from a JSON file.
+
+  Paths starting with `priv/` are automatically resolved by searching all
+  loaded applications' priv directories. This allows configurations like
+  `init_data: "priv/paper_tiger/init_data.json"` to work both in development
+  (relative to project root) and in releases (where the file is in the host
+  application's priv directory).
   """
   @spec load_from_file(String.t()) :: {:ok, map()} | {:error, term()}
   def load_from_file(path) do
-    Logger.info("PaperTiger loading init_data from: #{path}")
+    resolved_path = resolve_priv_path(path)
+    Logger.info("PaperTiger loading init_data from: #{resolved_path}")
 
-    with {:ok, contents} <- File.read(path),
+    with {:ok, contents} <- File.read(resolved_path),
          {:ok, data} <- decode_json(contents) do
       load_from_map(data)
     else
@@ -128,6 +135,40 @@ defmodule PaperTiger.Initializer do
   end
 
   ## Private Functions
+
+  # Resolves paths starting with "priv/" by searching all loaded applications'
+  # priv directories. This handles the case where init_data is configured as
+  # "priv/paper_tiger/init_data.json" which works in dev (relative to project
+  # root) but fails in releases where the working directory is different.
+  defp resolve_priv_path("priv/" <> rest = original_path) do
+    if File.exists?(original_path) do
+      original_path
+    else
+      search_app_priv_dirs(rest) || original_path
+    end
+  end
+
+  defp resolve_priv_path(path), do: path
+
+  defp search_app_priv_dirs(relative_path) do
+    :application.loaded_applications()
+    |> Enum.find_value(fn {app, _, _} -> find_in_app_priv(app, relative_path) end)
+  end
+
+  defp find_in_app_priv(app, relative_path) do
+    case :code.priv_dir(app) do
+      {:error, _} ->
+        nil
+
+      priv_dir ->
+        full_path = Path.join(to_string(priv_dir), relative_path)
+
+        if File.exists?(full_path) do
+          Logger.debug("PaperTiger resolved priv path via #{app}: #{full_path}")
+          full_path
+        end
+    end
+  end
 
   defp decode_json(contents) do
     # Try built-in JSON first (Elixir 1.18+), fall back to Jason
