@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.14] - 2026-01-05
+
+### Fixed
+
+- **`init_data` priv paths now work in releases**: Paths starting with `priv/` (e.g., `init_data: "priv/paper_tiger/init_data.json"`) are now automatically resolved by searching all loaded applications' priv directories. This fixes init_data not loading in releases where the working directory differs from the project root.
+
 ## [0.9.13] - 2026-01-04
 
 ### Fixed
