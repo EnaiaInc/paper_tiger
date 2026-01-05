@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.Apply
 defmodule PaperTiger.Application do
   @moduledoc false
 
@@ -35,6 +36,9 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Webhooks
 
   require Logger
+
+  # Capture Mix.env at compile time since Mix isn't available in releases
+  @mix_env Mix.env()
 
   @impl true
   def start(_type, _args) do
@@ -162,12 +166,14 @@ defmodule PaperTiger.Application do
     end
   end
 
-  # Smart default: start for test, phx.server, and interactive iex sessions
+  # Smart default: start for test, phx.server, interactive iex sessions, and releases
   # Don't start for other mix tasks (compile, migrations, openapi generation, etc.)
   defp default_should_start? do
     cond do
-      # Always start in test environment
-      Mix.env() == :test -> true
+      # In a release (no Mix module) - always start, user controls via config/env
+      not Code.ensure_loaded?(Mix) -> true
+      # Always start in test environment (compare atoms dynamically to avoid dialyzer warning)
+      Atom.to_string(@mix_env) == "test" -> true
       # Start if running phx.server
       running_phx_server?() -> true
       # Start in interactive iex session (no Mix.TasksServer means not a mix task)
@@ -183,10 +189,16 @@ defmodule PaperTiger.Application do
 
   defp interactive_session? do
     # If IEx is running and we're not in a mix task, it's interactive
-    Code.ensure_loaded?(IEx) and IEx.started?() and not mix_task_running?()
+    # Use apply to avoid dialyzer warning about IEx.started?/0 not existing
+    iex_started? =
+      Code.ensure_loaded?(IEx) and function_exported?(IEx, :started?, 0) and
+        apply(IEx, :started?, [])
+
+    iex_started? and not mix_task_running?()
   end
 
   defp mix_task_running? do
+    # Mix.TasksServer only exists during mix tasks, not in releases
     Process.whereis(Mix.TasksServer) != nil
   end
 
