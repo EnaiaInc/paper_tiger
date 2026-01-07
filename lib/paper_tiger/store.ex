@@ -230,7 +230,7 @@ defmodule PaperTiger.Store do
     end
   end
 
-  defp quote_callbacks(table, resource, plural) do
+  defp quote_callbacks(table, _resource, _plural) do
     quote do
       @impl true
       def init(_opts) do
@@ -250,34 +250,29 @@ defmodule PaperTiger.Store do
       def handle_call({:insert, namespace, item}, _from, state) do
         key = {namespace, item.id}
         :ets.insert(unquote(table), {key, item})
-        Logger.debug("#{String.capitalize(unquote(resource))} inserted: #{item.id}")
         {:reply, {:ok, item}, state}
       end
 
       def handle_call({:update, namespace, item}, _from, state) do
         key = {namespace, item.id}
         :ets.insert(unquote(table), {key, item})
-        Logger.debug("#{String.capitalize(unquote(resource))} updated: #{item.id}")
         {:reply, {:ok, item}, state}
       end
 
       def handle_call({:delete, namespace, id}, _from, state) do
         key = {namespace, id}
         :ets.delete(unquote(table), key)
-        Logger.debug("#{String.capitalize(unquote(resource))} deleted: #{id}")
         {:reply, :ok, state}
       end
 
       def handle_call(:clear, _from, state) do
         :ets.delete_all_objects(unquote(table))
-        Logger.debug("#{String.capitalize(unquote(plural))} store cleared")
         {:reply, :ok, state}
       end
 
       def handle_call({:clear_namespace, namespace}, _from, state) do
         # Delete all entries matching the namespace
         :ets.match_delete(unquote(table), {{namespace, :_}, :_})
-        Logger.debug("#{String.capitalize(unquote(plural))} cleared for namespace")
         {:reply, :ok, state}
       end
 

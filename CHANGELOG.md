@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.15] - 2026-01-06
+
+### Added
+
+- **Stripe data sync adapter**: Automatically syncs customer, subscription, product, price, and plan data from real Stripe API on startup when stripity_stripe is detected. Solves the problem of dev/PR apps losing subscription data on restart. Sync adapter is pluggable via `PaperTiger.SyncAdapter` behavior for custom implementations.
+
+### Changed
+
+- **Reduced debug logging**: Removed per-operation debug logs from store operations (insert/update/delete/clear) and resource creation. Startup logging is now more concise with single-line summaries.
+
 ## [0.9.14] - 2026-01-05
 
 ### Fixed

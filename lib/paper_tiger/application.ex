@@ -4,6 +4,7 @@ defmodule PaperTiger.Application do
 
   use Application
 
+  alias PaperTiger.Adapters.StripityStripe
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -102,7 +103,9 @@ defmodule PaperTiger.Application do
       {:ok, pid} ->
         # Load pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
         load_test_tokens()
-        # Load init_data after stores are initialized
+        # Sync from real Stripe if adapter configured
+        sync_from_stripe()
+        # Load init_data after stores are initialized (overrides sync data if present)
         load_init_data()
         # Register configured webhooks
         register_configured_webhooks()
@@ -121,11 +124,41 @@ defmodule PaperTiger.Application do
     :ok
   end
 
+  # Syncs data from real Stripe using configured adapter
+  defp sync_from_stripe do
+    case get_sync_adapter() do
+      nil ->
+        :ok
+
+      adapter ->
+        case adapter.sync_all() do
+          {:ok, _stats} -> :ok
+          {:error, reason} -> Logger.warning("PaperTiger Stripe sync failed: #{inspect(reason)}")
+        end
+    end
+  end
+
+  # Returns the configured sync adapter, or auto-detects StripityStripe
+  defp get_sync_adapter do
+    case Application.get_env(:paper_tiger, :sync_adapter, :auto) do
+      :auto -> auto_detect_adapter()
+      nil -> nil
+      adapter -> adapter
+    end
+  end
+
+  # Auto-detect stripity_stripe if available
+  defp auto_detect_adapter do
+    if Code.ensure_loaded?(Stripe.Customer) do
+      StripityStripe
+    end
+  end
+
   # Loads init_data if configured
   defp load_init_data do
     case PaperTiger.Initializer.load() do
       {:ok, _stats} -> :ok
-      {:error, reason} -> Logger.error("PaperTiger init_data failed: #{inspect(reason)}")
+      {:error, reason} -> Logger.warning("PaperTiger init_data failed: #{inspect(reason)}")
     end
   end
 

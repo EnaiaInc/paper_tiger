@@ -91,14 +91,13 @@ defmodule PaperTiger.Initializer do
   @spec load_from_file(String.t()) :: {:ok, map()} | {:error, term()}
   def load_from_file(path) do
     resolved_path = resolve_priv_path(path)
-    Logger.info("PaperTiger loading init_data from: #{resolved_path}")
 
     with {:ok, contents} <- File.read(resolved_path),
          {:ok, data} <- decode_json(contents) do
       load_from_map(data)
     else
       {:error, reason} ->
-        Logger.error("PaperTiger failed to load init_data file: #{inspect(reason)}")
+        Logger.warning("PaperTiger failed to load init_data file: #{inspect(reason)}")
         {:error, {:init_data_file_error, reason}}
     end
   end
@@ -127,7 +126,7 @@ defmodule PaperTiger.Initializer do
 
     if total > 0 do
       Logger.info(
-        "PaperTiger initialized #{stats.products} products, #{stats.plans} plans, #{stats.prices} prices, #{stats.customers} customers"
+        "PaperTiger loaded init_data: #{total} entities (#{stats.products} products, #{stats.prices} prices, #{stats.plans} plans, #{stats.customers} customers)"
       )
     end
 

@@ -57,7 +57,6 @@ defmodule PaperTiger.Resources.Customer do
     maybe_store_idempotency(conn, customer)
 
     :telemetry.execute([:paper_tiger, :customer, :created], %{}, %{object: customer})
-    Logger.debug("Customer inserted: #{customer.id}")
 
     customer
     |> maybe_expand(conn.params)
