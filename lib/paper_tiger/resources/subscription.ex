@@ -141,6 +141,7 @@ defmodule PaperTiger.Resources.Subscription do
     with {:ok, existing} <- Subscriptions.get(id),
          coerced_params = coerce_update_params(conn.params),
          updated = merge_updates(existing, coerced_params),
+         updated = maybe_activate_subscription_after_trial(updated),
          {:ok, updated} <- Subscriptions.update(updated) do
       # Handle items update if provided
       if Map.has_key?(conn.params, :items) do
@@ -264,12 +265,45 @@ defmodule PaperTiger.Resources.Subscription do
   defp coerce_update_params(params) do
     params
     |> maybe_coerce_cancel_at_period_end()
+    |> maybe_coerce_trial_end()
   end
 
   defp maybe_coerce_cancel_at_period_end(params) do
     case Map.get(params, :cancel_at_period_end) do
       nil -> params
       value -> Map.put(params, :cancel_at_period_end, to_boolean(value))
+    end
+  end
+
+  defp maybe_coerce_trial_end(params) do
+    case Map.get(params, :trial_end) do
+      nil -> params
+      :now -> Map.put(params, :trial_end, PaperTiger.now())
+      "now" -> Map.put(params, :trial_end, PaperTiger.now())
+      value when is_integer(value) -> params
+      value when is_binary(value) -> Map.put(params, :trial_end, String.to_integer(value))
+    end
+  end
+
+  # Convert subscription from "trialing" to "active" when trial_end is set to now or past
+  defp maybe_activate_subscription_after_trial(subscription) do
+    now = PaperTiger.now()
+    trial_end = Map.get(subscription, :trial_end)
+    status = Map.get(subscription, :status)
+
+    cond do
+      # If subscription is trialing and trial_end is now or in the past, activate it
+      status == "trialing" && trial_end != nil && trial_end <= now ->
+        subscription
+        |> Map.put(:status, "active")
+        |> Map.put(:trial_end, nil)
+        |> Map.put(:trial_start, nil)
+        |> Map.put(:current_period_start, now)
+        |> Map.put(:current_period_end, now + 30 * 86_400)
+
+      # Otherwise, leave subscription as is
+      true ->
+        subscription
     end
   end
 

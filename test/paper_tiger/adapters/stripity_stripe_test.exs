@@ -4,7 +4,7 @@ defmodule PaperTiger.Adapters.StripityStripeTest do
   import PaperTiger.Test
 
   alias PaperTiger.Adapters.StripityStripe
-  alias PaperTiger.Store.{Customers, Plans, Prices, Products, Subscriptions}
+  alias PaperTiger.Store.{Customers, Plans, Prices, Products, Subscriptions, PaymentMethods}
 
   setup :checkout_paper_tiger
 
@@ -113,6 +113,41 @@ defmodule PaperTiger.Adapters.StripityStripeTest do
                  1,
                  "prod_test1",
                  true,
+                 "{}",
+                 ~N[2024-01-01 00:00:00],
+                 ~N[2024-01-01 00:00:00]
+               ]
+             ]
+           }}
+
+        String.contains?(sql, "billing_payment_methods") ->
+          {:ok,
+           %{
+             columns: [
+               "id",
+               "stripe_id",
+               "customer_id",
+               "customer_stripe_id",
+               "card_brand",
+               "card_last4",
+               "card_exp_month",
+               "card_exp_year",
+               "card_fingerprint",
+               "metadata",
+               "inserted_at",
+               "updated_at"
+             ],
+             rows: [
+               [
+                 1,
+                 "pm_test1",
+                 1,
+                 "cus_test1",
+                 "visa",
+                 "4242",
+                 12,
+                 2030,
+                 "pm_test1_fingerprint",
                  "{}",
                  ~N[2024-01-01 00:00:00],
                  ~N[2024-01-01 00:00:00]
@@ -234,6 +269,14 @@ defmodule PaperTiger.Adapters.StripityStripeTest do
       assert subscription.items.data |> List.first() |> Map.get(:plan) == "plan_test1"
     end
 
+    test "syncs payment methods from database" do
+      {:ok, _} = StripityStripe.sync_all()
+      {:ok, pm} = PaymentMethods.get("pm_test1")
+      assert pm.id == "pm_test1"
+      assert pm.customer == "cus_test1"
+      assert pm.card.last4 == "4242"
+    end
+
     test "returns stats for all synced entities" do
       {:ok, stats} = StripityStripe.sync_all()
 
@@ -242,6 +285,56 @@ defmodule PaperTiger.Adapters.StripityStripeTest do
       assert stats.plans == 1
       assert stats.customers == 1
       assert stats.subscriptions == 1
+      # 2 payment methods: 1 from DB (pm_test1) + 1 fake for customer's default_source (pm_card_visa)
+      assert stats.payment_methods == 2
+    end
+
+    test "creates fake payment method for customer's default_source when missing" do
+      defmodule MockRepoNoPaymentMethods do
+        def query(sql, params \\ [])
+
+        def query(sql, _params) do
+          cond do
+            String.contains?(sql, "billing_subscriptions") ->
+              {:ok, %{columns: [], rows: []}}
+
+            String.contains?(sql, "billing_prices") ->
+              {:ok, %{columns: [], rows: []}}
+
+            String.contains?(sql, "billing_plans") ->
+              {:ok, %{columns: [], rows: []}}
+
+            String.contains?(sql, "billing_products") ->
+              {:ok, %{columns: [], rows: []}}
+
+            String.contains?(sql, "billing_payment_methods") ->
+              {:ok, %{columns: [], rows: []}}
+
+            String.contains?(sql, "billing_customers") ->
+              {:ok,
+               %{
+                 columns: ["id", "stripe_id", "user_id", "default_source", "inserted_at", "updated_at"],
+                 rows: [[1, "cus_test2", 1, "pm_missing", ~N[2024-01-01 00:00:00], ~N[2024-01-01 00:00:00]]]
+               }}
+
+            true ->
+              {:ok, %{columns: [], rows: []}}
+          end
+        end
+      end
+
+      Application.put_env(:paper_tiger, :repo, MockRepoNoPaymentMethods)
+      Application.put_env(:paper_tiger, :user_adapter, MockUserAdapter)
+
+      on_exit(fn ->
+        Application.put_env(:paper_tiger, :repo, MockRepo)
+        Application.put_env(:paper_tiger, :user_adapter, MockUserAdapter)
+      end)
+
+      {:ok, _} = StripityStripe.sync_all()
+      {:ok, pm} = PaymentMethods.get("pm_missing")
+      assert pm.id == "pm_missing"
+      assert pm.customer == "cus_test2"
     end
   end
 
