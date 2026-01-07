@@ -132,8 +132,17 @@ defmodule PaperTiger.Application do
 
       adapter ->
         case adapter.sync_all() do
-          {:ok, _stats} -> :ok
-          {:error, reason} -> Logger.warning("PaperTiger Stripe sync failed: #{inspect(reason)}")
+          {:ok, _stats} ->
+            :ok
+
+          {:error, :repo_not_started} ->
+            # Repo not started yet - this is expected at PaperTiger startup
+            # Users should call sync_all() manually after their app starts
+            Logger.debug("PaperTiger sync skipped: Repo not started yet")
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("PaperTiger Stripe sync failed: #{inspect(reason)}")
         end
     end
   end
@@ -148,13 +157,8 @@ defmodule PaperTiger.Application do
   end
 
   # Auto-detect stripity_stripe if available
-  # NOTE: Auto-detection disabled when repo is configured because database-based
-  # sync cannot run at PaperTiger startup (repo not started yet). Users must
-  # explicitly configure sync_adapter and call sync manually after their app starts.
   defp auto_detect_adapter do
-    repo_configured? = Application.get_env(:paper_tiger, :repo) != nil
-
-    if !repo_configured? && Code.ensure_loaded?(Stripe.Customer) do
+    if Code.ensure_loaded?(Stripe.Customer) do
       StripityStripe
     end
   end

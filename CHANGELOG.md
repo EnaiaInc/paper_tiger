@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.18] - 2026-01-07
+
+### Fixed
+
+- **Re-enabled auto-detection of StripityStripe adapter**: Fixed issue where database sync was completely disabled when repo was configured. Auto-detection now works correctly - sync is attempted at startup but gracefully handles when repo isn't started yet (logs at debug level). Users should call `PaperTiger.Adapters.StripityStripe.sync_all()` manually after their application starts to perform the initial sync.
+
 ## [0.9.17] - 2026-01-07
 
 ### Fixed
