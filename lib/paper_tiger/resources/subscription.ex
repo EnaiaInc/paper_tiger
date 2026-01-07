@@ -378,6 +378,15 @@ defmodule PaperTiger.Resources.Subscription do
 
   # Convert plan object to price format for compatibility
   defp convert_plan_to_price_format(plan) do
+    recurring_map = %{interval: plan.interval}
+
+    recurring_map =
+      if plan.interval_count do
+        Map.put(recurring_map, :interval_count, plan.interval_count)
+      else
+        recurring_map
+      end
+
     %{
       active: plan.active,
       created: plan.created,
@@ -388,10 +397,7 @@ defmodule PaperTiger.Resources.Subscription do
       nickname: plan.nickname,
       object: "price",
       product: plan.product,
-      recurring: %{
-        interval: plan.interval,
-        interval_count: plan.interval_count
-      },
+      recurring: recurring_map,
       type: "recurring",
       unit_amount: plan.amount
     }
