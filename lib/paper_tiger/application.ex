@@ -148,8 +148,13 @@ defmodule PaperTiger.Application do
   end
 
   # Auto-detect stripity_stripe if available
+  # NOTE: Auto-detection disabled when repo is configured because database-based
+  # sync cannot run at PaperTiger startup (repo not started yet). Users must
+  # explicitly configure sync_adapter and call sync manually after their app starts.
   defp auto_detect_adapter do
-    if Code.ensure_loaded?(Stripe.Customer) do
+    repo_configured? = Application.get_env(:paper_tiger, :repo) != nil
+
+    if !repo_configured? && Code.ensure_loaded?(Stripe.Customer) do
       StripityStripe
     end
   end

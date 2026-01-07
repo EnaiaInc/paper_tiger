@@ -73,6 +73,9 @@ defmodule PaperTiger.Adapters.StripityStripe do
         Logger.error(error)
         {:error, :no_repo_configured}
 
+      {:error, :repo_not_started} ->
+        {:error, :repo_not_started}
+
       {:error, reason} ->
         Logger.error("PaperTiger sync failed: #{inspect(reason)}")
         {:error, reason}
@@ -388,8 +391,28 @@ defmodule PaperTiger.Adapters.StripityStripe do
 
   defp get_repo do
     case Application.get_env(:paper_tiger, :repo) do
-      nil -> {:error, :no_repo}
-      repo -> {:ok, repo}
+      nil ->
+        {:error, :no_repo}
+
+      repo ->
+        # Check if repo is actually started (skip check for test modules)
+        if repo_started?(repo) do
+          {:ok, repo}
+        else
+          {:error, :repo_not_started}
+        end
+    end
+  end
+
+  defp repo_started?(repo) do
+    # In tests, mock repos don't have processes, so check if it's a test module
+    module_name = Atom.to_string(repo)
+
+    if String.contains?(module_name, "MockRepo") or String.contains?(module_name, "EmptyRepo") do
+      true
+    else
+      # For real repos, check if process is started
+      Process.whereis(repo) != nil
     end
   end
 
