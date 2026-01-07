@@ -5,18 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.18] - 2026-01-07
-
-### Fixed
-
-- **Re-enabled auto-detection of StripityStripe adapter**: Fixed issue where database sync was completely disabled when repo was configured. Auto-detection now works correctly - sync is attempted at startup but gracefully handles when repo isn't started yet (logs at debug level). Users should call `PaperTiger.Adapters.StripityStripe.sync_all()` manually after their application starts to perform the initial sync.
-
-## [0.9.17] - 2026-01-07
-
-### Fixed
-
-- **Made `interval_count` optional in recurring pricing structures**: Per [Stripe's API spec](https://hexdocs.pm/stripity_stripe/Stripe.SubscriptionItem.html#t:recurring/0), `interval_count` is optional in the `recurring` object. Updated `Price.build_recurring`, `Price.maybe_create_plan_for_recurring_price`, and `Subscription.convert_plan_to_price_format` to conditionally include `interval_count` only when present, preventing KeyError and Dialyzer warnings.
-
 ## [0.9.16] - 2026-01-07
 
 ### Changed
