@@ -829,6 +829,237 @@ config :paper_tiger,
 
 Use custom IDs (like `prod_dev_*`) to ensure deterministic data across restarts. This is particularly useful when your app syncs from Stripe on startup - the data will be there before your sync runs.
 
+### Database Synchronization
+
+For development environments where you have existing billing data in your database (e.g., from previous Stripe syncs), PaperTiger can load that data on startup using the `DataSource` behaviour. This is more dynamic than `init_data` since it reads directly from your application's database.
+
+**When to use each approach:**
+
+| Approach | Use Case |
+|----------|----------|
+| `init_data` | Static seed data (JSON file or config) |
+| `data_source` | Sync from your application's database tables |
+
+#### Step 1: Implement the DataSource Behaviour
+
+Create an adapter module that implements `PaperTiger.DataSource`:
+
+```elixir
+# lib/my_app/paper_tiger_adapter.ex
+defmodule MyApp.PaperTigerAdapter do
+  @moduledoc """
+  Loads billing data from database into PaperTiger on startup.
+  """
+
+  @behaviour PaperTiger.DataSource
+
+  import Ecto.Query
+  alias MyApp.Repo
+  alias MyApp.Billing.{Product, Price, Customer, Subscription}
+
+  @impl true
+  def load_products do
+    from(p in Product, where: not is_nil(p.stripe_id))
+    |> Repo.all()
+    |> Enum.map(&map_product/1)
+  end
+
+  @impl true
+  def load_prices do
+    from(p in Price,
+      left_join: prod in assoc(p, :product),
+      where: not is_nil(p.stripe_id),
+      select: %{p | product: prod}
+    )
+    |> Repo.all()
+    |> Enum.map(&map_price/1)
+  end
+
+  @impl true
+  def load_customers do
+    from(c in Customer,
+      left_join: u in assoc(c, :user),
+      where: not is_nil(c.stripe_id),
+      select: %{c | user: u}
+    )
+    |> Repo.all()
+    |> Enum.map(&map_customer/1)
+  end
+
+  @impl true
+  def load_subscriptions do
+    from(s in Subscription,
+      left_join: c in assoc(s, :customer),
+      left_join: p in assoc(s, :price),
+      where: not is_nil(s.stripe_id),
+      select: %{s | customer: c, price: p}
+    )
+    |> Repo.all()
+    |> Enum.map(&map_subscription/1)
+  end
+
+  # Return empty lists for resources you don't need to sync
+  @impl true
+  def load_plans, do: []
+
+  @impl true
+  def load_payment_methods do
+    # Create generic payment methods from customer default_source
+    from(c in Customer,
+      where: not is_nil(c.stripe_id) and not is_nil(c.default_source),
+      select: %{stripe_id: c.stripe_id, default_source: c.default_source}
+    )
+    |> Repo.all()
+    |> Enum.map(&map_payment_method/1)
+  end
+
+  # Mapping functions - convert your schemas to Stripe format with atom keys
+  defp map_product(product) do
+    %{
+      id: product.stripe_id,
+      object: "product",
+      name: product.name,
+      active: product.active,
+      metadata: product.metadata || %{},
+      created: to_unix(product.inserted_at)
+    }
+  end
+
+  defp map_price(price) do
+    %{
+      id: price.stripe_id,
+      object: "price",
+      product: price.product.stripe_id,
+      unit_amount: price.amount,
+      currency: price.currency || "usd",
+      type: if(price.recurring_interval, do: "recurring", else: "one_time"),
+      recurring: if(price.recurring_interval,
+        do: %{
+          interval: price.recurring_interval,
+          interval_count: price.recurring_interval_count || 1
+        }
+      ),
+      created: to_unix(price.inserted_at)
+    }
+  end
+
+  defp map_customer(customer) do
+    %{
+      id: customer.stripe_id,
+      object: "customer",
+      email: customer.user && customer.user.email,
+      name: customer.user && customer.user.name,
+      default_source: customer.default_source,
+      created: to_unix(customer.inserted_at),
+      invoice_settings: %{
+        default_payment_method: customer.default_source
+      },
+      metadata: %{}
+    }
+  end
+
+  defp map_subscription(subscription) do
+    %{
+      id: subscription.stripe_id,
+      object: "subscription",
+      customer: subscription.customer.stripe_id,
+      status: subscription.status || "active",
+      current_period_start: to_unix(subscription.current_period_start_at),
+      current_period_end: to_unix(subscription.current_period_end_at),
+      cancel_at: to_unix(subscription.cancel_at),
+      items: %{
+        object: "list",
+        data: [
+          %{
+            id: "si_#{subscription.stripe_id}",
+            object: "subscription_item",
+            price: subscription.price.stripe_id,
+            quantity: 1
+          }
+        ]
+      },
+      created: to_unix(subscription.inserted_at)
+    }
+  end
+
+  defp map_payment_method(%{stripe_id: customer_stripe_id, default_source: pm_id}) do
+    %{
+      id: pm_id,
+      object: "payment_method",
+      type: "card",
+      customer: customer_stripe_id,
+      card: %{
+        brand: "visa",
+        last4: "4242",
+        exp_month: 12,
+        exp_year: 2030
+      },
+      created: DateTime.utc_now() |> DateTime.to_unix()
+    }
+  end
+
+  defp to_unix(%NaiveDateTime{} = ndt) do
+    DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix()
+  end
+
+  defp to_unix(_), do: nil
+end
+```
+
+#### Step 2: Configure PaperTiger
+
+Point PaperTiger to your adapter and enable bootstrap:
+
+```elixir
+# config/dev.exs
+config :paper_tiger,
+  start: true,
+  repo: MyApp.Repo,  # Required for bootstrap
+  data_source: MyApp.PaperTigerAdapter,
+  enable_bootstrap: true
+```
+
+**Important**: The `data_source` sync runs during application startup via the Bootstrap worker. Data loads only once when PaperTiger starts, not on every request.
+
+#### Step 3: Verify Data Loading
+
+Start your application and check the logs:
+
+```
+[info] PaperTiger bootstrap starting
+[info] PaperTiger loaded 13 prices from data_source
+[info] PaperTiger loaded 7 products from data_source
+[info] PaperTiger loaded 2 customers from data_source
+[info] PaperTiger loaded 4 subscriptions from data_source
+[info] PaperTiger loaded 2 payment_methods from data_source
+[info] PaperTiger bootstrap complete
+```
+
+#### Mapping Tips
+
+1. **Use atom keys** - PaperTiger expects maps with atom keys, not string keys
+2. **Map IDs correctly** - Your `stripe_id` column maps to the `id` field
+3. **Convert timestamps** - Use Unix timestamps (integers), not `NaiveDateTime` or `DateTime` structs
+4. **Map relationships** - Use Stripe IDs for associations (e.g., `customer: "cus_123"`, not database IDs)
+5. **Include invoice_settings** - If your app uses `invoice_settings.default_payment_method`, include it on customers
+
+#### Benefits
+
+- **Realistic testing** - Use actual billing data from your database
+- **Automatic sync** - Data loads on startup, no manual setup needed
+- **Development parity** - Dev environment matches production data structure
+- **Fast iteration** - Modify data in database, restart to reload
+
+#### Combining with init_data
+
+You can use both `init_data` and `data_source` together. PaperTiger loads them in this order:
+
+1. Test tokens (e.g., `pm_card_visa`)
+2. DataSource (your adapter)
+3. init_data (JSON/config file)
+
+This allows test tokens to be available first, then real data from your database, then any additional seed data.
+
 ## Development
 
 ### Running Tests

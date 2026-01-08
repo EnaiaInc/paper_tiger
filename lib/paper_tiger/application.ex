@@ -4,7 +4,7 @@ defmodule PaperTiger.Application do
 
   use Application
 
-  alias PaperTiger.Adapters.StripityStripe
+  alias PaperTiger.Bootstrap
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -93,7 +93,9 @@ defmodule PaperTiger.Application do
         Disputes,
         ApplicationFees,
         Reviews,
-        Topups
+        Topups,
+        # Must be last so all Stores are up
+        Bootstrap
       ] ++
         conditional_children()
 
@@ -101,14 +103,6 @@ defmodule PaperTiger.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, pid} ->
-        # Load pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
-        load_test_tokens()
-        # Sync from real Stripe if adapter configured
-        sync_from_stripe()
-        # Load init_data after stores are initialized (overrides sync data if present)
-        load_init_data()
-        # Register configured webhooks
-        register_configured_webhooks()
         {:ok, pid}
 
       error ->
@@ -117,60 +111,6 @@ defmodule PaperTiger.Application do
   end
 
   ## Private Functions
-
-  # Loads pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
-  defp load_test_tokens do
-    {:ok, _stats} = PaperTiger.TestTokens.load()
-    :ok
-  end
-
-  # Syncs data from real Stripe using configured adapter
-  defp sync_from_stripe do
-    case get_sync_adapter() do
-      nil ->
-        :ok
-
-      adapter ->
-        case adapter.sync_all() do
-          {:ok, _stats} -> :ok
-          {:error, reason} -> Logger.warning("PaperTiger Stripe sync failed: #{inspect(reason)}")
-        end
-    end
-  end
-
-  # Returns the configured sync adapter, or auto-detects StripityStripe
-  defp get_sync_adapter do
-    case Application.get_env(:paper_tiger, :sync_adapter, :auto) do
-      :auto -> auto_detect_adapter()
-      nil -> nil
-      adapter -> adapter
-    end
-  end
-
-  # Auto-detect stripity_stripe if available
-  # NOTE: Auto-detection disabled when repo is configured because database-based
-  # sync cannot run at PaperTiger startup (repo not started yet). Users must
-  # explicitly configure sync_adapter and call sync manually after their app starts.
-  defp auto_detect_adapter do
-    repo_configured? = Application.get_env(:paper_tiger, :repo) != nil
-
-    if !repo_configured? && Code.ensure_loaded?(Stripe.Customer) do
-      StripityStripe
-    end
-  end
-
-  # Loads init_data if configured
-  defp load_init_data do
-    case PaperTiger.Initializer.load() do
-      {:ok, _stats} -> :ok
-      {:error, reason} -> Logger.warning("PaperTiger init_data failed: #{inspect(reason)}")
-    end
-  end
-
-  # Registers webhooks from application config
-  defp register_configured_webhooks do
-    PaperTiger.register_configured_webhooks()
-  end
 
   # Returns children that only start under certain conditions
   defp conditional_children do

@@ -199,10 +199,17 @@ defmodule PaperTiger.Resources.Price do
   defp build_recurring(nil), do: nil
 
   defp build_recurring(%{} = recurring) do
-    %{
-      interval: Map.get(recurring, :interval) || Map.get(recurring, "interval"),
-      interval_count: Map.get(recurring, :interval_count) || Map.get(recurring, "interval_count") || 1
-    }
+    interval = Map.get(recurring, :interval) || Map.get(recurring, "interval")
+    interval_count = Map.get(recurring, :interval_count) || Map.get(recurring, "interval_count")
+
+    recurring_map = %{interval: interval}
+
+    # Only include interval_count if provided (it's optional per Stripe spec)
+    if interval_count do
+      Map.put(recurring_map, :interval_count, interval_count)
+    else
+      recurring_map
+    end
   end
 
   # Stripe automatically creates a Plan object for recurring prices (legacy API compatibility).
@@ -219,8 +226,8 @@ defmodule PaperTiger.Resources.Price do
       created: price.created,
       currency: price.currency,
       id: price.id,
-      interval: recurring.interval,
-      interval_count: recurring.interval_count || 1,
+      interval: Map.get(recurring, :interval),
+      interval_count: Map.get(recurring, :interval_count) || 1,
       livemode: false,
       metadata: price.metadata || %{},
       nickname: price.nickname,
