@@ -4,7 +4,7 @@ defmodule PaperTiger.Bootstrap do
   """
   use GenServer
 
-  alias PaperTiger.Store.{Prices, Customers, Products, Plans, Subscriptions, PaymentMethods, SubscriptionItems}
+  alias PaperTiger.Store.{Customers, PaymentMethods, Plans, Prices, Products, SubscriptionItems, Subscriptions}
 
   require Logger
 
@@ -68,44 +68,58 @@ defmodule PaperTiger.Bootstrap do
         :ok
 
       source ->
-        # Ensure the module is loaded before checking for exported functions
         Code.ensure_loaded(source)
 
-        # Helper to call loader and insert into a store
-        insert_resources = fn function, store, label ->
-          if function_exported?(source, function, 0) do
-            try do
-              resources = apply(source, function, [])
-
-              if is_list(resources) do
-                Enum.each(resources, fn resource ->
-                  try do
-                    apply(store, :insert, [resource])
-                  rescue
-                    e -> Logger.warning("Failed to insert #{label} from data_source: #{inspect(e)}")
-                  end
-                end)
-
-                Logger.info("PaperTiger loaded #{length(resources)} #{label} from data_source")
-              else
-                Logger.warning("data_source.#{function}/0 returned non-list: #{inspect(resources)}")
-              end
-            rescue
-              e -> Logger.warning("data_source.#{function}/0 raised: #{inspect(e)}")
-            end
-          end
-        end
-
-        insert_resources.(:load_prices, Prices, "prices")
-        insert_resources.(:load_products, Products, "products")
-        insert_resources.(:load_plans, Plans, "plans")
-        insert_resources.(:load_customers, Customers, "customers")
-        insert_resources.(:load_subscriptions, Subscriptions, "subscriptions")
-        insert_resources.(:load_subscription_items, SubscriptionItems, "subscription_items")
-        insert_resources.(:load_payment_methods, PaymentMethods, "payment_methods")
+        insert_resources_from_source(source, :load_prices, Prices, "prices")
+        insert_resources_from_source(source, :load_products, Products, "products")
+        insert_resources_from_source(source, :load_plans, Plans, "plans")
+        insert_resources_from_source(source, :load_customers, Customers, "customers")
+        insert_resources_from_source(source, :load_subscriptions, Subscriptions, "subscriptions")
+        insert_resources_from_source(source, :load_subscription_items, SubscriptionItems, "subscription_items")
+        insert_resources_from_source(source, :load_payment_methods, PaymentMethods, "payment_methods")
 
         :ok
     end
+  end
+
+  defp insert_resources_from_source(source, function, store, label) do
+    if function_exported?(source, function, 0) do
+      case load_and_validate_resources(source, function, label) do
+        {:ok, resources} ->
+          insert_all_resources(resources, store, label)
+
+        :error ->
+          :ok
+      end
+    end
+  end
+
+  defp load_and_validate_resources(source, function, _label) do
+    # Note: apply is necessary here because function name is dynamic
+    resources = apply(source, function, [])
+
+    if is_list(resources) do
+      {:ok, resources}
+    else
+      Logger.warning("data_source.#{function}/0 returned non-list: #{inspect(resources)}")
+      :error
+    end
+  rescue
+    e ->
+      Logger.warning("data_source.#{function}/0 raised: #{inspect(e)}")
+      :error
+  end
+
+  defp insert_all_resources(resources, store, label) do
+    Enum.each(resources, fn resource ->
+      try do
+        store.insert(resource)
+      rescue
+        e -> Logger.warning("Failed to insert #{label} from data_source: #{inspect(e)}")
+      end
+    end)
+
+    Logger.info("PaperTiger loaded #{length(resources)} #{label} from data_source")
   end
 
   # Loads init_data if configured

@@ -4,7 +4,7 @@ defmodule PaperTiger.Adapters.StripityStripeTest do
   import PaperTiger.Test
 
   alias PaperTiger.Adapters.StripityStripe
-  alias PaperTiger.Store.{Customers, Plans, Prices, Products, Subscriptions, PaymentMethods}
+  alias PaperTiger.Store.{Customers, PaymentMethods, Plans, Prices, Products, Subscriptions}
 
   setup :checkout_paper_tiger
 

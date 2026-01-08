@@ -27,11 +27,11 @@ defmodule PaperTiger.Adapters.StripityStripe do
 
   alias PaperTiger.Store.{
     Customers,
+    PaymentMethods,
     Plans,
     Prices,
     Products,
-    Subscriptions,
-    PaymentMethods
+    Subscriptions
   }
 
   alias PaperTiger.UserAdapters.AutoDiscover
@@ -414,59 +414,64 @@ defmodule PaperTiger.Adapters.StripityStripe do
       {:ok, %{columns: columns, rows: rows}} ->
         rows
         |> Enum.map(&build_map(columns, &1))
-        |> Enum.reduce(0, fn %{"default_source" => default_source, "stripe_id" => customer_stripe_id}, count ->
-          case PaymentMethods.get(default_source) do
-            {:ok, _pm} ->
-              count
-
-            {:error, :not_found} ->
-              pm = %{
-                billing_details: %{
-                  address: %{
-                    city: nil,
-                    country: nil,
-                    line1: nil,
-                    line2: nil,
-                    postal_code: nil,
-                    state: nil
-                  },
-                  email: nil,
-                  name: nil,
-                  phone: nil
-                },
-                card: %{
-                  brand: nil,
-                  checks: %{
-                    address_line1_check: nil,
-                    address_postal_code_check: nil,
-                    cvc_check: "pass"
-                  },
-                  country: nil,
-                  exp_month: nil,
-                  exp_year: nil,
-                  fingerprint: nil,
-                  funding: nil,
-                  last4: nil,
-                  three_d_secure_usage: %{supported: true},
-                  wallet: nil
-                },
-                created: PaperTiger.now(),
-                customer: customer_stripe_id,
-                id: default_source,
-                livemode: false,
-                metadata: %{},
-                object: "payment_method",
-                type: "card"
-              }
-
-              {:ok, _} = PaymentMethods.insert(pm)
-              count + 1
-          end
-        end)
+        |> Enum.reduce(0, &ensure_payment_method_exists/2)
 
       {:error, _} ->
         0
     end
+  end
+
+  defp ensure_payment_method_exists(%{"default_source" => default_source, "stripe_id" => customer_stripe_id}, count) do
+    case PaymentMethods.get(default_source) do
+      {:ok, _pm} ->
+        count
+
+      {:error, :not_found} ->
+        pm = build_default_payment_method(customer_stripe_id, default_source)
+        {:ok, _} = PaymentMethods.insert(pm)
+        count + 1
+    end
+  end
+
+  defp build_default_payment_method(customer_stripe_id, default_source) do
+    %{
+      billing_details: %{
+        address: %{
+          city: nil,
+          country: nil,
+          line1: nil,
+          line2: nil,
+          postal_code: nil,
+          state: nil
+        },
+        email: nil,
+        name: nil,
+        phone: nil
+      },
+      card: %{
+        brand: nil,
+        checks: %{
+          address_line1_check: nil,
+          address_postal_code_check: nil,
+          cvc_check: "pass"
+        },
+        country: nil,
+        exp_month: nil,
+        exp_year: nil,
+        fingerprint: nil,
+        funding: nil,
+        last4: nil,
+        three_d_secure_usage: %{supported: true},
+        wallet: nil
+      },
+      created: PaperTiger.now(),
+      customer: customer_stripe_id,
+      id: default_source,
+      livemode: false,
+      metadata: %{},
+      object: "payment_method",
+      type: "card"
+    }
   end
 
   ## Resource Builders
