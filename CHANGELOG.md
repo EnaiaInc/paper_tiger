@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.17] - 2026-01-08
+
+### Added
+
+- **Bootstrap worker for async data loading**: Refactored startup initialization into a dedicated `PaperTiger.Bootstrap` worker that handles async data loading without blocking application startup
+- **DataSource behaviour**: New `PaperTiger.DataSource` behaviour enables synchronization of initial billing data from external application databases
+- **Payment method sync from database**: StripityStripe adapter now loads existing payment methods and generates placeholders for missing customer `default_source` tokens
+
+### Changed
+
+- **Trialing → active subscription transitions**: Subscriptions updated with a past or `:now` `trial_end` now correctly transition from `trialing` to `active` status
+- **`interval_count` optional in recurring prices**: Matches Stripe API specs where `interval_count` defaults to 1 if not provided
+
 ## [0.9.16] - 2026-01-07
 
 ### Changed
