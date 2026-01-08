@@ -291,19 +291,17 @@ defmodule PaperTiger.Resources.Subscription do
     trial_end = Map.get(subscription, :trial_end)
     status = Map.get(subscription, :status)
 
-    cond do
-      # If subscription is trialing and trial_end is now or in the past, activate it
-      status == "trialing" && trial_end != nil && trial_end <= now ->
-        subscription
-        |> Map.put(:status, "active")
-        |> Map.put(:trial_end, nil)
-        |> Map.put(:trial_start, nil)
-        |> Map.put(:current_period_start, now)
-        |> Map.put(:current_period_end, now + 30 * 86_400)
-
+    # If subscription is trialing and trial_end is now or in the past, activate it
+    if status == "trialing" && trial_end != nil && trial_end <= now do
+      subscription
+      |> Map.put(:status, "active")
+      |> Map.put(:trial_end, nil)
+      |> Map.put(:trial_start, nil)
+      |> Map.put(:current_period_start, now)
+      |> Map.put(:current_period_end, now + 30 * 86_400)
+    else
       # Otherwise, leave subscription as is
-      true ->
-        subscription
+      subscription
     end
   end
 
