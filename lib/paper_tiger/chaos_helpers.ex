@@ -214,6 +214,31 @@ defmodule PaperTiger.ChaosHelpers do
     ChaosCoordinator.reset()
   end
 
+  @doc """
+  Cleans up after chaos testing.
+
+  This resets chaos configuration AND flushes all Paper Tiger stores to remove
+  any test data that was created during chaos testing. Call this after chaos
+  testing to prevent test data from being synced to the host application's
+  database.
+
+  ## Examples
+
+      # After running chaos tests in a script
+      run_chaos_tests()
+      cleanup_chaos()
+
+      # In ExUnit tests, use in on_exit callback
+      setup do
+        on_exit(fn -> cleanup_chaos() end)
+        :ok
+      end
+  """
+  @spec cleanup_chaos() :: :ok
+  def cleanup_chaos do
+    ChaosCoordinator.cleanup()
+  end
+
   @doc false
   defmacro __using__(_opts) do
     quote do

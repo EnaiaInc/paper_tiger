@@ -158,6 +158,26 @@ defmodule PaperTiger.ChaosCoordinator do
   end
 
   @doc """
+  Cleans up after chaos testing.
+
+  This resets chaos configuration AND flushes all Paper Tiger stores to remove
+  any test data that was created during chaos testing. Call this after chaos
+  testing to prevent test data from being synced to the host application's
+  database.
+
+  ## Example
+
+      # After running chaos tests
+      PaperTiger.ChaosCoordinator.cleanup()
+  """
+  @spec cleanup() :: :ok
+  def cleanup do
+    reset()
+    PaperTiger.flush()
+    :ok
+  end
+
+  @doc """
   Gets chaos statistics.
   """
   @spec get_stats() :: map()
