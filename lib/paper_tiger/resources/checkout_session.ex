@@ -220,6 +220,60 @@ defmodule PaperTiger.Resources.CheckoutSession do
     end
   end
 
+  @doc """
+  Browser-accessible checkout completion endpoint.
+
+  GET /checkout/:id/complete
+
+  This is called when a user is redirected to the checkout URL. Unlike the
+  `/_test/checkout/sessions/:id/complete` POST endpoint (for programmatic use),
+  this handles the browser redirect flow:
+
+  1. Completes the checkout session (creates subscription/payment/setup intent)
+  2. Redirects the browser to the session's success_url
+
+  This makes checkout flows work transparently in tests - the application just
+  redirects to the checkout URL and the user ends up at success_url with the
+  session completed.
+  """
+  @spec browser_complete(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def browser_complete(conn, id) do
+    case CheckoutSessions.get(id) do
+      {:ok, %{status: "open", success_url: success_url} = session} ->
+        completed_session = complete_session(session)
+        {:ok, _completed_session} = CheckoutSessions.update(completed_session)
+
+        :telemetry.execute(
+          [:paper_tiger, :checkout, :session, :completed],
+          %{},
+          %{object: completed_session}
+        )
+
+        # Redirect browser to success URL
+        conn
+        |> Plug.Conn.put_resp_header("location", success_url)
+        |> Plug.Conn.send_resp(302, "")
+
+      {:ok, %{status: "complete", success_url: success_url}} ->
+        # Already completed, just redirect
+        conn
+        |> Plug.Conn.put_resp_header("location", success_url)
+        |> Plug.Conn.send_resp(302, "")
+
+      {:ok, %{status: status}} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This Session cannot be completed. Session status: #{status}",
+            "status"
+          )
+        )
+
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("checkout.session", id))
+    end
+  end
+
   ## Private Functions
 
   defp complete_session(session) do
@@ -538,15 +592,14 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
   end
 
-  # Generates a Stripe-compatible checkout URL
-  # Real Stripe format: https://checkout.stripe.com/c/pay/cs_test_xxx#fidkdWxOY...
+  # Generates a checkout URL pointing to PaperTiger's auto-complete endpoint.
+  #
+  # Unlike real Stripe which hosts a checkout page, PaperTiger auto-completes
+  # the session when this URL is visited. This makes checkout flows work
+  # transparently in tests without any special handling in application code.
   defp generate_checkout_url(session_id) do
-    # Generate a realistic-looking fragment
-    fragment =
-      :crypto.strong_rand_bytes(32)
-      |> Base.url_encode64(padding: false)
-
-    "https://checkout.stripe.com/c/pay/#{session_id}##{fragment}"
+    port = Application.get_env(:paper_tiger, :port, 4001)
+    "http://localhost:#{port}/checkout/#{session_id}/complete"
   end
 
   defp maybe_expand(session, params) do

@@ -180,6 +180,14 @@ defmodule PaperTiger.Router do
     CheckoutSession.complete(conn, id)
   end
 
+  # Browser-accessible checkout completion endpoint.
+  # When a checkout session URL is visited (via redirect), this auto-completes
+  # the session and redirects to the success_url. This makes checkout flows
+  # work transparently without special handling in application code.
+  get "/checkout/:id/complete" do
+    CheckoutSession.browser_complete(conn, id)
+  end
+
   ## Resource Routes
 
   # Core resources (Phase 1)

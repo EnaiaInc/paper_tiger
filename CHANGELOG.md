@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.20] - 2026-01-11
+
+### Changed
+
+- **Checkout sessions now auto-complete transparently**: Checkout session URLs now point to PaperTiger's own endpoint (`/checkout/:id/complete`) instead of fake Stripe URLs. When visited, the session auto-completes and redirects to `success_url`. This eliminates the need for `paper_tiger_enabled?` checks in application code - checkout flows now work identically in dev/test and production.
+
 ## [0.9.19] - 2026-01-10
 
 ### Added
