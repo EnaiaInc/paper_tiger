@@ -38,6 +38,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
   import PaperTiger.Resource
 
   alias PaperTiger.Store.CheckoutSessions
+  alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.PaymentIntents
   alias PaperTiger.Store.PaymentMethods
   alias PaperTiger.Store.Prices
@@ -68,6 +69,11 @@ defmodule PaperTiger.Resources.CheckoutSession do
          session = build_session(conn.params),
          {:ok, session} <- CheckoutSessions.insert(session) do
       maybe_store_idempotency(conn, session)
+
+      # Auto-complete the session asynchronously, simulating a customer completing
+      # the hosted checkout page. This fires all the same webhooks (payment_method.attached,
+      # customer.subscription.created, etc.) that real Stripe would fire.
+      schedule_auto_complete(session)
 
       session
       |> maybe_expand(conn.params)
@@ -275,6 +281,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
   ## Private Functions
 
   defp complete_session(session) do
+    Logger.info("complete_session called for #{session.id}, mode: #{session.mode}, customer: #{inspect(session.customer)}")
     now = PaperTiger.now()
 
     # Create a payment method and attach to customer (fires payment_method.attached event)
@@ -292,7 +299,11 @@ defmodule PaperTiger.Resources.CheckoutSession do
           {nil, payment_intent.id, nil}
 
         "setup" ->
+          Logger.info("Setup mode detected, creating setup intent and checking for incomplete subscriptions")
           setup_intent = create_setup_intent_from_session(session, payment_method)
+          # For setup mode, check if customer has incomplete subscription and pay first invoice
+          Logger.info("Checking incomplete subscriptions for customer: #{session.customer}")
+          maybe_pay_incomplete_subscription_invoice(session.customer, payment_method)
           {nil, nil, setup_intent.id}
 
         _ ->
@@ -550,6 +561,141 @@ defmodule PaperTiger.Resources.CheckoutSession do
     "secret_#{random_part}"
   end
 
+  # When a setup session completes (customer adds payment method), check if they have
+  # an incomplete subscription and automatically pay its first invoice.
+  # This simulates Stripe's behavior of automatically charging the invoice when
+  # a payment method is added to a subscription with status "incomplete".
+  defp maybe_pay_incomplete_subscription_invoice(nil, _payment_method), do: :ok
+
+  defp maybe_pay_incomplete_subscription_invoice(customer_id, payment_method) do
+    Logger.debug("Checking for incomplete subscriptions for customer: #{customer_id}")
+
+    # Find incomplete subscriptions for this customer
+    subscriptions = Subscriptions.find_by_customer(customer_id)
+    Logger.debug("Found #{length(subscriptions)} subscriptions for customer #{customer_id}")
+
+    incomplete_sub = Enum.find(subscriptions, fn sub ->
+      Logger.debug("Subscription #{sub.id} status: #{sub.status}")
+      sub.status == "incomplete"
+    end)
+
+    if incomplete_sub do
+      Logger.debug("Found incomplete subscription: #{incomplete_sub.id}, creating invoice...")
+      create_and_pay_subscription_invoice(incomplete_sub, customer_id, payment_method)
+    else
+      Logger.debug("No incomplete subscriptions found")
+      :ok
+    end
+  end
+
+  defp create_and_pay_subscription_invoice(subscription, customer_id, payment_method) do
+    now = PaperTiger.now()
+
+    # Get subscription items to build invoice line items
+    {:ok, subscription_with_items} = Subscriptions.get(subscription.id)
+    items = Map.get(subscription_with_items, :items, %{}) |> Map.get(:data, [])
+
+    # Calculate total from subscription items
+    {total, lines} = build_invoice_lines_from_subscription_items(items, now)
+
+    # Create invoice
+    invoice = %{
+      id: generate_id("in"),
+      object: "invoice",
+      created: now,
+      customer: customer_id,
+      subscription: subscription.id,
+      status: "paid",
+      paid: true,
+      attempt_count: 1,
+      attempted: true,
+      billing_reason: "subscription_create",
+      collection_method: "charge_automatically",
+      currency: "usd",
+      default_payment_method: payment_method.id,
+      due_date: nil,
+      ending_balance: 0,
+      livemode: false,
+      metadata: %{},
+      number: "#{:rand.uniform(999999)}",
+      payment_intent: nil,
+      period_end: subscription.current_period_end,
+      period_start: subscription.current_period_start,
+      starting_balance: 0,
+      subtotal: total,
+      total: total,
+      amount_due: total,
+      amount_paid: total,
+      amount_remaining: 0,
+      lines: %{
+        data: lines,
+        has_more: false,
+        object: "list",
+        url: "/v1/invoices/#{generate_id("in")}/lines"
+      }
+    }
+
+    {:ok, paid_invoice} = Invoices.insert(invoice)
+
+    # Fire invoice events
+    :telemetry.execute([:paper_tiger, :invoice, :created], %{}, %{object: paid_invoice})
+    :telemetry.execute([:paper_tiger, :invoice, :finalized], %{}, %{object: paid_invoice})
+    :telemetry.execute([:paper_tiger, :invoice, :paid], %{}, %{object: paid_invoice})
+    :telemetry.execute([:paper_tiger, :invoice, :payment_succeeded], %{}, %{object: paid_invoice})
+
+    # Update subscription to active
+    active_subscription = %{subscription | status: "active", latest_invoice: paid_invoice.id}
+    {:ok, _updated} = Subscriptions.update(active_subscription)
+
+    Logger.debug("Auto-paid invoice for incomplete subscription: #{subscription.id}")
+
+    :ok
+  end
+
+  defp build_invoice_lines_from_subscription_items(items, now) when is_list(items) do
+    lines =
+      items
+      |> Enum.with_index()
+      |> Enum.map(fn {item, _index} ->
+        # Get price ID from item (handles both :price as string and as map)
+        price_id =
+          case Map.get(item, :price) do
+            price_id when is_binary(price_id) -> price_id
+            %{id: price_id} -> price_id
+            _ -> nil
+          end
+
+        # Fetch full price object from store to ensure all fields are present
+        {:ok, full_price} = Prices.get(price_id)
+
+        amount = Map.get(full_price, :unit_amount, 0)
+        quantity = Map.get(item, :quantity, 1)
+
+        %{
+          id: generate_id("il"),
+          object: "line_item",
+          amount: amount * quantity,
+          currency: Map.get(full_price, :currency, "usd"),
+          description: Map.get(full_price, :nickname) || "Subscription",
+          period: %{
+            start: now,
+            end: now + 30 * 86_400
+          },
+          price: full_price,
+          proration: false,
+          quantity: quantity,
+          subscription: Map.get(item, :subscription),
+          subscription_item: item.id,
+          type: "subscription"
+        }
+      end)
+
+    total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+    {total, lines}
+  end
+
+  defp build_invoice_lines_from_subscription_items(_, _now), do: {0, []}
+
   defp build_session(params) do
     session_id = generate_id("cs")
 
@@ -603,5 +749,23 @@ defmodule PaperTiger.Resources.CheckoutSession do
   defp maybe_expand(session, params) do
     expand_params = parse_expand_params(params)
     PaperTiger.Hydrator.hydrate(session, expand_params)
+  end
+
+  # Simulates a customer completing the hosted checkout page. In real Stripe,
+  # the customer is redirected to a hosted page, fills in payment details, and
+  # Stripe completes the session + fires webhooks. Since PaperTiger has no hosted
+  # page, we auto-complete asynchronously after creation so webhooks arrive the
+  # same way they would in production.
+  defp schedule_auto_complete(session) do
+    Task.Supervisor.start_child(PaperTiger.TaskSupervisor, fn ->
+      completed_session = complete_session(session)
+      {:ok, _} = CheckoutSessions.update(completed_session)
+
+      :telemetry.execute(
+        [:paper_tiger, :checkout, :session, :completed],
+        %{},
+        %{object: completed_session}
+      )
+    end)
   end
 end
