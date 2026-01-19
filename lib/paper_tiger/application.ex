@@ -49,7 +49,7 @@ defmodule PaperTiger.Application do
   end
 
   defp do_start do
-    Logger.info("Starting PaperTiger Application")
+    Logger.debug("Starting PaperTiger Application")
 
     # Attach telemetry handlers for automatic event emission
     PaperTiger.TelemetryHandler.attach()
@@ -127,7 +127,7 @@ defmodule PaperTiger.Application do
       plug: PaperTiger.Router, port: port, scheme: :http
     }
 
-    Logger.info("PaperTiger HTTP server starting on port #{port}")
+    Logger.debug("PaperTiger HTTP server starting on port #{port}")
     children ++ [http_spec]
   end
 
@@ -204,7 +204,7 @@ defmodule PaperTiger.Application do
 
   defp maybe_add_billing_engine(children) do
     if Application.get_env(:paper_tiger, :billing_engine, false) do
-      Logger.info("PaperTiger BillingEngine enabled")
+      Logger.debug("PaperTiger BillingEngine enabled")
       children ++ [PaperTiger.BillingEngine]
     else
       children

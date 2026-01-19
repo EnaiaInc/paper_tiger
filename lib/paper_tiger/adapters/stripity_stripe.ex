@@ -48,7 +48,7 @@ defmodule PaperTiger.Adapters.StripityStripe do
       nil ->
         with {:ok, repo} <- get_repo(),
              {:ok, user_adapter} <- get_user_adapter() do
-          Logger.info("PaperTiger syncing data from database (strippity_stripe tables)...")
+          Logger.debug("PaperTiger syncing data from database (strippity_stripe tables)...")
 
           # Sync payment methods first (if present)
           payment_methods_count = sync_payment_methods(repo)
@@ -76,7 +76,7 @@ defmodule PaperTiger.Adapters.StripityStripe do
 
           total = Enum.sum(Map.values(stats))
 
-          Logger.info(
+          Logger.debug(
             "PaperTiger synced #{total} entities: " <>
               "#{stats.customers} customers, " <>
               "#{stats.subscriptions} subscriptions, " <>
@@ -106,7 +106,7 @@ defmodule PaperTiger.Adapters.StripityStripe do
         end
 
       _data_source ->
-        Logger.info("PaperTiger StripityStripe adapter: :data_source configured, skipping DB sync")
+        Logger.debug("PaperTiger StripityStripe adapter: :data_source configured, skipping DB sync")
 
         stats = %{
           customers: 0,

@@ -125,7 +125,7 @@ defmodule PaperTiger.Initializer do
     total = stats.products + stats.prices + stats.plans + stats.customers
 
     if total > 0 do
-      Logger.info(
+      Logger.debug(
         "PaperTiger loaded init_data: #{total} entities (#{stats.products} products, #{stats.prices} prices, #{stats.plans} plans, #{stats.customers} customers)"
       )
     end

@@ -175,7 +175,7 @@ defmodule PaperTiger.TestTokens do
     stats = %{payment_methods: pm_count, tokens: tok_count}
 
     if pm_count > 0 or tok_count > 0 do
-      Logger.info("PaperTiger loaded #{pm_count} test payment methods, #{tok_count} test tokens")
+      Logger.debug("PaperTiger loaded #{pm_count} test payment methods, #{tok_count} test tokens")
     end
 
     {:ok, stats}
