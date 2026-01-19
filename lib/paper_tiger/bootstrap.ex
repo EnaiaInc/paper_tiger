@@ -24,7 +24,7 @@ defmodule PaperTiger.Bootstrap do
 
   @impl true
   def handle_info(:bootstrap, state) do
-    Logger.info("PaperTiger bootstrap starting")
+    Logger.debug("PaperTiger bootstrap starting")
 
     wait_for_repo!()
 
@@ -33,7 +33,7 @@ defmodule PaperTiger.Bootstrap do
     load_init_data()
     register_configured_webhooks()
 
-    Logger.info("PaperTiger bootstrap complete")
+    Logger.debug("PaperTiger bootstrap complete")
     {:noreply, state}
   end
 
@@ -119,7 +119,7 @@ defmodule PaperTiger.Bootstrap do
       end
     end)
 
-    Logger.info("PaperTiger loaded #{length(resources)} #{label} from data_source")
+    Logger.debug("PaperTiger loaded #{length(resources)} #{label} from data_source")
   end
 
   # Loads init_data if configured

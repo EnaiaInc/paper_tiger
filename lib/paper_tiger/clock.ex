@@ -162,7 +162,7 @@ defmodule PaperTiger.Clock do
     }
 
     sync_to_ets(state)
-    Logger.info("PaperTiger.Clock started in #{mode} mode (multiplier: #{multiplier}x)")
+    Logger.debug("PaperTiger.Clock started in #{mode} mode (multiplier: #{multiplier}x)")
 
     {:ok, state}
   end

@@ -276,7 +276,7 @@ defmodule PaperTiger.ChaosCoordinator do
     # Initialize default state for global namespace
     init_namespace_state(nil)
 
-    Logger.info("PaperTiger.ChaosCoordinator started")
+    Logger.debug("PaperTiger.ChaosCoordinator started")
     {:ok, %{timers: %{}}}
   end
 

@@ -154,7 +154,7 @@ defmodule PaperTiger.WebhookDelivery do
 
   @impl true
   def init(_opts) do
-    Logger.info("PaperTiger.WebhookDelivery started")
+    Logger.debug("PaperTiger.WebhookDelivery started")
     {:ok, %{}}
   end
 

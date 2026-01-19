@@ -135,7 +135,7 @@ defmodule PaperTiger.Idempotency do
   def init(_opts) do
     :ets.new(@table, [:set, :public, :named_table, read_concurrency: true])
     schedule_cleanup()
-    Logger.info("PaperTiger.Idempotency started (TTL: #{@ttl_seconds}s)")
+    Logger.debug("PaperTiger.Idempotency started (TTL: #{@ttl_seconds}s)")
     {:ok, %{}}
   end
 

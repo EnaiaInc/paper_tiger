@@ -151,7 +151,7 @@ defmodule PaperTiger.BillingEngine do
       schedule_poll()
     end
 
-    Logger.info("PaperTiger.BillingEngine started")
+    Logger.debug("PaperTiger.BillingEngine started")
     {:ok, state}
   end
 

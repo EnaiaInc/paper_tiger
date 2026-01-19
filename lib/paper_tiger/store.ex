@@ -242,7 +242,7 @@ defmodule PaperTiger.Store do
           write_concurrency: false
         ])
 
-        Logger.info("#{__MODULE__} started")
+        Logger.debug("#{__MODULE__} started")
         {:ok, %{}}
       end
 
