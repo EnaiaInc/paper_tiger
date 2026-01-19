@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.21] - 2026-01-19
+
+### Changed
+
+- Reduced startup log noise by changing initialization messages from `Logger.info` to `Logger.debug` across all Store modules, Application, Bootstrap, and core services. Startup messages are now only visible at debug level while operational logs remain at appropriate levels.
+
 ## [0.9.20] - 2026-01-11
 
 ### Changed
