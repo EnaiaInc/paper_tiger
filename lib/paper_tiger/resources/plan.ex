@@ -34,7 +34,6 @@ defmodule PaperTiger.Resources.Plan do
 
   alias PaperTiger.Store.Plans
 
-
   @doc """
   Creates a new plan.
 

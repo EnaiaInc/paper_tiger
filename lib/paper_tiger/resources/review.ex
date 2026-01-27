@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.Review do
 
   alias PaperTiger.Store.Reviews
 
-
   @doc """
   Retrieves a review by ID.
   """

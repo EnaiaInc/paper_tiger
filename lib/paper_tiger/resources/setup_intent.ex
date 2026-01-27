@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.SetupIntent do
 
   alias PaperTiger.Store.SetupIntents
 
-
   @doc """
   Creates a new setup intent.
 

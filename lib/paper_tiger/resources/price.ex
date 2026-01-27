@@ -34,7 +34,6 @@ defmodule PaperTiger.Resources.Price do
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
 
-
   @doc """
   Creates a new price.
 

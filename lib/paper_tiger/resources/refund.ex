@@ -33,7 +33,6 @@ defmodule PaperTiger.Resources.Refund do
   alias PaperTiger.Store.Charges
   alias PaperTiger.Store.Refunds
 
-
   @doc """
   Creates a new refund.
 

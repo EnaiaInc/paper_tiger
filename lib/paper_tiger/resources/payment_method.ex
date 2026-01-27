@@ -45,7 +45,6 @@ defmodule PaperTiger.Resources.PaymentMethod do
 
   alias PaperTiger.Store.PaymentMethods
 
-
   @doc """
   Creates a new payment method.
 

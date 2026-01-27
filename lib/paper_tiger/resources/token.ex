@@ -38,7 +38,6 @@ defmodule PaperTiger.Resources.Token do
 
   alias PaperTiger.Store.Tokens
 
-
   @doc """
   Creates a new token.
 

@@ -83,7 +83,6 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Topup
   alias PaperTiger.Resources.Webhook
 
-
   # Plug pipeline
   plug(:match)
   plug(CORS)

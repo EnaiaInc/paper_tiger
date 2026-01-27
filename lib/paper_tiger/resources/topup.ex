@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.Topup do
 
   alias PaperTiger.Store.Topups
 
-
   @doc """
   Creates a new topup.
 

@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.Customer do
 
   alias PaperTiger.Store.Customers
 
-
   @doc """
   Creates a new customer.
 

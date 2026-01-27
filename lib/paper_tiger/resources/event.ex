@@ -32,7 +32,6 @@ defmodule PaperTiger.Resources.Event do
 
   alias PaperTiger.Store.Events
 
-
   @doc """
   Retrieves an event by ID.
   """

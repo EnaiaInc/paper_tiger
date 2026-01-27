@@ -33,7 +33,6 @@ defmodule PaperTiger.Resources.Payout do
 
   alias PaperTiger.Store.Payouts
 
-
   @doc """
   Creates a new payout.
 

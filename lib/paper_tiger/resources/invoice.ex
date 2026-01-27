@@ -42,7 +42,6 @@ defmodule PaperTiger.Resources.Invoice do
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
 
-
   @doc """
   Creates a new invoice.
 

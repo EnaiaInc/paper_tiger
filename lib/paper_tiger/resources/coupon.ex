@@ -32,7 +32,6 @@ defmodule PaperTiger.Resources.Coupon do
 
   alias PaperTiger.Store.Coupons
 
-
   @doc """
   Creates a new coupon.
 

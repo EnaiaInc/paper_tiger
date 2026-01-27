@@ -34,7 +34,6 @@ defmodule PaperTiger.Resources.Charge do
   alias PaperTiger.BalanceTransactionHelper
   alias PaperTiger.Store.Charges
 
-
   @doc """
   Creates a new charge.
 
