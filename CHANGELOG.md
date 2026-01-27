@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.22] - 2026-01-27
+
+### Changed
+
+- Fixed all Elixir 1.20 type checker warnings: removed 33 unused `require Logger` statements and fixed typing violation in hydrator module. Paper Tiger now compiles cleanly with Elixir 1.20.0-rc.1 with zero type warnings.
+
 ## [0.9.21] - 2026-01-19
 
 ### Changed

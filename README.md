@@ -42,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.10"}
+    {:paper_tiger, "~> 0.9.22"}
   ]
 end
 ```
@@ -835,9 +835,9 @@ For development environments where you have existing billing data in your databa
 
 **When to use each approach:**
 
-| Approach | Use Case |
-|----------|----------|
-| `init_data` | Static seed data (JSON file or config) |
+| Approach      | Use Case                                     |
+| ------------- | -------------------------------------------- |
+| `init_data`   | Static seed data (JSON file or config)       |
 | `data_source` | Sync from your application's database tables |
 
 #### Step 1: Implement the DataSource Behaviour
