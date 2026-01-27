@@ -46,7 +46,6 @@ defmodule PaperTiger.Resources.Subscription do
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
 
-  require Logger
 
   @doc """
   Creates a new subscription.

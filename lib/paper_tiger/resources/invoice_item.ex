@@ -31,7 +31,6 @@ defmodule PaperTiger.Resources.InvoiceItem do
 
   alias PaperTiger.Store.InvoiceItems
 
-  require Logger
 
   @doc """
   Creates a new invoice item.

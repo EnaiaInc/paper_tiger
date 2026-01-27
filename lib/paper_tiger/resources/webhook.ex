@@ -29,7 +29,6 @@ defmodule PaperTiger.Resources.Webhook do
 
   alias PaperTiger.Store.Webhooks
 
-  require Logger
 
   @doc """
   Creates a new webhook endpoint.

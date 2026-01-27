@@ -29,7 +29,6 @@ defmodule PaperTiger.Resources.ApplicationFee do
 
   alias PaperTiger.Store.ApplicationFees
 
-  require Logger
 
   @doc """
   Retrieves an application fee by ID.

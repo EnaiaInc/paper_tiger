@@ -45,7 +45,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
 
-  require Logger
 
   @doc """
   Creates a new checkout session.

@@ -28,7 +28,6 @@ defmodule PaperTiger.Resources.Product do
 
   alias PaperTiger.Store.Products
 
-  require Logger
 
   @doc """
   Creates a new product.

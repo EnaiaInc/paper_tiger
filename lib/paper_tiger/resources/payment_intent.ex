@@ -31,7 +31,6 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   alias PaperTiger.Store.PaymentIntents
 
-  require Logger
 
   @doc """
   Creates a new payment intent.

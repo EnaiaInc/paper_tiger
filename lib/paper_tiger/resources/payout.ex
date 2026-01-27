@@ -33,7 +33,6 @@ defmodule PaperTiger.Resources.Payout do
 
   alias PaperTiger.Store.Payouts
 
-  require Logger
 
   @doc """
   Creates a new payout.

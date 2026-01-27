@@ -190,13 +190,14 @@ defmodule PaperTiger.Hydrator do
   defp lookup_store_and_fetch("whsec", id), do: Webhooks.get(id)
 
   defp lookup_store_and_fetch(prefix, id) do
-    case Map.get(@prefix_registry, "#{prefix}_") do
-      nil ->
-        Logger.debug("Hydrator: unknown ID prefix for expansion: #{id}")
-        {:error, :unknown_prefix}
+    prefix_key = "#{prefix}_"
 
-      module ->
-        module.get(id)
+    if Map.has_key?(@prefix_registry, prefix_key) do
+      module = Map.fetch!(@prefix_registry, prefix_key)
+      module.get(id)
+    else
+      Logger.debug("Hydrator: unknown ID prefix for expansion: #{id}")
+      {:error, :unknown_prefix}
     end
   end
 end

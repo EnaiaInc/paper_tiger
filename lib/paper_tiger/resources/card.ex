@@ -35,7 +35,6 @@ defmodule PaperTiger.Resources.Card do
 
   alias PaperTiger.Store.Cards
 
-  require Logger
 
   @doc """
   Creates a new card (attaches to customer).

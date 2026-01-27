@@ -34,7 +34,6 @@ defmodule PaperTiger.Resources.Dispute do
 
   alias PaperTiger.Store.Disputes
 
-  require Logger
 
   @doc """
   Retrieves a dispute by ID.

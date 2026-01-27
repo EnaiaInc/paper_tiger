@@ -34,7 +34,6 @@ defmodule PaperTiger.Resources.Plan do
 
   alias PaperTiger.Store.Plans
 
-  require Logger
 
   @doc """
   Creates a new plan.

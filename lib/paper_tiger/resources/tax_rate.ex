@@ -31,7 +31,6 @@ defmodule PaperTiger.Resources.TaxRate do
 
   alias PaperTiger.Store.TaxRates
 
-  require Logger
 
   @doc """
   Creates a new tax rate.

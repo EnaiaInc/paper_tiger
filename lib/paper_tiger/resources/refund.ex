@@ -33,7 +33,6 @@ defmodule PaperTiger.Resources.Refund do
   alias PaperTiger.Store.Charges
   alias PaperTiger.Store.Refunds
 
-  require Logger
 
   @doc """
   Creates a new refund.

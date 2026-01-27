@@ -42,7 +42,6 @@ defmodule PaperTiger.Resources.SubscriptionSchedule do
 
   alias PaperTiger.Store.SubscriptionSchedules
 
-  require Logger
 
   @doc """
   Creates a new subscription schedule.

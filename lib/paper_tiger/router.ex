@@ -83,7 +83,6 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Topup
   alias PaperTiger.Resources.Webhook
 
-  require Logger
 
   # Plug pipeline
   plug(:match)

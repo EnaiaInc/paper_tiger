@@ -4,8 +4,6 @@ defmodule PaperTiger.WebhookDeliveryTest do
   alias PaperTiger.Store.Events
   alias PaperTiger.Store.Webhooks
 
-  require Logger
-
   setup do
     # Clear all data between tests
     PaperTiger.flush()

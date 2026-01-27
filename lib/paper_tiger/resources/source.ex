@@ -31,7 +31,6 @@ defmodule PaperTiger.Resources.Source do
 
   alias PaperTiger.Store.Sources
 
-  require Logger
 
   @doc """
   Creates a new source.

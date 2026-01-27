@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.Topup do
 
   alias PaperTiger.Store.Topups
 
-  require Logger
 
   @doc """
   Creates a new topup.

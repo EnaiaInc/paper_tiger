@@ -30,7 +30,6 @@ defmodule PaperTiger.Resource do
 
   import Plug.Conn
 
-  require Logger
 
   @doc """
   Sends a JSON response with the given status code and body.

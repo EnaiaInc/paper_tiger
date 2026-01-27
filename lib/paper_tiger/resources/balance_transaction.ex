@@ -30,7 +30,6 @@ defmodule PaperTiger.Resources.BalanceTransaction do
 
   alias PaperTiger.Store.BalanceTransactions
 
-  require Logger
 
   @doc """
   Retrieves a balance transaction by ID.

@@ -38,7 +38,6 @@ defmodule PaperTiger.Resources.Token do
 
   alias PaperTiger.Store.Tokens
 
-  require Logger
 
   @doc """
   Creates a new token.
