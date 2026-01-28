@@ -81,7 +81,7 @@ defmodule PaperTiger.Test do
   """
   @spec base_url(String.t()) :: String.t()
   def base_url(path \\ "") do
-    port = Application.get_env(:paper_tiger, :port, 4001)
+    port = Application.get_env(:paper_tiger, :actual_port) || 59_000
     "http://localhost:#{port}#{path}"
   end
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.23] - 2026-01-28
+
+### Changed
+
+- **Random high ports by default**: PaperTiger now picks a random available port in the 59000-60000 range by default, eliminating port conflicts when running multiple instances (tests + dev server, parallel test suites). Port availability is checked before binding, with automatic retry if port is in use. Set explicit port via `PAPER_TIGER_PORT` env var or `port:` option if needed. New `PaperTiger.get_port/0` function returns the actual port selected.
+
 ## [0.9.22] - 2026-01-27
 
 ### Changed
@@ -15,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Reduced startup log noise by changing initialization messages from `Logger.info` to `Logger.debug` across all Store modules, Application, Bootstrap, and core services. Startup messages are now only visible at debug level while operational logs remain at appropriate levels.
+- Reduced startup log noise by changing initialization messages from `Logger.info` to `Logger.debug` across all Store modules, Application, Bootstrap, and core services. Startup messages are only visible at debug level while operational logs remain at appropriate levels.
 
 ## [0.9.20] - 2026-01-11
 
