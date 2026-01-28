@@ -75,7 +75,7 @@ defmodule PaperTiger do
 
   ## Options
 
-  - `:port` - HTTP port (default: 4001, avoids Phoenix's 4000)
+  - `:port` - HTTP port (default: random port 59000-60000, checked for availability)
   - `:clock_mode` - Time mode (default: `:real`)
 
   ## Examples
@@ -85,14 +85,33 @@ defmodule PaperTiger do
   """
   @spec start(keyword()) :: {:ok, pid()} | {:error, term()}
   def start(opts \\ []) do
-    opts = Keyword.merge([port: 4001, clock_mode: :real, auto_start: true], opts)
+    opts = Keyword.merge([clock_mode: :real, auto_start: true], opts)
 
     # Configure and start application
-    Application.put_env(:paper_tiger, :port, opts[:port])
+    # Only set port if explicitly provided - otherwise Application will pick random available port
+    if Keyword.has_key?(opts, :port) do
+      Application.put_env(:paper_tiger, :port, opts[:port])
+    end
+
     Application.put_env(:paper_tiger, :clock_mode, opts[:clock_mode])
     Application.put_env(:paper_tiger, :auto_start, opts[:auto_start])
 
     Application.ensure_all_started(:paper_tiger)
+  end
+
+  @doc """
+  Returns the port that PaperTiger HTTP server is running on.
+
+  Useful when using random ports to discover which port was selected.
+
+  ## Examples
+
+      PaperTiger.get_port()
+      #=> 59342
+  """
+  @spec get_port() :: integer() | nil
+  def get_port do
+    Application.get_env(:paper_tiger, :actual_port)
   end
 
   @doc """
@@ -312,7 +331,7 @@ defmodule PaperTiger do
 
   ## Options
 
-  - `:port` - PaperTiger port (default: 4001)
+  - `:port` - PaperTiger port (default: auto-detect from running server)
   - `:host` - PaperTiger host (default: "localhost")
   - `:webhook_secret` - Webhook signing secret (default: "whsec_paper_tiger_test")
   - `:sandbox` - Enable sandbox isolation for concurrent tests (default: true)
@@ -349,7 +368,8 @@ defmodule PaperTiger do
   """
   @spec stripity_stripe_config(keyword()) :: keyword()
   def stripity_stripe_config(opts \\ []) do
-    port = Keyword.get(opts, :port, 4001)
+    # Auto-detect port from running server if not explicitly provided
+    port = Keyword.get_lazy(opts, :port, fn -> get_port() || 59_000 end)
     host = Keyword.get(opts, :host, "localhost")
     webhook_secret = Keyword.get(opts, :webhook_secret, "whsec_paper_tiger_test")
     sandbox = Keyword.get(opts, :sandbox, true)

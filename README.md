@@ -42,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.22"}
+    {:paper_tiger, "~> 0.9.23"}
   ]
 end
 ```
@@ -317,16 +317,26 @@ end
 
 ### Port Configuration
 
-PaperTiger uses port 4001 by default to avoid conflicts with Phoenix's port 4000.
+PaperTiger automatically picks a random available port in the 59000-60000 range by default, eliminating port conflicts when running multiple instances (tests + dev server, parallel test suites).
 
-If you need a different port:
+**Port selection:**
+
+- **Random by default** - Picks available port, retries if conflict detected
+- **Auto-discovery** - `stripity_stripe_config()` auto-detects the running port
+- **Manual override** - Set explicit port via env var or config
+
+If you need a specific port:
 
 ```elixir
-# config/test.exs
-config :stripity_stripe, PaperTiger.stripity_stripe_config(port: 4002)
+# Via environment variable (recommended)
+PAPER_TIGER_PORT=4001 mix test
 
-# Or via environment variable
-# PAPER_TIGER_PORT=4002 mix test
+# Via config
+config :stripity_stripe, PaperTiger.stripity_stripe_config(port: 4001)
+
+# Discover which port was selected
+iex> PaperTiger.get_port()
+59342
 ```
 
 ## Concurrent Test Support
