@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.23] - 2026-01-30
+
+### Fixed
+
+- **Random port support with runtime.exs**: `StripityStripeHackney` now rewrites URLs at request time to use the actual port PaperTiger started on. This fixes the issue where `runtime.exs` is evaluated before PaperTiger starts and selects its random port. Config can now use placeholder port 99999 which gets replaced with the actual random port automatically.
+
 ## [0.9.22] - 2026-01-28
 
 ### Changed
