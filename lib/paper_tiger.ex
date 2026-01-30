@@ -100,18 +100,19 @@ defmodule PaperTiger do
   end
 
   @doc """
-  Returns the port that PaperTiger HTTP server is running on.
+  Returns the port PaperTiger will use.
 
-  Useful when using random ports to discover which port was selected.
+  If PaperTiger is already running, returns the actual port in use.
+  If not started yet, it resolves and caches the port so config and runtime stay consistent.
 
   ## Examples
 
       PaperTiger.get_port()
       #=> 59342
   """
-  @spec get_port() :: integer() | nil
+  @spec get_port() :: integer()
   def get_port do
-    Application.get_env(:paper_tiger, :actual_port)
+    PaperTiger.Port.resolve()
   end
 
   @doc """
@@ -331,7 +332,7 @@ defmodule PaperTiger do
 
   ## Options
 
-  - `:port` - PaperTiger port (default: auto-detect from running server)
+  - `:port` - PaperTiger port (default: resolve and cache before startup)
   - `:host` - PaperTiger host (default: "localhost")
   - `:webhook_secret` - Webhook signing secret (default: "whsec_paper_tiger_test")
   - `:sandbox` - Enable sandbox isolation for concurrent tests (default: true)
@@ -368,8 +369,8 @@ defmodule PaperTiger do
   """
   @spec stripity_stripe_config(keyword()) :: keyword()
   def stripity_stripe_config(opts \\ []) do
-    # Auto-detect port from running server if not explicitly provided
-    port = Keyword.get_lazy(opts, :port, fn -> get_port() || 59_000 end)
+    # Resolve port deterministically even before PaperTiger starts
+    port = Keyword.get_lazy(opts, :port, fn -> get_port() end)
     host = Keyword.get(opts, :host, "localhost")
     webhook_secret = Keyword.get(opts, :webhook_secret, "whsec_paper_tiger_test")
     sandbox = Keyword.get(opts, :sandbox, true)

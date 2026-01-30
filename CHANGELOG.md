@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.23] - 2026-01-30
+
+### Fixed
+
+- **Random port with runtime config**: Port selection is now deterministic even when called from `config/runtime.exs` before PaperTiger starts. The new `PaperTiger.Port` resolver caches the selected port on first call, ensuring both config evaluation and server startup use the same port. This eliminates connection refused errors when using `stripity_stripe_config()` without explicit port. Works with any HTTP client - not tied to stripity_stripe.
+
 ## [0.9.22] - 2026-01-28
 
 ### Changed

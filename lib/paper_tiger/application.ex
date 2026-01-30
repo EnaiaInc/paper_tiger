@@ -120,7 +120,7 @@ defmodule PaperTiger.Application do
   end
 
   defp maybe_add_http_server(children) do
-    port = get_port()
+    port = PaperTiger.Port.resolve()
 
     # Store the actual port for PaperTiger.get_port/0
     Application.put_env(:paper_tiger, :actual_port, port)
@@ -178,55 +178,6 @@ defmodule PaperTiger.Application do
   defp mix_task_running? do
     # Mix.TasksServer only exists during mix tasks, not in releases
     Process.whereis(Mix.TasksServer) != nil
-  end
-
-  # Get port from env var or config, with random fallback to avoid conflicts
-  # Precedence: PAPER_TIGER_PORT > config > random high port (checked for availability)
-  defp get_port do
-    case System.get_env("PAPER_TIGER_PORT") do
-      nil ->
-        case Application.get_env(:paper_tiger, :port) do
-          nil -> find_available_port()
-          port -> port
-        end
-
-      port_string ->
-        String.to_integer(port_string)
-    end
-  end
-
-  # Find an available port in the high range, trying multiple times if needed
-  defp find_available_port(attempts \\ 10) do
-    port = random_high_port()
-
-    if port_available?(port) do
-      port
-    else
-      if attempts > 1 do
-        find_available_port(attempts - 1)
-      else
-        # Fallback to letting the OS fail with EADDRINUSE
-        port
-      end
-    end
-  end
-
-  # Pick a random port in range 59000-60000 to avoid conflicts with common dev tools
-  # Higher range than 51000-52000 to avoid tools like webpack dev servers
-  defp random_high_port do
-    59_000 + :rand.uniform(1000)
-  end
-
-  # Check if a port is available by attempting to bind to it
-  defp port_available?(port) do
-    case :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true]) do
-      {:ok, socket} ->
-        :gen_tcp.close(socket)
-        true
-
-      {:error, _} ->
-        false
-    end
   end
 
   defp maybe_add_workers(children) do

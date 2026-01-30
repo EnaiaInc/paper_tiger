@@ -42,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.22"}
+    {:paper_tiger, "~> 0.9.23"}
   ]
 end
 ```
@@ -322,7 +322,7 @@ PaperTiger automatically picks a random available port in the 59000-60000 range 
 **Port selection:**
 
 - **Random by default** - Picks available port, retries if conflict detected
-- **Auto-discovery** - `stripity_stripe_config()` auto-detects the running port
+- **Early resolution** - `stripity_stripe_config()` and `PaperTiger.get_port()` resolve and cache the port before startup
 - **Manual override** - Set explicit port via env var or config
 
 If you need a specific port:
