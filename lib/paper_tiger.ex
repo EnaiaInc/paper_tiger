@@ -369,7 +369,8 @@ defmodule PaperTiger do
   @spec stripity_stripe_config(keyword()) :: keyword()
   def stripity_stripe_config(opts \\ []) do
     # Auto-detect port from running server if not explicitly provided
-    port = Keyword.get_lazy(opts, :port, fn -> get_port() || 59_000 end)
+    # 99999 is a placeholder - StripityStripeHackney rewrites URLs with actual port at runtime
+    port = Keyword.get_lazy(opts, :port, fn -> get_port() || 99999 end)
     host = Keyword.get(opts, :host, "localhost")
     webhook_secret = Keyword.get(opts, :webhook_secret, "whsec_paper_tiger_test")
     sandbox = Keyword.get(opts, :sandbox, true)

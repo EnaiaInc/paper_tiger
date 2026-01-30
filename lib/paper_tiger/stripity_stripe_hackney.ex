@@ -64,8 +64,26 @@ defmodule PaperTiger.StripityStripeHackney do
   @spec request(atom(), String.t(), list(), iodata(), list()) ::
           {:ok, integer(), list(), any()} | {:error, term()}
   def request(method, url, headers, body, opts) do
+    url = rewrite_url_with_actual_port(url)
     headers = inject_namespace_header(headers)
     :hackney.request(method, url, headers, body, opts)
+  end
+
+  # Rewrite URL to use the actual port that PaperTiger started on
+  # This allows stripity_stripe config to use a placeholder port (like 99999)
+  # which gets replaced with the actual random port at runtime
+  defp rewrite_url_with_actual_port(url) do
+    case PaperTiger.get_port() do
+      nil ->
+        # PaperTiger not started or no port set - return URL unchanged
+        url
+
+      actual_port ->
+        # Replace any localhost port with the actual PaperTiger port
+        # Handles: http://localhost:99999/v1/... -> http://localhost:59342/v1/...
+        url
+        |> String.replace(~r/http:\/\/localhost:\d+/, "http://localhost:#{actual_port}")
+    end
   end
 
   defp inject_namespace_header(headers) do
