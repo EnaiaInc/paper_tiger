@@ -46,6 +46,8 @@ defmodule PaperTiger.Resources.CheckoutSession do
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
 
+  require Logger
+
   @doc """
   Creates a new checkout session.
 
@@ -281,7 +283,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
   ## Private Functions
 
   defp complete_session(session) do
-    Logger.info("complete_session called for #{session.id}, mode: #{session.mode}, customer: #{inspect(session.customer)}")
+    Logger.info(
+      "complete_session called for #{session.id}, mode: #{session.mode}, customer: #{inspect(session.customer)}"
+    )
+
     now = PaperTiger.now()
 
     # Create a payment method and attach to customer (fires payment_method.attached event)
@@ -574,10 +579,11 @@ defmodule PaperTiger.Resources.CheckoutSession do
     subscriptions = Subscriptions.find_by_customer(customer_id)
     Logger.debug("Found #{length(subscriptions)} subscriptions for customer #{customer_id}")
 
-    incomplete_sub = Enum.find(subscriptions, fn sub ->
-      Logger.debug("Subscription #{sub.id} status: #{sub.status}")
-      sub.status == "incomplete"
-    end)
+    incomplete_sub =
+      Enum.find(subscriptions, fn sub ->
+        Logger.debug("Subscription #{sub.id} status: #{sub.status}")
+        sub.status == "incomplete"
+      end)
 
     if incomplete_sub do
       Logger.debug("Found incomplete subscription: #{incomplete_sub.id}, creating invoice...")
@@ -600,39 +606,39 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
     # Create invoice
     invoice = %{
-      id: generate_id("in"),
-      object: "invoice",
-      created: now,
-      customer: customer_id,
-      subscription: subscription.id,
-      status: "paid",
-      paid: true,
+      amount_due: total,
+      amount_paid: total,
+      amount_remaining: 0,
       attempt_count: 1,
       attempted: true,
       billing_reason: "subscription_create",
       collection_method: "charge_automatically",
+      created: now,
       currency: "usd",
+      customer: customer_id,
       default_payment_method: payment_method.id,
       due_date: nil,
       ending_balance: 0,
-      livemode: false,
-      metadata: %{},
-      number: "#{:rand.uniform(999999)}",
-      payment_intent: nil,
-      period_end: subscription.current_period_end,
-      period_start: subscription.current_period_start,
-      starting_balance: 0,
-      subtotal: total,
-      total: total,
-      amount_due: total,
-      amount_paid: total,
-      amount_remaining: 0,
+      id: generate_id("in"),
       lines: %{
         data: lines,
         has_more: false,
         object: "list",
         url: "/v1/invoices/#{generate_id("in")}/lines"
-      }
+      },
+      livemode: false,
+      metadata: %{},
+      number: "#{:rand.uniform(999_999)}",
+      object: "invoice",
+      paid: true,
+      payment_intent: nil,
+      period_end: subscription.current_period_end,
+      period_start: subscription.current_period_start,
+      starting_balance: 0,
+      status: "paid",
+      subscription: subscription.id,
+      subtotal: total,
+      total: total
     }
 
     {:ok, paid_invoice} = Invoices.insert(invoice)
@@ -644,7 +650,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
     :telemetry.execute([:paper_tiger, :invoice, :payment_succeeded], %{}, %{object: paid_invoice})
 
     # Update subscription to active
-    active_subscription = %{subscription | status: "active", latest_invoice: paid_invoice.id}
+    active_subscription = %{subscription | latest_invoice: paid_invoice.id, status: "active"}
     {:ok, _updated} = Subscriptions.update(active_subscription)
 
     Logger.debug("Auto-paid invoice for incomplete subscription: #{subscription.id}")
@@ -672,14 +678,14 @@ defmodule PaperTiger.Resources.CheckoutSession do
         quantity = Map.get(item, :quantity, 1)
 
         %{
-          id: generate_id("il"),
-          object: "line_item",
           amount: amount * quantity,
           currency: Map.get(full_price, :currency, "usd"),
           description: Map.get(full_price, :nickname) || "Subscription",
+          id: generate_id("il"),
+          object: "line_item",
           period: %{
-            start: now,
-            end: now + 30 * 86_400
+            end: now + 30 * 86_400,
+            start: now
           },
           price: full_price,
           proration: false,
