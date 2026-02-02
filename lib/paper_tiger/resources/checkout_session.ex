@@ -72,11 +72,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
          {:ok, session} <- CheckoutSessions.insert(session) do
       maybe_store_idempotency(conn, session)
 
-      # Auto-complete the session asynchronously, simulating a customer completing
-      # the hosted checkout page. This fires all the same webhooks (payment_method.attached,
-      # customer.subscription.created, etc.) that real Stripe would fire.
-      schedule_auto_complete(session)
-
       session
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))
@@ -523,7 +518,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
     Enum.reduce(line_items, 0, fn item, acc ->
       amount = Map.get(item, :amount) || Map.get(item, "amount") || 0
       quantity = Map.get(item, :quantity) || Map.get(item, "quantity") || 1
-      acc + amount * quantity
+      # Ensure both values are integers for arithmetic
+      amount_int = if is_binary(amount), do: String.to_integer(amount), else: amount
+      quantity_int = if is_binary(quantity), do: String.to_integer(quantity), else: quantity
+      acc + amount_int * quantity_int
     end)
   end
 
@@ -757,21 +755,4 @@ defmodule PaperTiger.Resources.CheckoutSession do
     PaperTiger.Hydrator.hydrate(session, expand_params)
   end
 
-  # Simulates a customer completing the hosted checkout page. In real Stripe,
-  # the customer is redirected to a hosted page, fills in payment details, and
-  # Stripe completes the session + fires webhooks. Since PaperTiger has no hosted
-  # page, we auto-complete asynchronously after creation so webhooks arrive the
-  # same way they would in production.
-  defp schedule_auto_complete(session) do
-    Task.Supervisor.start_child(PaperTiger.TaskSupervisor, fn ->
-      completed_session = complete_session(session)
-      {:ok, _} = CheckoutSessions.update(completed_session)
-
-      :telemetry.execute(
-        [:paper_tiger, :checkout, :session, :completed],
-        %{},
-        %{object: completed_session}
-      )
-    end)
-  end
 end
