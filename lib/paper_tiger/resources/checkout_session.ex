@@ -754,5 +754,4 @@ defmodule PaperTiger.Resources.CheckoutSession do
     expand_params = parse_expand_params(params)
     PaperTiger.Hydrator.hydrate(session, expand_params)
   end
-
 end
