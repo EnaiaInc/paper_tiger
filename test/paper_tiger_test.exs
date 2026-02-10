@@ -72,7 +72,8 @@ defmodule PaperTigerTest do
       customer = %{created: PaperTiger.now(), email: "test@example.com", id: "cus_123"}
       Customers.insert(customer)
 
-      Customers.clear()
+      # Use namespace-scoped cleanup so this test doesn't interfere with other async tests.
+      Customers.clear_namespace(PaperTiger.Test.current_namespace())
 
       assert {:error, :not_found} = Customers.get("cus_123")
     end
@@ -98,7 +99,8 @@ defmodule PaperTigerTest do
       response = %{id: "cus_123"}
 
       PaperTiger.Idempotency.store(key, response)
-      PaperTiger.Idempotency.clear()
+      # Use namespace-scoped cleanup so this test doesn't interfere with other async tests.
+      PaperTiger.Idempotency.clear_namespace(PaperTiger.Test.current_namespace())
 
       assert :new_request = PaperTiger.Idempotency.check(key)
     end

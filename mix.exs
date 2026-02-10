@@ -2,7 +2,7 @@ defmodule PaperTiger.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "0.9.24"
+  @version "0.9.25"
   @url "https://github.com/EnaiaInc/paper_tiger"
   @maintainers ["Enaia Inc"]
 

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.25] - 2026-02-10
+
+### Added
+
+- `PaperTiger.flush_all/0` to flush data across all namespaces (legacy behavior).
+
+### Changed
+
+- `PaperTiger.flush/0` now flushes only the current namespace (safe for `async: true` test suites using `PaperTiger.Test` sandboxing).
+- Updated dependencies: `quokka` `2.12.0`, `plug_cowboy` `2.8.0`, `ex_doc` `0.40.1`.
+
+### Fixed
+
+- ChaosCoordinator config/state is now correctly isolated per namespace, preventing intermittent test failures from cross-test chaos leakage.
+- Reduced flaky test assertions in billing engine chaos tests.
+
 ## [0.9.24] - 2026-02-02
 
 ### Added

@@ -147,17 +147,44 @@ defmodule PaperTiger do
   @doc """
   Flushes (clears) all resources or a specific resource type.
 
-  Dynamically discovers all PaperTiger ETS tables (`:paper_tiger_*`)
-  and clears them. This prevents state leakage between tests without
-  requiring manual maintenance of resource lists.
+  PaperTiger supports namespace-based isolation (used by `PaperTiger.Test`) so
+  multiple test suites can run concurrently. `flush/0` clears data **only for
+  the current namespace** (default `:global`).
+
+  If you need to wipe *all* namespaces, use `flush_all/0`.
 
   ## Examples
 
-      PaperTiger.flush()  # Clear all resources
+      PaperTiger.flush()  # Clear all resources in current namespace
       PaperTiger.flush(:customers)  # Clear only customers
   """
   @spec flush() :: :ok
   def flush do
+    namespace = PaperTiger.Test.current_namespace()
+
+    # Clear only the current namespace so concurrent sandboxed tests don't
+    # destroy each other's state.
+    :ok = PaperTiger.Test.cleanup_namespace(namespace)
+
+    # Reset ChaosCoordinator for this namespace.
+    PaperTiger.ChaosCoordinator.reset()
+
+    # Pre-defined Stripe test tokens live in the global namespace.
+    if namespace == :global do
+      {:ok, _stats} = PaperTiger.TestTokens.load()
+    end
+
+    :ok
+  end
+
+  @doc """
+  Flushes (clears) all resources across all namespaces.
+
+  This is the legacy behavior of `flush/0`. Prefer `flush/0` when running tests
+  concurrently with `PaperTiger.Test` sandboxing.
+  """
+  @spec flush_all() :: :ok
+  def flush_all do
     # Dynamically find all PaperTiger ETS tables
     :ets.all()
     |> Enum.filter(fn table_name ->
@@ -176,7 +203,7 @@ defmodule PaperTiger do
     # Also clear idempotency cache via its API
     PaperTiger.Idempotency.clear()
 
-    # Reset chaos coordinator
+    # Reset chaos coordinator (global namespace)
     PaperTiger.ChaosCoordinator.reset()
 
     # Reload pre-defined Stripe test tokens (pm_card_visa, tok_visa, etc.)
