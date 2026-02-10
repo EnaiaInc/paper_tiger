@@ -611,9 +611,10 @@ defmodule PaperTiger.Resources.Subscription do
   # The full object is returned only when expand: ["latest_invoice"] is passed
   defp load_latest_invoice(subscription) do
     latest_invoice_id =
-      case Invoices.find_by_subscription(subscription.id)
-           |> Enum.sort_by(& &1.created, :desc)
-           |> List.first() do
+      Invoices.find_by_subscription(subscription.id)
+      |> Enum.sort_by(& &1.created, :desc)
+      |> List.first()
+      |> case do
         nil -> nil
         invoice -> invoice.id
       end

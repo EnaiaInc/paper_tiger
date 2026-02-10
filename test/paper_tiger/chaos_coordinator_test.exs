@@ -18,6 +18,29 @@ defmodule PaperTiger.ChaosCoordinatorTest do
       assert config.api.timeout_rate == 0.0
     end
 
+    test "configuration is isolated per namespace" do
+      # Simulate two concurrent sandboxes by setting the namespace in the process dictionary.
+      # Each sandbox should have independent chaos configuration.
+      Process.put(:paper_tiger_namespace, :ns_b)
+      ChaosCoordinator.reset()
+
+      task =
+        Task.async(fn ->
+          Process.put(:paper_tiger_namespace, :ns_a)
+          ChaosCoordinator.reset()
+          ChaosCoordinator.configure(%{api: %{rate_limit_rate: 1.0}})
+          ChaosCoordinator.get_config()
+        end)
+
+      config_a = Task.await(task)
+      assert config_a.api.rate_limit_rate == 1.0
+
+      # Namespace B should remain at defaults.
+      Process.put(:paper_tiger_namespace, :ns_b)
+      config_b = ChaosCoordinator.get_config()
+      assert config_b.api.rate_limit_rate == 0.0
+    end
+
     test "configure/1 merges with existing config" do
       ChaosCoordinator.configure(%{payment: %{failure_rate: 0.5}})
       config = ChaosCoordinator.get_config()

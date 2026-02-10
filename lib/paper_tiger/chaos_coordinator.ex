@@ -138,7 +138,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec configure(map()) :: :ok
   def configure(config) do
-    GenServer.call(__MODULE__, {:configure, config})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:configure, namespace, config})
   end
 
   @doc """
@@ -146,7 +147,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec get_config() :: map()
   def get_config do
-    GenServer.call(__MODULE__, :get_config)
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:get_config, namespace})
   end
 
   @doc """
@@ -154,7 +156,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec reset() :: :ok
   def reset do
-    GenServer.call(__MODULE__, :reset)
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:reset, namespace})
   end
 
   @doc """
@@ -182,7 +185,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec get_stats() :: map()
   def get_stats do
-    GenServer.call(__MODULE__, :get_stats)
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:get_stats, namespace})
   end
 
   ## Public API - Payment Chaos
@@ -198,7 +202,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec should_payment_fail?(String.t()) :: {:ok, :succeed} | {:ok, {:fail, atom()}}
   def should_payment_fail?(customer_id) do
-    GenServer.call(__MODULE__, {:should_payment_fail, customer_id})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:should_payment_fail, namespace, customer_id})
   end
 
   @doc """
@@ -208,7 +213,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec simulate_failure(String.t(), atom()) :: :ok
   def simulate_failure(customer_id, decline_code) when decline_code in @all_decline_codes do
-    GenServer.call(__MODULE__, {:simulate_failure, customer_id, decline_code})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:simulate_failure, namespace, customer_id, decline_code})
   end
 
   def simulate_failure(_customer_id, decline_code) do
@@ -220,7 +226,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec clear_simulation(String.t()) :: :ok
   def clear_simulation(customer_id) do
-    GenServer.call(__MODULE__, {:clear_simulation, customer_id})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:clear_simulation, namespace, customer_id})
   end
 
   ## Public API - Event Chaos
@@ -237,7 +244,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec queue_event(map(), function()) :: :ok
   def queue_event(event, deliver_fn) do
-    GenServer.cast(__MODULE__, {:queue_event, event, deliver_fn})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.cast(__MODULE__, {:queue_event, namespace, event, deliver_fn})
   end
 
   @doc """
@@ -247,7 +255,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec flush_events() :: :ok
   def flush_events do
-    GenServer.call(__MODULE__, :flush_events)
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:flush_events, namespace})
   end
 
   ## Public API - API Chaos
@@ -263,7 +272,8 @@ defmodule PaperTiger.ChaosCoordinator do
   """
   @spec should_api_fail?(String.t()) :: :ok | {:timeout, non_neg_integer()} | :rate_limit | :server_error
   def should_api_fail?(path) do
-    GenServer.call(__MODULE__, {:should_api_fail, path})
+    namespace = PaperTiger.Test.current_namespace()
+    GenServer.call(__MODULE__, {:should_api_fail, namespace, path})
   end
 
   ## Server Callbacks
@@ -274,7 +284,7 @@ defmodule PaperTiger.ChaosCoordinator do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
 
     # Initialize default state for global namespace
-    init_namespace_state(nil)
+    init_namespace_state(:global)
 
     Logger.debug("PaperTiger.ChaosCoordinator started")
     {:ok, %{timers: %{}}}
@@ -300,41 +310,32 @@ defmodule PaperTiger.ChaosCoordinator do
     state
   end
 
-  defp get_namespace_state do
-    namespace = PaperTiger.Test.current_namespace()
-
+  defp get_namespace_state(namespace) do
     case :ets.lookup(@table, {namespace, :state}) do
       [{{^namespace, :state}, state}] -> state
       [] -> init_namespace_state(namespace)
     end
   end
 
-  defp put_namespace_state(state) do
-    namespace = PaperTiger.Test.current_namespace()
+  defp put_namespace_state(namespace, state) do
     :ets.insert(@table, {{namespace, :state}, state})
   end
 
-  defp current_namespace do
-    PaperTiger.Test.current_namespace()
-  end
-
   @impl true
-  def handle_call({:configure, new_config}, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:configure, namespace, new_config}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     merged = deep_merge(state.config, new_config)
     Logger.debug("ChaosCoordinator config updated: #{inspect(merged)}")
-    put_namespace_state(%{state | config: merged})
+    put_namespace_state(namespace, %{state | config: merged})
     {:reply, :ok, genserver_state}
   end
 
-  def handle_call(:get_config, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:get_config, namespace}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     {:reply, state.config, genserver_state}
   end
 
-  def handle_call(:reset, _from, genserver_state) do
-    namespace = current_namespace()
-
+  def handle_call({:reset, namespace}, _from, genserver_state) do
     # Cancel any pending timer for this namespace
     new_timers =
       case Map.get(genserver_state.timers, namespace) do
@@ -361,64 +362,63 @@ defmodule PaperTiger.ChaosCoordinator do
       }
     }
 
-    put_namespace_state(new_state)
+    put_namespace_state(namespace, new_state)
     {:reply, :ok, %{genserver_state | timers: new_timers}}
   end
 
-  def handle_call(:get_stats, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:get_stats, namespace}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     {:reply, state.stats, genserver_state}
   end
 
   # Payment chaos handlers
-  def handle_call({:should_payment_fail, customer_id}, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:should_payment_fail, namespace, customer_id}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     {result, new_state} = determine_payment_result(customer_id, state)
-    put_namespace_state(new_state)
+    put_namespace_state(namespace, new_state)
     {:reply, result, genserver_state}
   end
 
-  def handle_call({:simulate_failure, customer_id, decline_code}, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:simulate_failure, namespace, customer_id, decline_code}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     overrides = Map.put(state.customer_overrides, customer_id, decline_code)
-    put_namespace_state(%{state | customer_overrides: overrides})
+    put_namespace_state(namespace, %{state | customer_overrides: overrides})
     {:reply, :ok, genserver_state}
   end
 
-  def handle_call({:clear_simulation, customer_id}, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:clear_simulation, namespace, customer_id}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     overrides = Map.delete(state.customer_overrides, customer_id)
-    put_namespace_state(%{state | customer_overrides: overrides})
+    put_namespace_state(namespace, %{state | customer_overrides: overrides})
     {:reply, :ok, genserver_state}
   end
 
   # Event chaos handlers
-  def handle_call(:flush_events, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:flush_events, namespace}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     new_state = flush_event_buffer(state)
-    put_namespace_state(new_state)
+    put_namespace_state(namespace, new_state)
     {:reply, :ok, genserver_state}
   end
 
   # API chaos handlers
-  def handle_call({:should_api_fail, path}, _from, genserver_state) do
-    state = get_namespace_state()
+  def handle_call({:should_api_fail, namespace, path}, _from, genserver_state) do
+    state = get_namespace_state(namespace)
     {result, new_state} = determine_api_result(path, state)
-    put_namespace_state(new_state)
+    put_namespace_state(namespace, new_state)
     {:reply, result, genserver_state}
   end
 
   @impl true
-  def handle_cast({:queue_event, event, deliver_fn}, genserver_state) do
-    namespace = current_namespace()
-    state = get_namespace_state()
+  def handle_cast({:queue_event, namespace, event, deliver_fn}, genserver_state) do
+    state = get_namespace_state(namespace)
     events_config = state.config.events
     buffer_window = events_config[:buffer_window_ms] || 0
 
     if buffer_window > 0 do
       # Buffer the event with its delivery function
       new_buffer = [{event, deliver_fn} | state.event_buffer]
-      put_namespace_state(%{state | event_buffer: new_buffer})
+      put_namespace_state(namespace, %{state | event_buffer: new_buffer})
 
       # Schedule flush if not already scheduled for this namespace
       new_timers =
@@ -433,7 +433,7 @@ defmodule PaperTiger.ChaosCoordinator do
     else
       # No buffering - deliver immediately with possible duplication
       new_state = deliver_event_with_chaos(event, deliver_fn, state)
-      put_namespace_state(new_state)
+      put_namespace_state(namespace, new_state)
       {:noreply, genserver_state}
     end
   end
