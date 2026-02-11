@@ -154,7 +154,22 @@ defmodule PaperTiger.Resources.Subscription do
       updated = maybe_create_proration_invoice(updated, conn.params)
 
       updated_with_items = load_subscription_items(updated)
-      :telemetry.execute([:paper_tiger, :subscription, :updated], %{}, %{object: updated_with_items})
+      previous_attributes = diff_attributes(existing, updated_with_items)
+      items_changed = Map.has_key?(conn.params, :items)
+
+      # Only emit telemetry when something actually changed, matching Stripe's
+      # behavior. Without this, no-op metadata updates create an infinite
+      # webhook delivery cascade.
+      if previous_attributes != %{} or items_changed do
+        telemetry_metadata = %{object: updated_with_items}
+
+        telemetry_metadata =
+          if previous_attributes == %{},
+            do: telemetry_metadata,
+            else: Map.put(telemetry_metadata, :previous_attributes, previous_attributes)
+
+        :telemetry.execute([:paper_tiger, :subscription, :updated], %{}, telemetry_metadata)
+      end
 
       updated_with_items
       |> maybe_expand(conn.params)
@@ -505,6 +520,25 @@ defmodule PaperTiger.Resources.Subscription do
           {:error, :not_found} -> {:error, :not_found}
         end
     end
+  end
+
+  defp diff_attributes(old, new) do
+    tracked_fields = [
+      :status,
+      :cancel_at,
+      :cancel_at_period_end,
+      :metadata,
+      :default_payment_method,
+      :coupon,
+      :discount
+    ]
+
+    Enum.reduce(tracked_fields, %{}, fn field, acc ->
+      old_val = Map.get(old, field)
+      new_val = Map.get(new, field)
+
+      if old_val == new_val, do: acc, else: Map.put(acc, field, old_val)
+    end)
   end
 
   defp load_subscription_items(subscription) do

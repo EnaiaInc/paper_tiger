@@ -32,7 +32,10 @@ defmodule PaperTiger.MixProject do
       ],
 
       # Test coverage
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+
+      # Treat warnings as errors
+      elixirc_options: [warnings_as_errors: true]
     ]
   end
 

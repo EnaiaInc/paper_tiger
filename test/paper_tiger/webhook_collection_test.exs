@@ -89,6 +89,101 @@ defmodule PaperTiger.WebhookCollectionTest do
       assert delivery.event_data.object.id == subscription["id"]
       assert delivery.event_data.object.status == "active"
     end
+
+    test "subscription update includes previous_attributes in webhook" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "test@example.com"})
+      {:ok, product} = TestClient.create_product(%{"name" => "Test Product"})
+
+      {:ok, price} =
+        TestClient.create_price(%{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month"},
+          "unit_amount" => 1000
+        })
+
+      {:ok, subscription} =
+        TestClient.create_subscription(%{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"]}]
+        })
+
+      clear_delivered_webhooks()
+
+      # Update subscription metadata — should trigger previous_attributes
+      {:ok, _updated} =
+        TestClient.update_subscription(subscription["id"], %{
+          "metadata" => %{"tier" => "premium"}
+        })
+
+      [delivery] = assert_webhook_delivered("customer.subscription.updated")
+      assert delivery.event_data.object.id == subscription["id"]
+      assert delivery.event_data[:previous_attributes][:metadata] != nil
+    end
+
+    test "subscription status change emits previous status in previous_attributes" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "test@example.com"})
+      {:ok, product} = TestClient.create_product(%{"name" => "Test Product"})
+
+      {:ok, price} =
+        TestClient.create_price(%{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month"},
+          "unit_amount" => 1000
+        })
+
+      # Create with trialing status
+      {:ok, subscription} =
+        TestClient.create_subscription(%{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"]}],
+          "status" => "trialing"
+        })
+
+      assert subscription["status"] == "trialing"
+      clear_delivered_webhooks()
+
+      # Update cancel_at_period_end — triggers update event
+      {:ok, _updated} =
+        TestClient.update_subscription(subscription["id"], %{
+          "cancel_at_period_end" => true
+        })
+
+      [delivery] = assert_webhook_delivered("customer.subscription.updated")
+      assert delivery.event_data[:previous_attributes][:cancel_at_period_end] == false
+    end
+
+    test "subscription update with no tracked field changes omits previous_attributes" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "test@example.com"})
+      {:ok, product} = TestClient.create_product(%{"name" => "Test Product"})
+
+      {:ok, price} =
+        TestClient.create_price(%{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month"},
+          "unit_amount" => 1000
+        })
+
+      {:ok, subscription} =
+        TestClient.create_subscription(%{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"]}]
+        })
+
+      clear_delivered_webhooks()
+
+      # Update items only — tracked fields don't change, so no previous_attributes
+      {:ok, _updated} =
+        TestClient.update_subscription(subscription["id"], %{
+          "items" => [%{"price" => price["id"], "quantity" => "2"}]
+        })
+
+      [delivery] = assert_webhook_delivered("customer.subscription.updated")
+      assert delivery.event_data.object.id == subscription["id"]
+      refute Map.has_key?(delivery.event_data, :previous_attributes)
+    end
   end
 
   describe "get_delivered_webhooks/0" do
