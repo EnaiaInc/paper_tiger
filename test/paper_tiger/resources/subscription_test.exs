@@ -1274,6 +1274,47 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       # latest_invoice should be nil since no proration
       assert is_nil(updated["latest_invoice"])
     end
+
+    test "auto-pays proration invoice when subscription has default_payment_method", %{
+      customer: customer,
+      price: price,
+      subscription: sub
+    } do
+      # Create and attach a payment method
+      pm_conn =
+        request(:post, "/v1/payment_methods", %{
+          "card" => %{"brand" => "visa", "exp_month" => 12, "exp_year" => 2030, "last4" => "4242"},
+          "type" => "card"
+        })
+
+      pm = json_response(pm_conn)
+
+      request(:post, "/v1/payment_methods/#{pm["id"]}/attach", %{
+        "customer" => customer["id"]
+      })
+
+      # Set default payment method on subscription
+      request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+        "default_payment_method" => pm["id"]
+      })
+
+      # Update with proration — should auto-pay
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "items" => [%{"price" => price["id"], "quantity" => "5"}],
+          "proration_behavior" => "always_invoice"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+      assert is_binary(updated["latest_invoice"])
+
+      inv_conn = request(:get, "/v1/invoices/#{updated["latest_invoice"]}", %{})
+      invoice = json_response(inv_conn)
+      assert invoice["status"] == "paid"
+      assert invoice["paid"] == true
+      assert invoice["amount_remaining"] == 0
+    end
   end
 
   describe "Subscription creation with payment_behavior default_incomplete" do

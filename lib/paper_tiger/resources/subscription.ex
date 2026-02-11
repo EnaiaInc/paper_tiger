@@ -673,13 +673,23 @@ defmodule PaperTiger.Resources.Subscription do
 
       total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
 
+      # Real Stripe auto-pays proration invoices when the customer has a default
+      # payment method and proration_behavior is "always_invoice".
+      auto_paid =
+        proration_behavior == "always_invoice" and
+          is_binary(subscription.default_payment_method)
+
       status =
-        if proration_behavior == "always_invoice", do: "open", else: "draft"
+        cond do
+          auto_paid -> "paid"
+          proration_behavior == "always_invoice" -> "open"
+          true -> "draft"
+        end
 
       invoice = %{
-        amount_due: total,
-        amount_paid: 0,
-        amount_remaining: total,
+        amount_due: if(auto_paid, do: 0, else: total),
+        amount_paid: if(auto_paid, do: total, else: 0),
+        amount_remaining: if(auto_paid, do: 0, else: total),
         created: now,
         currency: "usd",
         customer: subscription.customer,
@@ -688,7 +698,7 @@ defmodule PaperTiger.Resources.Subscription do
         livemode: false,
         metadata: %{},
         object: "invoice",
-        paid: false,
+        paid: auto_paid,
         period_end: now + 30 * 86_400,
         period_start: now,
         status: status,

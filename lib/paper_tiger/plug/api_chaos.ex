@@ -56,6 +56,12 @@ defmodule PaperTiger.Plug.APIChaos do
         |> put_resp_content_type("application/json")
         |> send_resp(code, server_error(code))
         |> halt()
+
+      {:custom_response, status, body} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(status, Jason.encode!(body))
+        |> halt()
     end
   end
 
