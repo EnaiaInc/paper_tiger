@@ -523,7 +523,6 @@ defmodule PaperTiger.Resources.SubscriptionTest do
     end
 
     test "expands nested fields through lists (items.data.price.product)", %{
-      customer_id: customer_id,
       subscription_id: subscription_id
     } do
       conn =

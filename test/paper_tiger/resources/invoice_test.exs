@@ -1465,11 +1465,20 @@ defmodule PaperTiger.Resources.InvoiceTest do
       invoice = json_response(conn)
       assert invoice["object"] == "invoice"
       assert invoice["subscription"] == ctx.subscription["id"]
-      assert is_list(invoice["lines"]["data"])
 
-      # New item: 5000 * 3 = 15000
-      assert invoice["total"] == 15_000
-      assert invoice["subtotal"] == 15_000
+      lines = invoice["lines"]["data"]
+      assert is_list(lines)
+
+      regular_lines = Enum.reject(lines, & &1["proration"])
+      proration_lines = Enum.filter(lines, & &1["proration"])
+
+      # Regular line: new item 5000 * 3 = 15000
+      assert length(regular_lines) == 1
+      assert hd(regular_lines)["amount"] == 15_000
+
+      # Proration lines: credit for old item, charge for new item
+      assert length(proration_lines) >= 1
+      assert Enum.all?(proration_lines, & &1["proration"])
     end
 
     test "returns 404 for non-existent subscription" do
@@ -1512,8 +1521,16 @@ defmodule PaperTiger.Resources.InvoiceTest do
 
       assert conn.status == 200
       invoice = json_response(conn)
-      # existing price (2000) * 5 = 10000
-      assert invoice["total"] == 10_000
+      lines = invoice["lines"]["data"]
+
+      regular_lines = Enum.reject(lines, & &1["proration"])
+      proration_lines = Enum.filter(lines, & &1["proration"])
+
+      # Regular line: existing price (2000) * 5 = 10000
+      assert hd(regular_lines)["amount"] == 10_000
+
+      # Proration lines for quantity change (1 -> 5)
+      assert length(proration_lines) >= 1
     end
   end
 

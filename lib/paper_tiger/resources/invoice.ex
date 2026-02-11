@@ -279,8 +279,10 @@ defmodule PaperTiger.Resources.Invoice do
         {:ok, subscription} ->
           sd = Map.get(conn.params, :subscription_details) || %{}
           proposed_items = Map.get(sd, :items) || Map.get(sd, "items") || %{}
+          existing = SubscriptionItems.find_by_subscription(subscription_id)
+          existing_resolved = Enum.map(existing, &resolve_item_for_preview/1)
           merged = merge_preview_items(subscription_id, proposed_items)
-          invoice = build_preview_invoice(subscription, merged)
+          invoice = build_preview_invoice(subscription, merged, existing_resolved)
           json_response(conn, 200, invoice)
 
         {:error, :not_found} ->
@@ -844,11 +846,12 @@ defmodule PaperTiger.Resources.Invoice do
     updated_items ++ kept_existing
   end
 
-  defp build_preview_invoice(subscription, items) do
+  defp build_preview_invoice(subscription, items, existing_items) do
     now = PaperTiger.now()
     invoice_id = generate_id("in")
 
-    lines =
+    # Regular subscription lines (what the next invoice will look like)
+    regular_lines =
       Enum.map(items, fn item ->
         amount = (item.unit_amount || 0) * (item.quantity || 1)
 
@@ -865,6 +868,10 @@ defmodule PaperTiger.Resources.Invoice do
         }
       end)
 
+    # Proration lines for mid-cycle changes
+    proration_lines = build_proration_lines(existing_items, items)
+
+    lines = regular_lines ++ proration_lines
     total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
 
     %{
@@ -892,5 +899,77 @@ defmodule PaperTiger.Resources.Invoice do
       total: total,
       total_discount_amounts: []
     }
+  end
+
+  # Generates proration lines by comparing existing subscription items with proposed items.
+  # Credits for removed/reduced items (negative), charges for added/increased items (positive).
+  # Assumes half a billing period remaining for simplicity.
+  defp build_proration_lines(existing_items, new_items) do
+    old_by_price = Map.new(existing_items, fn item -> {item.price_id, item} end)
+    new_by_price = Map.new(new_items, fn item -> {item.price_id, item} end)
+
+    all_price_ids = MapSet.union(MapSet.new(Map.keys(old_by_price)), MapSet.new(Map.keys(new_by_price)))
+
+    all_price_ids
+    |> Enum.flat_map(fn price_id ->
+      old = Map.get(old_by_price, price_id)
+      new = Map.get(new_by_price, price_id)
+
+      old_amount = if old, do: (old.unit_amount || 0) * (old.quantity || 1), else: 0
+      new_amount = if new, do: (new.unit_amount || 0) * (new.quantity || 1), else: 0
+
+      if old_amount == new_amount do
+        []
+      else
+        # Prorate at half the billing period
+        credit = -div(old_amount, 2)
+        charge = div(new_amount, 2)
+        item = new || old
+
+        lines = []
+
+        lines =
+          if old_amount > 0 do
+            [
+              %{
+                amount: credit,
+                currency: "usd",
+                description: "Unused time on #{item.quantity || 1} x (#{price_id})",
+                id: generate_id("il"),
+                object: "line_item",
+                price: %{id: price_id, product: item.product, unit_amount: item.unit_amount},
+                proration: true,
+                quantity: if(old, do: old.quantity, else: 0),
+                type: "subscription"
+              }
+              | lines
+            ]
+          else
+            lines
+          end
+
+        lines =
+          if new_amount > 0 do
+            [
+              %{
+                amount: charge,
+                currency: "usd",
+                description: "Remaining time on #{item.quantity || 1} x (#{price_id})",
+                id: generate_id("il"),
+                object: "line_item",
+                price: %{id: price_id, product: item.product, unit_amount: item.unit_amount},
+                proration: true,
+                quantity: if(new, do: new.quantity, else: 0),
+                type: "subscription"
+              }
+              | lines
+            ]
+          else
+            lines
+          end
+
+        lines
+      end
+    end)
   end
 end
