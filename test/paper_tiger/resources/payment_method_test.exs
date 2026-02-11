@@ -136,6 +136,20 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert pm["card"]["exp_year"] == 2030
     end
 
+    test "coerces card exp_month and exp_year to integers from form-encoded strings" do
+      # TestHelpers.post form-encodes, so exp_month: 12 becomes "12" string
+      pm =
+        PaperTiger.TestHelpers.post("/v1/payment_methods", %{
+          card: %{brand: "visa", exp_month: 12, exp_year: 2030, last4: "4242"},
+          type: "card"
+        })
+
+      assert pm["card"]["exp_month"] == 12
+      assert is_integer(pm["card"]["exp_month"])
+      assert pm["card"]["exp_year"] == 2030
+      assert is_integer(pm["card"]["exp_year"])
+    end
+
     test "creates payment method with metadata" do
       metadata = %{"order_id" => "12345", "tier" => "premium"}
 

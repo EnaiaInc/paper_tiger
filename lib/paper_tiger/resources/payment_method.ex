@@ -243,11 +243,34 @@ defmodule PaperTiger.Resources.PaymentMethod do
       type: Map.get(params, :type),
       customer: Map.get(params, :customer),
       metadata: Map.get(params, :metadata, %{}),
-      card: Map.get(params, :card),
+      card: coerce_card_fields(Map.get(params, :card)),
       billing_details: Map.get(params, :billing_details),
       # Additional fields
       livemode: false
     }
+  end
+
+  defp coerce_card_fields(nil), do: nil
+
+  defp coerce_card_fields(card) when is_map(card) do
+    card
+    |> maybe_coerce_int(:exp_month)
+    |> maybe_coerce_int(:exp_year)
+    |> maybe_coerce_int("exp_month")
+    |> maybe_coerce_int("exp_year")
+  end
+
+  defp maybe_coerce_int(map, key) do
+    case Map.get(map, key) do
+      val when is_binary(val) ->
+        case Integer.parse(val) do
+          {int, _} -> Map.put(map, key, int)
+          :error -> map
+        end
+
+      _ ->
+        map
+    end
   end
 
   defp validate_customer_param(params) do

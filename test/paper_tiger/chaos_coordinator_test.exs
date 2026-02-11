@@ -2,10 +2,24 @@ defmodule PaperTiger.ChaosCoordinatorTest do
   use ExUnit.Case, async: false
 
   alias PaperTiger.ChaosCoordinator
+  alias PaperTiger.Router
 
   setup do
     ChaosCoordinator.reset()
     :ok
+  end
+
+  defp request(method, path, params) do
+    conn =
+      Plug.Test.conn(method, path, params)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Plug.Conn.put_req_header("authorization", "Bearer sk_test_mock")
+
+    Router.call(conn, [])
+  end
+
+  defp json_response(conn) do
+    Jason.decode!(conn.resp_body)
   end
 
   describe "configuration" do
@@ -301,6 +315,42 @@ defmodule PaperTiger.ChaosCoordinatorTest do
 
       assert :rate_limit = ChaosCoordinator.should_api_fail?("/v1/subscriptions")
       assert :ok = ChaosCoordinator.should_api_fail?("/v1/customers")
+    end
+
+    test "endpoint_overrides support custom response bodies" do
+      custom_body = %{"id" => "sub_test", "object" => "subscription", "status" => "past_due"}
+
+      ChaosCoordinator.configure(%{
+        api: %{
+          endpoint_overrides: %{
+            "/v1/subscriptions/sub_test" => {:custom_response, 200, custom_body}
+          }
+        }
+      })
+
+      assert {:custom_response, 200, ^custom_body} =
+               ChaosCoordinator.should_api_fail?("/v1/subscriptions/sub_test")
+
+      # Other endpoints unaffected
+      assert :ok = ChaosCoordinator.should_api_fail?("/v1/customers")
+    end
+
+    test "custom response works through HTTP" do
+      custom_body = %{"email" => "fake@test.com", "id" => "cus_fake", "object" => "customer"}
+
+      ChaosCoordinator.configure(%{
+        api: %{
+          endpoint_overrides: %{
+            "/v1/customers/cus_fake" => {:custom_response, 200, custom_body}
+          }
+        }
+      })
+
+      conn = request(:get, "/v1/customers/cus_fake", %{})
+      assert conn.status == 200
+      response = json_response(conn)
+      assert response["id"] == "cus_fake"
+      assert response["email"] == "fake@test.com"
     end
 
     test "tracks API chaos statistics" do

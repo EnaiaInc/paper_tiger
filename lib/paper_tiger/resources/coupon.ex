@@ -188,6 +188,7 @@ defmodule PaperTiger.Resources.Coupon do
     %{
       id: Map.get(params, :id),
       object: "coupon",
+      name: Map.get(params, :name),
       created: PaperTiger.now(),
       percent_off: get_integer_or_nil(params, :percent_off),
       amount_off: get_integer_or_nil(params, :amount_off),

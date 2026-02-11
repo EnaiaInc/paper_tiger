@@ -11,7 +11,7 @@ defmodule PaperTiger.MixProject do
       name: "PaperTiger",
       app: :paper_tiger,
       version: @version,
-      elixir: "~> 1.16 or ~> 1.17 or ~> 1.18",
+      elixir: "~> 1.16 or ~> 1.17 or ~> 1.18 or ~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -32,8 +32,13 @@ defmodule PaperTiger.MixProject do
       ],
 
       # Test coverage
-      test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
+      test_coverage: [tool: ExCoveralls]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.html": :test

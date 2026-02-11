@@ -132,10 +132,11 @@ defmodule PaperTiger.Resources.Customer do
   end
 
   @doc """
-  Lists all customers with pagination.
+  Lists customers with pagination and optional email filtering.
 
   ## Parameters
 
+  - email - Filter by exact email address (Stripe API behavior)
   - limit - Number of items (default: 10, max: 100)
   - starting_after - Cursor for pagination
   - ending_before - Reverse cursor
@@ -144,7 +145,15 @@ defmodule PaperTiger.Resources.Customer do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    result = Customers.list(pagination_opts)
+    result =
+      case Map.get(conn.params, :email) do
+        email when is_binary(email) and email != "" ->
+          customers = Customers.find_by_email(email)
+          PaperTiger.List.paginate(customers, Map.put(pagination_opts, :url, "/v1/customers"))
+
+        _ ->
+          Customers.list(pagination_opts)
+      end
 
     json_response(conn, 200, result)
   end

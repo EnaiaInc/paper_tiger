@@ -41,6 +41,9 @@ defmodule PaperTiger.Resources.Invoice do
   alias PaperTiger.ChaosCoordinator
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
+  alias PaperTiger.Store.Prices
+  alias PaperTiger.Store.SubscriptionItems
+  alias PaperTiger.Store.Subscriptions
 
   @doc """
   Creates a new invoice.
@@ -226,6 +229,66 @@ defmodule PaperTiger.Resources.Invoice do
     # Filter by all three
     Invoices.find_by_customer(customer_id)
     |> Enum.filter(fn inv -> inv.status == status and inv.subscription == subscription_id end)
+  end
+
+  @doc """
+  Retrieves an upcoming invoice preview for a subscription.
+
+  GET /v1/invoices/upcoming
+
+  Builds a synthetic invoice from the subscription's current items (or from
+  `subscription_items` if provided for proration preview).
+  Not persisted to ETS.
+  """
+  @spec upcoming(Plug.Conn.t()) :: Plug.Conn.t()
+  def upcoming(conn) do
+    subscription_id = to_string_or_nil(Map.get(conn.params, :subscription))
+
+    if is_nil(subscription_id) do
+      error_response(conn, PaperTiger.Error.invalid_request("Missing required parameter", "subscription"))
+    else
+      case Subscriptions.get(subscription_id) do
+        {:ok, subscription} ->
+          items = load_items_for_preview(subscription_id, conn.params)
+          invoice = build_upcoming_invoice(subscription, items)
+          json_response(conn, 200, invoice)
+
+        {:error, :not_found} ->
+          error_response(conn, PaperTiger.Error.not_found("subscription", subscription_id))
+      end
+    end
+  end
+
+  @doc """
+  Creates a preview invoice for proposed subscription changes.
+
+  POST /v1/invoices/create_preview
+
+  Reads `subscription` and `subscription_details[items]` from params,
+  merges proposed changes with existing items, and returns a synthetic invoice.
+  Not persisted to ETS.
+  """
+  @spec create_preview(Plug.Conn.t()) :: Plug.Conn.t()
+  def create_preview(conn) do
+    subscription_id = to_string_or_nil(Map.get(conn.params, :subscription))
+
+    if is_nil(subscription_id) do
+      error_response(conn, PaperTiger.Error.invalid_request("Missing required parameter", "subscription"))
+    else
+      case Subscriptions.get(subscription_id) do
+        {:ok, subscription} ->
+          sd = Map.get(conn.params, :subscription_details) || %{}
+          proposed_items = Map.get(sd, :items) || Map.get(sd, "items") || %{}
+          existing = SubscriptionItems.find_by_subscription(subscription_id)
+          existing_resolved = Enum.map(existing, &resolve_item_for_preview/1)
+          merged = merge_preview_items(subscription_id, proposed_items)
+          invoice = build_preview_invoice(subscription, merged, existing_resolved)
+          json_response(conn, 200, invoice)
+
+        {:error, :not_found} ->
+          error_response(conn, PaperTiger.Error.not_found("subscription", subscription_id))
+      end
+    end
   end
 
   @doc """
@@ -558,5 +621,355 @@ defmodule PaperTiger.Resources.Invoice do
       value when is_binary(value) -> value
       _ -> nil
     end
+  end
+
+  ## Upcoming / Preview helpers
+
+  # Load items for upcoming invoice preview. If subscription_items param is
+  # provided (proration preview), use those; otherwise use the subscription's
+  # current items.
+  defp load_items_for_preview(subscription_id, params) do
+    case Map.get(params, :subscription_items) do
+      nil ->
+        SubscriptionItems.find_by_subscription(subscription_id)
+        |> Enum.map(&resolve_item_for_preview/1)
+
+      proposed when is_map(proposed) ->
+        # subscription_items comes as indexed map: %{"0" => %{...}, "1" => %{...}}
+        proposed
+        |> Enum.sort_by(fn {k, _} -> k end)
+        |> Enum.map(fn {_idx, item} -> resolve_proposed_item(item) end)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        SubscriptionItems.find_by_subscription(subscription_id)
+        |> Enum.map(&resolve_item_for_preview/1)
+    end
+  end
+
+  defp resolve_item_for_preview(sub_item) do
+    price_id = sub_item[:price] || sub_item.price
+    price_id = if is_map(price_id), do: price_id[:id] || price_id["id"], else: price_id
+    quantity = sub_item[:quantity] || sub_item["quantity"] || 1
+
+    case Prices.get(to_string(price_id)) do
+      {:ok, price} ->
+        %{price_id: price.id, product: price.product, quantity: quantity, unit_amount: price.unit_amount}
+
+      _ ->
+        %{price_id: to_string(price_id), product: nil, quantity: quantity, unit_amount: 0}
+    end
+  end
+
+  defp resolve_proposed_item(item) do
+    deleted = item[:deleted] || item["deleted"]
+
+    if !(deleted == true or deleted == "true") do
+      price_id = item[:price] || item["price"]
+      quantity = item[:quantity] || item["quantity"] || 1
+      quantity = if is_binary(quantity), do: String.to_integer(quantity), else: quantity
+
+      if price_id do
+        case Prices.get(to_string(price_id)) do
+          {:ok, price} ->
+            %{price_id: price.id, product: price.product, quantity: quantity, unit_amount: price.unit_amount}
+
+          _ ->
+            %{price_id: to_string(price_id), product: nil, quantity: quantity, unit_amount: 0}
+        end
+      else
+        # Item update by ID (quantity change) — look up existing subscription item
+        item_id = item[:id] || item["id"]
+        quantity_val = item[:quantity] || item["quantity"] || 1
+        quantity_val = if is_binary(quantity_val), do: String.to_integer(quantity_val), else: quantity_val
+
+        if item_id do
+          case lookup_subscription_item_price(to_string(item_id)) do
+            {:ok, price_id_str, unit_amount, product} ->
+              %{price_id: price_id_str, product: product, quantity: quantity_val, unit_amount: unit_amount}
+
+            _ ->
+              nil
+          end
+        end
+      end
+    end
+  end
+
+  defp lookup_subscription_item_price(item_id) do
+    # SubscriptionItems store uses the same get pattern
+    case SubscriptionItems.get(item_id) do
+      {:ok, sub_item} ->
+        price_id = sub_item[:price] || sub_item.price
+        price_id = if is_map(price_id), do: price_id[:id] || price_id["id"], else: price_id
+
+        case Prices.get(to_string(price_id)) do
+          {:ok, price} -> {:ok, price.id, price.unit_amount, price.product}
+          _ -> {:ok, to_string(price_id), 0, nil}
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp build_upcoming_invoice(subscription, items) do
+    now = PaperTiger.now()
+    invoice_id = generate_id("in")
+
+    lines =
+      Enum.map(items, fn item ->
+        amount = (item.unit_amount || 0) * (item.quantity || 1)
+
+        %{
+          amount: amount,
+          currency: "usd",
+          description: "#{item.quantity} x (#{item.price_id})",
+          id: generate_id("il"),
+          object: "line_item",
+          price: %{id: item.price_id, product: item.product, unit_amount: item.unit_amount},
+          proration: false,
+          quantity: item.quantity,
+          type: "subscription"
+        }
+      end)
+
+    total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+    period_end = subscription[:current_period_end] || now
+
+    discount = subscription[:discount]
+
+    %{
+      amount_due: total,
+      amount_paid: 0,
+      amount_remaining: total,
+      created: now,
+      currency: "usd",
+      customer: subscription[:customer],
+      discount: discount,
+      id: invoice_id,
+      lines: %{
+        data: lines,
+        has_more: false,
+        object: "list",
+        url: "/v1/invoices/#{invoice_id}/lines"
+      },
+      livemode: false,
+      object: "invoice",
+      period_end: period_end + 30 * 86_400,
+      period_start: period_end,
+      status: "draft",
+      subscription: subscription[:id],
+      subtotal: total,
+      total: total
+    }
+  end
+
+  defp merge_preview_items(subscription_id, proposed_items) do
+    existing = SubscriptionItems.find_by_subscription(subscription_id)
+    existing_by_id = Map.new(existing, fn item -> {item.id, item} end)
+
+    # proposed_items may be a list (after convert_indexed_maps_to_lists) or an indexed map
+    proposed_list =
+      case proposed_items do
+        items when is_list(items) ->
+          items
+
+        items when is_map(items) ->
+          items
+          |> Enum.sort_by(fn {k, _} -> k end)
+          |> Enum.map(fn {_idx, item} -> item end)
+      end
+
+    # Track which existing items are being deleted or updated
+    deleted_ids =
+      proposed_list
+      |> Enum.filter(fn item ->
+        deleted = item[:deleted] || item["deleted"]
+        deleted == true or deleted == "true"
+      end)
+      |> MapSet.new(fn item -> to_string(item[:id] || item["id"]) end)
+
+    # Build merged items
+    updated_items =
+      proposed_list
+      |> Enum.reject(fn item ->
+        deleted = item[:deleted] || item["deleted"]
+        deleted == true or deleted == "true"
+      end)
+      |> Enum.map(fn item ->
+        price_id = item[:price] || item["price"]
+        item_id = item[:id] || item["id"]
+        quantity = item[:quantity] || item["quantity"] || 1
+        quantity = if is_binary(quantity), do: String.to_integer(quantity), else: quantity
+
+        if price_id do
+          # New item or item specified by price
+          case Prices.get(to_string(price_id)) do
+            {:ok, price} ->
+              %{price_id: price.id, product: price.product, quantity: quantity, unit_amount: price.unit_amount}
+
+            _ ->
+              %{price_id: to_string(price_id), product: nil, quantity: quantity, unit_amount: 0}
+          end
+        else
+          # Existing item update by ID
+          case Map.get(existing_by_id, to_string(item_id)) do
+            nil ->
+              nil
+
+            sub_item ->
+              si_price_id = sub_item[:price] || sub_item.price
+              si_price_id = if is_map(si_price_id), do: si_price_id[:id] || si_price_id["id"], else: si_price_id
+
+              case Prices.get(to_string(si_price_id)) do
+                {:ok, price} ->
+                  %{price_id: price.id, product: price.product, quantity: quantity, unit_amount: price.unit_amount}
+
+                _ ->
+                  %{price_id: to_string(si_price_id), product: nil, quantity: quantity, unit_amount: 0}
+              end
+          end
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    # Include existing items that weren't deleted or updated
+    updated_price_ids = MapSet.new(updated_items, & &1.price_id)
+
+    kept_existing =
+      existing
+      |> Enum.reject(fn item -> MapSet.member?(deleted_ids, item.id) end)
+      |> Enum.map(&resolve_item_for_preview/1)
+      |> Enum.reject(fn item -> MapSet.member?(updated_price_ids, item.price_id) end)
+
+    updated_items ++ kept_existing
+  end
+
+  defp build_preview_invoice(subscription, items, existing_items) do
+    now = PaperTiger.now()
+    invoice_id = generate_id("in")
+
+    # Regular subscription lines (what the next invoice will look like)
+    regular_lines =
+      Enum.map(items, fn item ->
+        amount = (item.unit_amount || 0) * (item.quantity || 1)
+
+        %{
+          amount: amount,
+          currency: "usd",
+          description: "#{item.quantity} x (#{item.price_id})",
+          id: generate_id("il"),
+          object: "line_item",
+          price: %{id: item.price_id, product: item.product, unit_amount: item.unit_amount},
+          proration: false,
+          quantity: item.quantity,
+          type: "subscription"
+        }
+      end)
+
+    # Proration lines for mid-cycle changes
+    proration_lines = build_proration_lines(existing_items, items)
+
+    lines = regular_lines ++ proration_lines
+    total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+
+    %{
+      amount_due: total,
+      amount_paid: 0,
+      amount_remaining: total,
+      created: now,
+      currency: "usd",
+      customer: subscription[:customer],
+      discount: subscription[:discount],
+      id: invoice_id,
+      lines: %{
+        data: lines,
+        has_more: false,
+        object: "list",
+        url: "/v1/invoices/#{invoice_id}/lines"
+      },
+      livemode: false,
+      object: "invoice",
+      period_end: now + 30 * 86_400,
+      period_start: now,
+      status: "draft",
+      subscription: subscription[:id],
+      subtotal: total,
+      total: total,
+      total_discount_amounts: []
+    }
+  end
+
+  # Generates proration lines by comparing existing subscription items with proposed items.
+  # Credits for removed/reduced items (negative), charges for added/increased items (positive).
+  # Assumes half a billing period remaining for simplicity.
+  defp build_proration_lines(existing_items, new_items) do
+    old_by_price = Map.new(existing_items, fn item -> {item.price_id, item} end)
+    new_by_price = Map.new(new_items, fn item -> {item.price_id, item} end)
+
+    all_price_ids = MapSet.union(MapSet.new(Map.keys(old_by_price)), MapSet.new(Map.keys(new_by_price)))
+
+    all_price_ids
+    |> Enum.flat_map(fn price_id ->
+      old = Map.get(old_by_price, price_id)
+      new = Map.get(new_by_price, price_id)
+
+      old_amount = if old, do: (old.unit_amount || 0) * (old.quantity || 1), else: 0
+      new_amount = if new, do: (new.unit_amount || 0) * (new.quantity || 1), else: 0
+
+      if old_amount == new_amount do
+        []
+      else
+        # Prorate at half the billing period
+        credit = -div(old_amount, 2)
+        charge = div(new_amount, 2)
+        item = new || old
+
+        lines = []
+
+        lines =
+          if old_amount > 0 do
+            [
+              %{
+                amount: credit,
+                currency: "usd",
+                description: "Unused time on #{item.quantity || 1} x (#{price_id})",
+                id: generate_id("il"),
+                object: "line_item",
+                price: %{id: price_id, product: item.product, unit_amount: item.unit_amount},
+                proration: true,
+                quantity: if(old, do: old.quantity, else: 0),
+                type: "subscription"
+              }
+              | lines
+            ]
+          else
+            lines
+          end
+
+        lines =
+          if new_amount > 0 do
+            [
+              %{
+                amount: charge,
+                currency: "usd",
+                description: "Remaining time on #{item.quantity || 1} x (#{price_id})",
+                id: generate_id("il"),
+                object: "line_item",
+                price: %{id: price_id, product: item.product, unit_amount: item.unit_amount},
+                proration: true,
+                quantity: if(new, do: new.quantity, else: 0),
+                type: "subscription"
+              }
+              | lines
+            ]
+          else
+            lines
+          end
+
+        lines
+      end
+    end)
   end
 end
