@@ -180,7 +180,10 @@ defmodule PaperTiger.Test do
   """
   @spec current_namespace() :: pid() | :global
   def current_namespace do
-    Process.get(@namespace_key, :global)
+    case Process.get(@namespace_key) do
+      nil -> Application.get_env(:paper_tiger, @shared_namespace_key, :global)
+      namespace -> namespace
+    end
   end
 
   @doc """

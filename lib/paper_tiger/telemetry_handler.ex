@@ -107,7 +107,7 @@ defmodule PaperTiger.TelemetryHandler do
     object = metadata[:object]
 
     if object do
-      event = create_event(stripe_event_type, object)
+      event = create_event(stripe_event_type, object, metadata)
       deliver_to_webhooks(event, stripe_event_type)
     else
       Logger.warning("Telemetry event #{inspect(event_name)} missing :object in metadata")
@@ -131,13 +131,17 @@ defmodule PaperTiger.TelemetryHandler do
     "#{resource}.#{Enum.join(rest, ".")}"
   end
 
-  defp create_event(type, object) do
+  defp create_event(type, object, metadata) do
+    data =
+      case Map.get(metadata, :previous_attributes) do
+        nil -> %{object: object}
+        prev -> %{object: object, previous_attributes: prev}
+      end
+
     event = %{
       api_version: "2023-10-16",
       created: PaperTiger.now(),
-      data: %{
-        object: object
-      },
+      data: data,
       delivery_attempts: [],
       id: PaperTiger.Resource.generate_id("evt"),
       livemode: false,

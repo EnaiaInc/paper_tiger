@@ -285,7 +285,20 @@ defmodule PaperTiger.ChaosCoordinator do
           :ok | {:timeout, non_neg_integer()} | :rate_limit | :server_error | {:custom_response, pos_integer(), map()}
   def should_api_fail?(path) do
     namespace = PaperTiger.Test.current_namespace()
-    GenServer.call(__MODULE__, {:should_api_fail, namespace, path})
+
+    # Read directly from ETS to avoid deadlock during sync webhook delivery.
+    # ChaosCoordinator's handle_cast delivers webhooks synchronously, and the
+    # target app may call back into PaperTiger (e.g. to update a subscription
+    # during metadata cleanup). Using GenServer.call here would deadlock.
+    case :ets.lookup(@table, {namespace, :state}) do
+      [{{^namespace, :state}, state}] ->
+        {result, new_state} = determine_api_result(path, state)
+        :ets.insert(@table, {{namespace, :state}, new_state})
+        result
+
+      [] ->
+        :ok
+    end
   end
 
   ## Server Callbacks
