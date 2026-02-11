@@ -38,7 +38,9 @@ defmodule PaperTiger.Store.Customers do
   """
   @spec find_by_email(String.t()) :: [map()]
   def find_by_email(email) when is_binary(email) do
-    :ets.match_object(@table, {:_, %{email: email}})
-    |> Enum.map(fn {_id, customer} -> customer end)
+    namespace = current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{email: email}})
+    |> Enum.map(fn {_key, customer} -> customer end)
   end
 end

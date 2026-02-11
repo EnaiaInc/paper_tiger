@@ -39,8 +39,10 @@ defmodule PaperTiger.Resources.Subscription do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.Invoices
+  alias PaperTiger.Store.PaymentIntents
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
@@ -73,6 +75,7 @@ defmodule PaperTiger.Resources.Subscription do
          subscription = build_subscription(conn.params),
          {:ok, subscription} <- Subscriptions.insert(subscription),
          :ok <- create_subscription_items(subscription.id, items) do
+      subscription = maybe_create_initial_invoice(subscription, conn.params, items)
       maybe_store_idempotency(conn, subscription)
 
       subscription_with_items = load_subscription_items(subscription)
@@ -139,12 +142,16 @@ defmodule PaperTiger.Resources.Subscription do
     with {:ok, existing} <- Subscriptions.get(id),
          coerced_params = coerce_update_params(conn.params),
          updated = merge_updates(existing, coerced_params),
+         updated = maybe_update_discount(updated, conn.params),
          updated = maybe_activate_subscription_after_trial(updated),
          {:ok, updated} <- Subscriptions.update(updated) do
       # Handle items update if provided
       if Map.has_key?(conn.params, :items) do
         update_subscription_items(id, conn.params.items)
       end
+
+      # Create proration invoice when proration_behavior requests it
+      updated = maybe_create_proration_invoice(updated, conn.params)
 
       updated_with_items = load_subscription_items(updated)
       :telemetry.execute([:paper_tiger, :subscription, :updated], %{}, %{object: updated_with_items})
@@ -361,6 +368,7 @@ defmodule PaperTiger.Resources.Subscription do
       cancel_at: nil,
       canceled_at: nil,
       default_payment_method: Map.get(params, :default_payment_method),
+      discount: build_discount_from_coupon(params),
       collection_method: "charge_automatically",
       days_until_due: nil,
       ended_at: nil,
@@ -370,6 +378,32 @@ defmodule PaperTiger.Resources.Subscription do
       pending_update: nil,
       start_date: now
     }
+  end
+
+  defp maybe_update_discount(subscription, params) do
+    if Map.has_key?(params, :coupon) do
+      Map.put(subscription, :discount, build_discount_from_coupon(params))
+    else
+      subscription
+    end
+  end
+
+  defp build_discount_from_coupon(params) do
+    coupon_id = Map.get(params, :coupon)
+
+    if coupon_id && coupon_id != "" do
+      case Coupons.get(to_string(coupon_id)) do
+        {:ok, coupon} ->
+          %{
+            coupon: coupon,
+            id: generate_id("di"),
+            object: "discount"
+          }
+
+        _ ->
+          nil
+      end
+    end
   end
 
   defp create_subscription_items(subscription_id, items) when is_list(items) do
@@ -605,6 +639,172 @@ defmodule PaperTiger.Resources.Subscription do
         status: new_status
     }
   end
+
+  # When proration_behavior is set and items changed, Stripe creates a proration
+  # invoice and sets latest_invoice on the subscription response.
+  defp maybe_create_proration_invoice(subscription, params) do
+    proration_behavior = Map.get(params, :proration_behavior)
+
+    if proration_behavior in ["always_invoice", "create_prorations"] do
+      items = SubscriptionItems.find_by_subscription(subscription.id)
+      now = PaperTiger.now()
+      invoice_id = generate_id("in")
+
+      lines =
+        Enum.map(items, fn item ->
+          price = item[:price]
+          unit_amount = if is_map(price), do: price[:unit_amount] || 0, else: 0
+          quantity = item[:quantity] || 1
+          amount = unit_amount * quantity
+
+          %{
+            amount: amount,
+            currency: "usd",
+            description: "#{quantity} x (#{if is_map(price), do: price[:id], else: "unknown"})",
+            id: generate_id("il"),
+            object: "line_item",
+            period: %{end: now + 30 * 86_400, start: now},
+            price: price,
+            proration: proration_behavior == "create_prorations",
+            quantity: quantity,
+            type: "subscription"
+          }
+        end)
+
+      total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+
+      status =
+        if proration_behavior == "always_invoice", do: "open", else: "draft"
+
+      invoice = %{
+        amount_due: total,
+        amount_paid: 0,
+        amount_remaining: total,
+        created: now,
+        currency: "usd",
+        customer: subscription.customer,
+        id: invoice_id,
+        lines: %{data: lines, has_more: false, object: "list", url: "/v1/invoices/#{invoice_id}/lines"},
+        livemode: false,
+        metadata: %{},
+        object: "invoice",
+        paid: false,
+        period_end: now + 30 * 86_400,
+        period_start: now,
+        status: status,
+        status_transitions: %{finalized_at: nil, marked_uncollectible_at: nil, paid_at: nil, voided_at: nil},
+        subscription: subscription.id,
+        subtotal: total,
+        total: total
+      }
+
+      {:ok, _} = Invoices.insert(invoice)
+
+      # Update subscription's latest_invoice in ETS
+      updated = Map.put(subscription, :latest_invoice, invoice_id)
+      {:ok, _} = Subscriptions.update(updated)
+      updated
+    else
+      subscription
+    end
+  end
+
+  # When payment_behavior is "default_incomplete", Stripe creates an initial
+  # invoice with a payment intent. This mirrors that behavior so expansion of
+  # latest_invoice.payment_intent works.
+  defp maybe_create_initial_invoice(subscription, params, items) do
+    payment_behavior = Map.get(params, :payment_behavior)
+
+    # Only create PI/invoice for default_incomplete + non-trialing subscriptions
+    # Trialing subs have no immediate charge, so no PI needed
+    if payment_behavior == "default_incomplete" and subscription.status != "trialing" do
+      now = PaperTiger.now()
+      total = calculate_items_total(items)
+      default_pm = Map.get(params, :default_payment_method)
+
+      # If payment method provided, auto-confirm; otherwise requires_payment_method
+      {pi_status, inv_status, sub_status, paid, amt_paid, amt_remaining} =
+        if default_pm do
+          {"succeeded", "paid", "active", true, total, 0}
+        else
+          {"requires_payment_method", "draft", "incomplete", false, 0, total}
+        end
+
+      # Create payment intent
+      pi_id = generate_id("pi")
+      client_secret = pi_id <> "_secret_" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+
+      pi = %{
+        amount: total,
+        capture_method: "automatic",
+        client_secret: client_secret,
+        confirmation_method: "automatic",
+        created: now,
+        currency: "usd",
+        customer: subscription.customer,
+        id: pi_id,
+        invoice: nil,
+        last_payment_error: nil,
+        livemode: false,
+        metadata: %{},
+        next_action: nil,
+        object: "payment_intent",
+        payment_method: default_pm,
+        status: pi_status
+      }
+
+      {:ok, _} = PaymentIntents.insert(pi)
+
+      # Create invoice with payment_intent reference
+      invoice_id = generate_id("in")
+
+      invoice = %{
+        amount_due: total,
+        amount_paid: amt_paid,
+        amount_remaining: amt_remaining,
+        created: now,
+        currency: "usd",
+        customer: subscription.customer,
+        id: invoice_id,
+        lines: %{data: [], has_more: false, object: "list", url: "/v1/invoices/#{invoice_id}/lines"},
+        livemode: false,
+        metadata: %{},
+        object: "invoice",
+        paid: paid,
+        payment_intent: pi_id,
+        period_end: now + 30 * 86_400,
+        period_start: now,
+        status: inv_status,
+        status_transitions: %{finalized_at: nil, marked_uncollectible_at: nil, paid_at: nil, voided_at: nil},
+        subscription: subscription.id,
+        subtotal: total,
+        total: total
+      }
+
+      {:ok, _} = Invoices.insert(invoice)
+
+      # Update subscription with latest_invoice and final status
+      updated = Map.merge(subscription, %{latest_invoice: invoice_id, status: sub_status})
+      {:ok, _} = Subscriptions.update(updated)
+      updated
+    else
+      subscription
+    end
+  end
+
+  defp calculate_items_total(items) when is_list(items) do
+    Enum.reduce(items, 0, fn item, acc ->
+      price_id = get_item_field(item, :price)
+      quantity = item |> get_item_field(:quantity, 1) |> to_integer()
+
+      case Prices.get(price_id) do
+        {:ok, price} -> acc + (price.unit_amount || 0) * quantity
+        _ -> acc
+      end
+    end)
+  end
+
+  defp calculate_items_total(_), do: 0
 
   # Loads the latest invoice ID for this subscription from the store
   # Note: By default Stripe returns only the invoice ID, not the full object

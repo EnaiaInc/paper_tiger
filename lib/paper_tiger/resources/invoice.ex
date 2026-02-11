@@ -735,6 +735,8 @@ defmodule PaperTiger.Resources.Invoice do
     total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
     period_end = subscription[:current_period_end] || now
 
+    discount = subscription[:discount]
+
     %{
       amount_due: total,
       amount_paid: 0,
@@ -742,6 +744,7 @@ defmodule PaperTiger.Resources.Invoice do
       created: now,
       currency: "usd",
       customer: subscription[:customer],
+      discount: discount,
       id: invoice_id,
       lines: %{
         data: lines,
@@ -871,7 +874,7 @@ defmodule PaperTiger.Resources.Invoice do
       created: now,
       currency: "usd",
       customer: subscription[:customer],
-      discount: nil,
+      discount: subscription[:discount],
       id: invoice_id,
       lines: %{
         data: lines,

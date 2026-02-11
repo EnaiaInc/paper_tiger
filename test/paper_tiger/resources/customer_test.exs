@@ -523,6 +523,45 @@ defmodule PaperTiger.Resources.CustomerTest do
       assert not Enum.member?(page2_ids, last_customer_id)
     end
 
+    test "filters by email parameter" do
+      # Create customers with different emails
+      request(:post, "/v1/customers", %{"email" => "alice@example.com"})
+      request(:post, "/v1/customers", %{"email" => "bob@example.com"})
+      request(:post, "/v1/customers", %{"email" => "alice@example.com"})
+
+      # Filter by alice's email
+      conn = request(:get, "/v1/customers?email=alice@example.com")
+
+      assert conn.status == 200
+      result = json_response(conn)
+      assert length(result["data"]) == 2
+      assert Enum.all?(result["data"], &(&1["email"] == "alice@example.com"))
+    end
+
+    test "email filter returns empty when no match" do
+      request(:post, "/v1/customers", %{"email" => "exists@example.com"})
+
+      conn = request(:get, "/v1/customers?email=missing@example.com")
+
+      assert conn.status == 200
+      result = json_response(conn)
+      assert result["data"] == []
+      assert result["has_more"] == false
+    end
+
+    test "email filter with limit" do
+      for _i <- 1..3 do
+        request(:post, "/v1/customers", %{"email" => "same@example.com"})
+      end
+
+      conn = request(:get, "/v1/customers?email=same@example.com&limit=1")
+
+      assert conn.status == 200
+      result = json_response(conn)
+      assert length(result["data"]) == 1
+      assert result["has_more"] == true
+    end
+
     test "returns empty list when no customers exist" do
       conn = request(:get, "/v1/customers")
 

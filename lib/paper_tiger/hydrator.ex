@@ -163,6 +163,11 @@ defmodule PaperTiger.Hydrator do
         nested = expand_path(already_expanded, rest)
         Map.put(resource, field_atom, nested)
 
+      items when is_list(items) ->
+        # Traverse list items for nested expansion (e.g., items.data.price.product)
+        expanded_items = Enum.map(items, fn item -> expand_path(item, rest) end)
+        Map.put(resource, field_atom, expanded_items)
+
       _other ->
         resource
     end
