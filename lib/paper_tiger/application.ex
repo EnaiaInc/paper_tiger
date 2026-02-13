@@ -162,7 +162,7 @@ defmodule PaperTiger.Application do
   end
 
   defp running_phx_server? do
-    System.argv() |> Enum.any?(&(&1 =~ "phx.server"))
+    Application.get_env(:phoenix, :serve_endpoints, false) == true
   end
 
   defp interactive_session? do
