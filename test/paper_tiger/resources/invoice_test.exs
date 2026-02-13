@@ -1492,7 +1492,7 @@ defmodule PaperTiger.Resources.InvoiceTest do
       assert hd(regular_lines)["amount"] == 15_000
 
       # Proration lines: credit for old item, charge for new item
-      assert length(proration_lines) >= 1
+      assert proration_lines != []
       assert Enum.all?(proration_lines, & &1["proration"])
     end
 
@@ -1545,7 +1545,7 @@ defmodule PaperTiger.Resources.InvoiceTest do
       assert hd(regular_lines)["amount"] == 10_000
 
       # Proration lines for quantity change (1 -> 5)
-      assert length(proration_lines) >= 1
+      assert proration_lines != []
     end
 
     test "returns 400 for invalid quantity value", ctx do

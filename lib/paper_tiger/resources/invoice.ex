@@ -732,39 +732,40 @@ defmodule PaperTiger.Resources.Invoice do
   end
 
   defp resolve_proposed_item(item) do
+    if !deleted_item?(item), do: resolve_active_proposed_item(item)
+  end
+
+  defp deleted_item?(item) do
     deleted = item[:deleted] || item["deleted"]
+    deleted in [true, "true"]
+  end
 
-    if !(deleted == true or deleted == "true") do
-      price_id = item[:price] || item["price"]
-      quantity = parse_quantity(param_value(item, :quantity), 1)
+  defp resolve_active_proposed_item(item) do
+    case parse_quantity(param_value(item, :quantity), 1) do
+      {:ok, quantity} ->
+        case param_value(item, :price) do
+          nil -> resolve_existing_proposed_item(item, quantity)
+          price_id -> build_preview_item(price_id, quantity)
+        end
 
-      if price_id and match?({:ok, _}, quantity) do
-        {:ok, quantity_val} = quantity
+      _ ->
+        nil
+    end
+  end
 
-        case Prices.get(to_string(price_id)) do
-          {:ok, price} ->
-            %{price_id: price.id, product: price.product, quantity: quantity_val, unit_amount: price.unit_amount}
+  defp resolve_existing_proposed_item(item, quantity) do
+    case param_value(item, :id) do
+      nil ->
+        nil
+
+      item_id ->
+        case lookup_subscription_item_price(to_string(item_id)) do
+          {:ok, price_id_str, unit_amount, product} ->
+            %{price_id: price_id_str, product: product, quantity: quantity, unit_amount: unit_amount}
 
           _ ->
-            %{price_id: to_string(price_id), product: nil, quantity: quantity_val, unit_amount: 0}
+            nil
         end
-      else
-        # Item update by ID (quantity change) — look up existing subscription item
-        item_id = item[:id] || item["id"]
-        quantity_val = parse_quantity(param_value(item, :quantity), 1)
-
-        if item_id and match?({:ok, _}, quantity_val) do
-          {:ok, parsed_quantity} = quantity_val
-
-          case lookup_subscription_item_price(to_string(item_id)) do
-            {:ok, price_id_str, unit_amount, product} ->
-              %{price_id: price_id_str, product: product, quantity: parsed_quantity, unit_amount: unit_amount}
-
-            _ ->
-              nil
-          end
-        end
-      end
     end
   end
 
@@ -839,65 +840,100 @@ defmodule PaperTiger.Resources.Invoice do
 
   defp merge_preview_items(subscription_id, proposed_items) do
     existing = SubscriptionItems.find_by_subscription(subscription_id)
-    existing_by_id = Map.new(existing, fn item -> {to_string(item.id), item} end)
+    existing_by_id = map_existing_items_by_id(existing)
+    proposed_list = normalize_proposed_preview_items(proposed_items)
+    state = reduce_proposed_preview_items(proposed_list, existing_by_id)
 
-    # proposed_items may be a list (after convert_indexed_maps_to_lists) or an indexed map
-    proposed_list =
-      case proposed_items do
-        items when is_list(items) ->
-          items
+    updated_existing = updated_existing_preview_items(existing, state.updated_by_id)
+    kept_existing = kept_existing_preview_items(existing, state.deleted_ids, state.updated_by_id)
+    updated_existing ++ Enum.reverse(state.new_items, kept_existing)
+  end
 
-        items when is_map(items) ->
-          items
-          |> Enum.sort_by(fn {k, _} -> k end)
-          |> Enum.map(fn {_idx, item} -> item end)
-      end
+  defp map_existing_items_by_id(existing) do
+    Map.new(existing, fn item -> {to_string(item.id), item} end)
+  end
 
-    {deleted_ids, updated_by_id, new_items} =
-      Enum.reduce(proposed_list, {MapSet.new(), %{}, []}, fn item, {deleted_acc, updated_acc, new_acc} ->
-        deleted = item[:deleted] || item["deleted"]
-        item_id = item[:id] || item["id"]
-        item_id = if !is_nil(item_id), do: to_string(item_id)
-        price_id = item[:price] || item["price"]
-        quantity = parse_quantity(param_value(item, :quantity), 1)
+  defp normalize_proposed_preview_items(items) when is_list(items), do: items
 
-        cond do
-          deleted in [true, "true"] and is_binary(item_id) ->
-            {MapSet.put(deleted_acc, item_id), Map.delete(updated_acc, item_id), new_acc}
+  defp normalize_proposed_preview_items(items) when is_map(items) do
+    items
+    |> Enum.sort_by(fn {idx, _item} -> idx end)
+    |> Enum.map(fn {_idx, item} -> item end)
+  end
 
-          deleted in [true, "true"] ->
-            {deleted_acc, updated_acc, new_acc}
+  defp normalize_proposed_preview_items(_), do: []
 
-          is_binary(item_id) and Map.has_key?(existing_by_id, item_id) and match?({:ok, _}, quantity) ->
-            {:ok, quantity_val} = quantity
-            sub_item = Map.fetch!(existing_by_id, item_id)
-            resolved_price_id = if is_nil(price_id), do: extract_price_id(sub_item), else: price_id
-            resolved_item = build_preview_item(resolved_price_id, quantity_val)
-            {deleted_acc, Map.put(updated_acc, item_id, resolved_item), new_acc}
+  defp reduce_proposed_preview_items(proposed_list, existing_by_id) do
+    initial_state = %{deleted_ids: MapSet.new(), new_items: [], updated_by_id: %{}}
+    Enum.reduce(proposed_list, initial_state, &reduce_preview_item(&1, &2, existing_by_id))
+  end
 
-          not is_nil(price_id) and match?({:ok, _}, quantity) ->
-            {:ok, quantity_val} = quantity
-            {deleted_acc, updated_acc, [build_preview_item(price_id, quantity_val) | new_acc]}
+  defp reduce_preview_item(item, state, existing_by_id) do
+    parsed = parse_proposed_preview_item(item)
 
-          true ->
-            {deleted_acc, updated_acc, new_acc}
-        end
-      end)
+    cond do
+      parsed.deleted? ->
+        mark_preview_item_deleted(state, parsed.item_id)
 
-    kept_existing =
-      existing
-      |> Enum.reject(fn item ->
-        item_id = to_string(item.id)
-        MapSet.member?(deleted_ids, item_id) or Map.has_key?(updated_by_id, item_id)
-      end)
-      |> Enum.map(&resolve_item_for_preview/1)
+      parsed.quantity == :error ->
+        state
 
-    updated_existing =
-      existing
-      |> Enum.map(fn item -> Map.get(updated_by_id, to_string(item.id)) end)
-      |> Enum.reject(&is_nil/1)
+      true ->
+        apply_proposed_preview_item(state, parsed, existing_by_id)
+    end
+  end
 
-    updated_existing ++ Enum.reverse(new_items, kept_existing)
+  defp parse_proposed_preview_item(item) do
+    %{
+      deleted?: deleted_item?(item),
+      item_id: maybe_string(param_value(item, :id)),
+      price_id: param_value(item, :price),
+      quantity: parse_quantity(param_value(item, :quantity), 1)
+    }
+  end
+
+  defp maybe_string(nil), do: nil
+  defp maybe_string(value), do: to_string(value)
+
+  defp mark_preview_item_deleted(state, nil), do: state
+
+  defp mark_preview_item_deleted(state, item_id) do
+    %{
+      state
+      | deleted_ids: MapSet.put(state.deleted_ids, item_id),
+        updated_by_id: Map.delete(state.updated_by_id, item_id)
+    }
+  end
+
+  defp apply_proposed_preview_item(state, %{item_id: item_id} = parsed, existing_by_id)
+       when is_binary(item_id) and is_map_key(existing_by_id, item_id) do
+    {:ok, quantity} = parsed.quantity
+    sub_item = Map.fetch!(existing_by_id, item_id)
+    resolved_price_id = parsed.price_id || extract_price_id(sub_item)
+    resolved_item = build_preview_item(resolved_price_id, quantity)
+    %{state | updated_by_id: Map.put(state.updated_by_id, item_id, resolved_item)}
+  end
+
+  defp apply_proposed_preview_item(state, %{price_id: price_id, quantity: {:ok, quantity}}, _existing_by_id)
+       when not is_nil(price_id) do
+    %{state | new_items: [build_preview_item(price_id, quantity) | state.new_items]}
+  end
+
+  defp apply_proposed_preview_item(state, _parsed, _existing_by_id), do: state
+
+  defp updated_existing_preview_items(existing, updated_by_id) do
+    existing
+    |> Enum.map(fn item -> Map.get(updated_by_id, to_string(item.id)) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp kept_existing_preview_items(existing, deleted_ids, updated_by_id) do
+    existing
+    |> Enum.reject(fn item ->
+      item_id = to_string(item.id)
+      MapSet.member?(deleted_ids, item_id) or Map.has_key?(updated_by_id, item_id)
+    end)
+    |> Enum.map(&resolve_item_for_preview/1)
   end
 
   defp extract_price_id(sub_item) do
@@ -999,69 +1035,75 @@ defmodule PaperTiger.Resources.Invoice do
   defp build_proration_lines(existing_items, new_items) do
     old_by_price = aggregate_items_by_price(existing_items)
     new_by_price = aggregate_items_by_price(new_items)
-
-    all_price_ids = MapSet.union(MapSet.new(Map.keys(old_by_price)), MapSet.new(Map.keys(new_by_price)))
-
-    all_price_ids
-    |> Enum.flat_map(fn price_id ->
-      old = Map.get(old_by_price, price_id)
-      new = Map.get(new_by_price, price_id)
-
-      old_amount = if old, do: old.amount, else: 0
-      new_amount = if new, do: new.amount, else: 0
-
-      if old_amount == new_amount do
-        []
-      else
-        # Prorate at half the billing period
-        credit = -div(old_amount, 2)
-        charge = div(new_amount, 2)
-        item = new || old
-
-        lines = []
-
-        lines =
-          if old_amount > 0 do
-            [
-              %{
-                amount: credit,
-                currency: "usd",
-                description: "Unused time on #{if(old, do: old.quantity, else: 0)} x (#{price_id})",
-                id: generate_id("il"),
-                object: "line_item",
-                price: %{id: price_id, product: item.product, unit_amount: if(old, do: old.unit_amount)},
-                proration: true,
-                quantity: if(old, do: old.quantity, else: 0),
-                type: "subscription"
-              }
-              | lines
-            ]
-          else
-            lines
-          end
-
-        lines =
-          if new_amount > 0 do
-            [
-              %{
-                amount: charge,
-                currency: "usd",
-                description: "Remaining time on #{if(new, do: new.quantity, else: 0)} x (#{price_id})",
-                id: generate_id("il"),
-                object: "line_item",
-                price: %{id: price_id, product: item.product, unit_amount: if(new, do: new.unit_amount)},
-                proration: true,
-                quantity: if(new, do: new.quantity, else: 0),
-                type: "subscription"
-              }
-              | lines
-            ]
-          else
-            lines
-          end
-
-        lines
-      end
-    end)
+    price_ids = all_proration_price_ids(old_by_price, new_by_price)
+    Enum.flat_map(price_ids, &build_proration_lines_for_price(&1, old_by_price, new_by_price))
   end
+
+  defp all_proration_price_ids(old_by_price, new_by_price) do
+    MapSet.union(MapSet.new(Map.keys(old_by_price)), MapSet.new(Map.keys(new_by_price)))
+  end
+
+  defp build_proration_lines_for_price(price_id, old_by_price, new_by_price) do
+    old = Map.get(old_by_price, price_id)
+    new = Map.get(new_by_price, price_id)
+    old_amount = proration_amount(old)
+    new_amount = proration_amount(new)
+
+    if old_amount == new_amount do
+      []
+    else
+      [build_credit_proration_line(price_id, old, new), build_charge_proration_line(price_id, old, new)]
+      |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  defp proration_amount(nil), do: 0
+  defp proration_amount(item), do: item.amount
+
+  defp build_credit_proration_line(_price_id, nil, _new), do: nil
+
+  defp build_credit_proration_line(price_id, old, new) do
+    amount = proration_amount(old)
+
+    if amount > 0 do
+      base_item = new || old
+
+      %{
+        amount: -div(amount, 2),
+        currency: "usd",
+        description: "Unused time on #{proration_quantity(old)} x (#{price_id})",
+        id: generate_id("il"),
+        object: "line_item",
+        price: %{id: price_id, product: base_item.product, unit_amount: old.unit_amount},
+        proration: true,
+        quantity: proration_quantity(old),
+        type: "subscription"
+      }
+    end
+  end
+
+  defp build_charge_proration_line(_price_id, _old, nil), do: nil
+
+  defp build_charge_proration_line(price_id, old, new) do
+    amount = proration_amount(new)
+
+    if amount > 0 do
+      base_item = new || old
+
+      %{
+        amount: div(amount, 2),
+        currency: "usd",
+        description: "Remaining time on #{proration_quantity(new)} x (#{price_id})",
+        id: generate_id("il"),
+        object: "line_item",
+        price: %{id: price_id, product: base_item.product, unit_amount: new.unit_amount},
+        proration: true,
+        quantity: proration_quantity(new),
+        type: "subscription"
+      }
+    end
+  end
+
+  defp proration_quantity(nil), do: 0
+  defp proration_quantity(item), do: item.quantity
 end

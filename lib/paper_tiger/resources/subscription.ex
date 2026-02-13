@@ -160,20 +160,7 @@ defmodule PaperTiger.Resources.Subscription do
       updated_with_items = load_subscription_items(updated)
       previous_attributes = diff_attributes(existing, updated_with_items)
       items_changed = Map.has_key?(conn.params, :items)
-
-      # Only emit telemetry when something actually changed, matching Stripe's
-      # behavior. Without this, no-op metadata updates create an infinite
-      # webhook delivery cascade.
-      if previous_attributes != %{} or items_changed do
-        telemetry_metadata = %{object: updated_with_items}
-
-        telemetry_metadata =
-          if previous_attributes == %{},
-            do: telemetry_metadata,
-            else: Map.put(telemetry_metadata, :previous_attributes, previous_attributes)
-
-        :telemetry.execute([:paper_tiger, :subscription, :updated], %{}, telemetry_metadata)
-      end
+      maybe_emit_subscription_updated_telemetry(previous_attributes, items_changed, updated_with_items)
 
       updated_with_items
       |> maybe_expand(conn.params)
@@ -683,78 +670,119 @@ defmodule PaperTiger.Resources.Subscription do
   defp maybe_create_proration_invoice(subscription, params, billable_items_changed?) do
     proration_behavior = Map.get(params, :proration_behavior)
 
-    if billable_items_changed? and proration_behavior in ["always_invoice", "create_prorations"] do
-      items = SubscriptionItems.find_by_subscription(subscription.id)
-      now = PaperTiger.now()
-      invoice_id = generate_id("in")
+    if should_create_proration_invoice?(billable_items_changed?, proration_behavior),
+      do: create_proration_invoice(subscription, proration_behavior),
+      else: subscription
+  end
 
-      lines =
-        Enum.map(items, fn item ->
-          price = item[:price]
-          unit_amount = if is_map(price), do: price[:unit_amount] || 0, else: 0
-          quantity = item[:quantity] || 1
-          amount = unit_amount * quantity
+  defp should_create_proration_invoice?(billable_items_changed?, proration_behavior) do
+    billable_items_changed? and proration_behavior in ["always_invoice", "create_prorations"]
+  end
 
-          %{
-            amount: amount,
-            currency: "usd",
-            description: "#{quantity} x (#{if is_map(price), do: price[:id], else: "unknown"})",
-            id: generate_id("il"),
-            object: "line_item",
-            period: %{end: now + 30 * 86_400, start: now},
-            price: price,
-            proration: proration_behavior == "create_prorations",
-            quantity: quantity,
-            type: "subscription"
-          }
-        end)
+  defp create_proration_invoice(subscription, proration_behavior) do
+    items = SubscriptionItems.find_by_subscription(subscription.id)
+    now = PaperTiger.now()
+    invoice_id = generate_id("in")
+    lines = Enum.map(items, &build_proration_invoice_line(&1, now, proration_behavior))
+    total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+    auto_paid = proration_auto_paid?(subscription, proration_behavior)
+    status = proration_invoice_status(proration_behavior, auto_paid)
 
-      total = Enum.reduce(lines, 0, fn line, acc -> acc + line.amount end)
+    invoice =
+      build_proration_invoice_payload(
+        subscription,
+        invoice_id,
+        lines,
+        now,
+        total,
+        auto_paid,
+        status
+      )
 
-      # Real Stripe auto-pays proration invoices when the customer has a default
-      # payment method and proration_behavior is "always_invoice".
-      auto_paid =
-        proration_behavior == "always_invoice" and
-          is_binary(subscription.default_payment_method)
+    {:ok, _} = Invoices.insert(invoice)
+    persist_latest_invoice(subscription, invoice_id)
+  end
 
-      status =
-        cond do
-          auto_paid -> "paid"
-          proration_behavior == "always_invoice" -> "open"
-          true -> "draft"
-        end
+  defp build_proration_invoice_line(item, now, proration_behavior) do
+    price = item[:price]
+    quantity = item[:quantity] || 1
+    unit_amount = line_unit_amount(price)
+    amount = unit_amount * quantity
 
-      invoice = %{
-        amount_due: if(auto_paid, do: 0, else: total),
-        amount_paid: if(auto_paid, do: total, else: 0),
-        amount_remaining: if(auto_paid, do: 0, else: total),
-        created: now,
-        currency: "usd",
-        customer: subscription.customer,
-        id: invoice_id,
-        lines: %{data: lines, has_more: false, object: "list", url: "/v1/invoices/#{invoice_id}/lines"},
-        livemode: false,
-        metadata: %{},
-        object: "invoice",
-        paid: auto_paid,
-        period_end: now + 30 * 86_400,
-        period_start: now,
-        status: status,
-        status_transitions: %{finalized_at: nil, marked_uncollectible_at: nil, paid_at: nil, voided_at: nil},
-        subscription: subscription.id,
-        subtotal: total,
-        total: total
-      }
+    %{
+      amount: amount,
+      currency: "usd",
+      description: "#{quantity} x (#{line_price_id(price)})",
+      id: generate_id("il"),
+      object: "line_item",
+      period: %{end: now + 30 * 86_400, start: now},
+      price: price,
+      proration: proration_behavior == "create_prorations",
+      quantity: quantity,
+      type: "subscription"
+    }
+  end
 
-      {:ok, _} = Invoices.insert(invoice)
+  defp line_unit_amount(price) when is_map(price), do: price[:unit_amount] || 0
+  defp line_unit_amount(_price), do: 0
 
-      # Update subscription's latest_invoice in ETS
-      updated = Map.put(subscription, :latest_invoice, invoice_id)
-      {:ok, _} = Subscriptions.update(updated)
-      updated
-    else
-      subscription
+  defp line_price_id(price) when is_map(price), do: price[:id]
+  defp line_price_id(_price), do: "unknown"
+
+  defp proration_auto_paid?(subscription, proration_behavior) do
+    proration_behavior == "always_invoice" and is_binary(subscription.default_payment_method)
+  end
+
+  defp proration_invoice_status("always_invoice", true), do: "paid"
+  defp proration_invoice_status("always_invoice", false), do: "open"
+  defp proration_invoice_status(_, _), do: "draft"
+
+  defp build_proration_invoice_payload(subscription, invoice_id, lines, now, total, auto_paid, status) do
+    %{
+      amount_due: if(auto_paid, do: 0, else: total),
+      amount_paid: if(auto_paid, do: total, else: 0),
+      amount_remaining: if(auto_paid, do: 0, else: total),
+      created: now,
+      currency: "usd",
+      customer: subscription.customer,
+      id: invoice_id,
+      lines: %{data: lines, has_more: false, object: "list", url: "/v1/invoices/#{invoice_id}/lines"},
+      livemode: false,
+      metadata: %{},
+      object: "invoice",
+      paid: auto_paid,
+      period_end: now + 30 * 86_400,
+      period_start: now,
+      status: status,
+      status_transitions: %{finalized_at: nil, marked_uncollectible_at: nil, paid_at: nil, voided_at: nil},
+      subscription: subscription.id,
+      subtotal: total,
+      total: total
+    }
+  end
+
+  defp persist_latest_invoice(subscription, invoice_id) do
+    updated = Map.put(subscription, :latest_invoice, invoice_id)
+    {:ok, _} = Subscriptions.update(updated)
+    updated
+  end
+
+  # Only emit telemetry when something actually changed, matching Stripe's
+  # behavior. Without this, no-op metadata updates create an infinite
+  # webhook delivery cascade.
+  defp maybe_emit_subscription_updated_telemetry(previous_attributes, items_changed, updated_with_items) do
+    if previous_attributes != %{} or items_changed do
+      telemetry_metadata = telemetry_metadata(updated_with_items, previous_attributes)
+      :telemetry.execute([:paper_tiger, :subscription, :updated], %{}, telemetry_metadata)
     end
+  end
+
+  defp telemetry_metadata(updated_with_items, previous_attributes) do
+    base = %{object: updated_with_items}
+
+    if previous_attributes == %{},
+      do: base,
+      else: Map.put(base, :previous_attributes, previous_attributes)
   end
 
   defp billable_items_changed?(old_items, new_items) do
