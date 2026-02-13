@@ -17,8 +17,7 @@
             elixir_1_19
             erlang_28
             rebar3
-
-            # For file watching
+          ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             inotify-tools
           ];
 
