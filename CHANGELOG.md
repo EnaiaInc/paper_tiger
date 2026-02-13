@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-02-13
+
+### Added
+
+- Invoice preview endpoints: `GET /v1/invoices/upcoming` and `POST /v1/invoices/create_preview`, including proration line generation and Stripe-style quantity validation.
+- Subscription payment-intent lifecycle coverage for `payment_behavior: "default_incomplete"`, including support for `expand=["latest_invoice.payment_intent"]`.
+- Coupon/discount support in subscription create/update flows with discount reflection in invoice previews.
+- Nix/direnv developer setup support (`flake.nix`, `flake.lock`, `.envrc`) and corresponding README guidance.
+
+### Changed
+
+- `phx.server` startup detection now relies on Phoenix's `:serve_endpoints` signal instead of argv pattern matching.
+- Proration invoice creation is constrained to billable subscription changes, reducing spurious invoice generation.
+- Chaos API override matching now supports endpoint-specific custom responses and wildcard-prefix path handling.
+
+### Fixed
+
+- `customer.subscription.updated` webhooks now include `previous_attributes`, matching Stripe behavior.
+- No-op subscription updates no longer emit redundant webhooks.
+- Hydrator expansion now traverses list paths (for example `items.data.price.product`) correctly.
+- Customer filtering by `email` and form-encoded card expiration field coercion better match Stripe-compatible behavior.
+
 ## [0.9.25] - 2026-02-10
 
 ### Added
