@@ -42,7 +42,7 @@ Add `paper_tiger` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:paper_tiger, "~> 0.9.23"}
+    {:paper_tiger, "~> 1.0"}
   ]
 end
 ```
@@ -88,7 +88,7 @@ Add PaperTiger to your dependencies:
 # mix.exs
 def deps do
   [
-    {:paper_tiger, "~> 0.9.4", only: [:dev, :test]},
+    {:paper_tiger, "~> 1.0", only: [:dev, :test]},
     {:stripity_stripe, "~> 3.0"}
   ]
 end
