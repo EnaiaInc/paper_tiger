@@ -22,6 +22,7 @@ paper_tiger-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+.envrc
 .direnv/
 .nix-hex/
 .nix-mix/
