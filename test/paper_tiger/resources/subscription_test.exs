@@ -521,6 +521,33 @@ defmodule PaperTiger.Resources.SubscriptionTest do
         assert customer == customer_id
       end
     end
+
+    test "expands nested fields through lists (items.data.price.product)", %{
+      subscription_id: subscription_id
+    } do
+      conn =
+        request(:get, "/v1/subscriptions/#{subscription_id}", %{
+          "expand" => ["items.data.price.product"]
+        })
+
+      assert conn.status == 200
+      body = json_response(conn)
+
+      # items.data should be a list of subscription items
+      items = body["items"]["data"]
+      assert is_list(items)
+      assert not Enum.empty?(items)
+
+      item = hd(items)
+      # price should be expanded to a map
+      assert is_map(item["price"])
+      assert item["price"]["object"] == "price"
+
+      # product should be expanded to a map (traversed through the list)
+      product = item["price"]["product"]
+      assert is_map(product)
+      assert product["object"] == "product"
+    end
   end
 
   describe "POST /v1/subscriptions/:id - Update subscription" do
@@ -1145,6 +1172,312 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       sub2_final = request(:get, "/v1/subscriptions/#{sub2_id}", %{})
       sub2_final_body = json_response(sub2_final)
       assert sub2_final_body["status"] == "active"
+    end
+  end
+
+  describe "Subscription update with proration invoice" do
+    setup do
+      # Create customer
+      cust_conn = request(:post, "/v1/customers", %{"email" => "proration@example.com"})
+      customer = json_response(cust_conn)
+
+      # Create product and price
+      prod_conn = request(:post, "/v1/products", %{"name" => "Proration Test Plan"})
+      product = json_response(prod_conn)
+
+      price_conn =
+        request(:post, "/v1/prices", %{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month"},
+          "unit_amount" => "5000"
+        })
+
+      price = json_response(price_conn)
+
+      # Create subscription
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "1"}],
+          "status" => "active"
+        })
+
+      subscription = json_response(sub_conn)
+
+      %{customer: customer, price: price, product: product, subscription: subscription}
+    end
+
+    test "creates proration invoice when proration_behavior is always_invoice", %{
+      price: price,
+      subscription: sub
+    } do
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "items" => [%{"price" => price["id"], "quantity" => "3"}],
+          "proration_behavior" => "always_invoice"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+
+      # latest_invoice should be set to a string invoice ID
+      assert is_binary(updated["latest_invoice"])
+      assert String.starts_with?(updated["latest_invoice"], "in_")
+
+      # The invoice should be retrievable
+      inv_conn = request(:get, "/v1/invoices/#{updated["latest_invoice"]}", %{})
+      assert inv_conn.status == 200
+      invoice = json_response(inv_conn)
+      assert invoice["status"] == "open"
+      assert invoice["subscription"] == sub["id"]
+      assert invoice["customer"] == sub["customer"]
+    end
+
+    test "creates proration invoice when proration_behavior is create_prorations", %{
+      price: price,
+      subscription: sub
+    } do
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "items" => [%{"price" => price["id"], "quantity" => "2"}],
+          "proration_behavior" => "create_prorations"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+
+      assert is_binary(updated["latest_invoice"])
+      assert String.starts_with?(updated["latest_invoice"], "in_")
+
+      inv_conn = request(:get, "/v1/invoices/#{updated["latest_invoice"]}", %{})
+      assert inv_conn.status == 200
+      invoice = json_response(inv_conn)
+      assert invoice["status"] == "draft"
+      assert invoice["subscription"] == sub["id"]
+    end
+
+    test "does not create invoice when proration_behavior is none", %{
+      price: price,
+      subscription: sub
+    } do
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "items" => [%{"price" => price["id"], "quantity" => "2"}],
+          "proration_behavior" => "none"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+
+      # latest_invoice should be nil since no proration
+      assert is_nil(updated["latest_invoice"])
+    end
+
+    test "does not create proration invoice when no billable items changed", %{
+      subscription: sub
+    } do
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "metadata" => %{"flag" => "no-billing-change"},
+          "proration_behavior" => "always_invoice"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+      assert is_nil(updated["latest_invoice"])
+
+      list_conn = request(:get, "/v1/invoices", %{"subscription" => sub["id"]})
+      assert list_conn.status == 200
+      list = json_response(list_conn)
+      assert list["data"] == []
+    end
+
+    test "auto-pays proration invoice when subscription has default_payment_method", %{
+      customer: customer,
+      price: price,
+      subscription: sub
+    } do
+      # Create and attach a payment method
+      pm_conn =
+        request(:post, "/v1/payment_methods", %{
+          "card" => %{"brand" => "visa", "exp_month" => 12, "exp_year" => 2030, "last4" => "4242"},
+          "type" => "card"
+        })
+
+      pm = json_response(pm_conn)
+
+      request(:post, "/v1/payment_methods/#{pm["id"]}/attach", %{
+        "customer" => customer["id"]
+      })
+
+      # Set default payment method on subscription
+      request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+        "default_payment_method" => pm["id"]
+      })
+
+      # Update with proration — should auto-pay
+      update_conn =
+        request(:post, "/v1/subscriptions/#{sub["id"]}", %{
+          "items" => [%{"price" => price["id"], "quantity" => "5"}],
+          "proration_behavior" => "always_invoice"
+        })
+
+      assert update_conn.status == 200
+      updated = json_response(update_conn)
+      assert is_binary(updated["latest_invoice"])
+
+      inv_conn = request(:get, "/v1/invoices/#{updated["latest_invoice"]}", %{})
+      invoice = json_response(inv_conn)
+      assert invoice["status"] == "paid"
+      assert invoice["paid"] == true
+      assert invoice["amount_remaining"] == 0
+    end
+  end
+
+  describe "Subscription creation with payment_behavior default_incomplete" do
+    setup do
+      cust_conn = request(:post, "/v1/customers", %{"email" => "pi@example.com"})
+      customer = json_response(cust_conn)
+
+      prod_conn = request(:post, "/v1/products", %{"name" => "PI Test Plan"})
+      product = json_response(prod_conn)
+
+      price_conn =
+        request(:post, "/v1/prices", %{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month"},
+          "unit_amount" => "9900"
+        })
+
+      price = json_response(price_conn)
+
+      %{customer: customer, price: price}
+    end
+
+    test "creates invoice and payment intent for default_incomplete", %{customer: customer, price: price} do
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "2"}],
+          "payment_behavior" => "default_incomplete"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+
+      assert sub["status"] == "incomplete"
+      assert is_binary(sub["latest_invoice"])
+      assert String.starts_with?(sub["latest_invoice"], "in_")
+
+      # Invoice should exist and have a payment_intent
+      inv_conn = request(:get, "/v1/invoices/#{sub["latest_invoice"]}", %{})
+      assert inv_conn.status == 200
+      invoice = json_response(inv_conn)
+      assert invoice["subscription"] == sub["id"]
+      assert invoice["customer"] == customer["id"]
+      assert is_binary(invoice["payment_intent"])
+      assert String.starts_with?(invoice["payment_intent"], "pi_")
+
+      # Payment intent should exist with correct amount
+      pi_conn = request(:get, "/v1/payment_intents/#{invoice["payment_intent"]}", %{})
+      assert pi_conn.status == 200
+      pi = json_response(pi_conn)
+      assert pi["status"] == "requires_payment_method"
+      assert pi["amount"] == 19_800
+      assert pi["client_secret"] != nil
+    end
+
+    test "expands latest_invoice.payment_intent", %{customer: customer, price: price} do
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "expand[]" => "latest_invoice.payment_intent",
+          "items" => [%{"price" => price["id"], "quantity" => "1"}],
+          "payment_behavior" => "default_incomplete"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+
+      # latest_invoice should be expanded to a map
+      assert is_map(sub["latest_invoice"])
+      assert sub["latest_invoice"]["object"] == "invoice"
+
+      # payment_intent should be expanded inside the invoice
+      pi = sub["latest_invoice"]["payment_intent"]
+      assert is_map(pi)
+      assert pi["object"] == "payment_intent"
+      assert pi["status"] == "requires_payment_method"
+      assert pi["client_secret"] != nil
+    end
+
+    test "auto-confirms PI when default_payment_method provided", %{customer: customer, price: price} do
+      # Create a payment method
+      pm_conn =
+        request(:post, "/v1/payment_methods", %{
+          "card" => %{"cvc" => "123", "exp_month" => "12", "exp_year" => "2030", "number" => "4242424242424242"},
+          "type" => "card"
+        })
+
+      pm = json_response(pm_conn)
+
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "default_payment_method" => pm["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "1"}],
+          "payment_behavior" => "default_incomplete"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+
+      # With payment method, subscription should be active (auto-confirmed)
+      assert sub["status"] == "active"
+      assert is_binary(sub["latest_invoice"])
+
+      # PI should be succeeded
+      inv_conn = request(:get, "/v1/invoices/#{sub["latest_invoice"]}", %{})
+      invoice = json_response(inv_conn)
+      assert invoice["status"] == "paid"
+
+      pi_conn = request(:get, "/v1/payment_intents/#{invoice["payment_intent"]}", %{})
+      pi = json_response(pi_conn)
+      assert pi["status"] == "succeeded"
+      assert pi["payment_method"] == pm["id"]
+    end
+
+    test "skips PI creation for trialing subscriptions", %{customer: customer, price: price} do
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "1"}],
+          "payment_behavior" => "default_incomplete",
+          "trial_period_days" => "14"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+
+      assert sub["status"] == "trialing"
+      assert is_nil(sub["latest_invoice"])
+    end
+
+    test "does not create invoice without default_incomplete", %{customer: customer, price: price} do
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "1"}],
+          "status" => "active"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+
+      assert sub["status"] == "active"
+      assert is_nil(sub["latest_invoice"])
     end
   end
 end

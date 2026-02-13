@@ -1346,6 +1346,259 @@ defmodule PaperTiger.Resources.InvoiceTest do
     end
   end
 
+  describe "GET /v1/invoices/upcoming - Upcoming invoice" do
+    setup do
+      # Use TestHelpers for proper form-encoded subscription creation
+      product = PaperTiger.TestHelpers.create_product(name: "Premium Plan")
+
+      price =
+        PaperTiger.TestHelpers.create_price(product["id"],
+          unit_amount: 2000,
+          currency: "usd",
+          recurring: %{interval: "month"}
+        )
+
+      customer = PaperTiger.TestHelpers.create_customer(email: "upcoming@test.com")
+
+      subscription =
+        PaperTiger.TestHelpers.create_subscription(customer["id"], price["id"],
+          items: %{"0" => %{price: price["id"], quantity: 2}}
+        )
+
+      %{
+        customer: customer,
+        price: price,
+        product: product,
+        subscription: subscription
+      }
+    end
+
+    test "returns upcoming invoice for a subscription", ctx do
+      conn = request(:get, "/v1/invoices/upcoming?subscription=#{ctx.subscription["id"]}")
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["object"] == "invoice"
+      assert invoice["customer"] == ctx.customer["id"]
+      assert invoice["subscription"] == ctx.subscription["id"]
+      assert is_list(invoice["lines"]["data"])
+      assert not Enum.empty?(invoice["lines"]["data"])
+
+      # Verify line amounts reflect price * quantity
+      line = hd(invoice["lines"]["data"])
+      assert line["amount"] == 2000 * 2
+      assert line["quantity"] == 2
+      assert line["price"]["id"] == ctx.price["id"]
+
+      # Total should be sum of line amounts
+      assert invoice["total"] == 4000
+      assert invoice["subtotal"] == 4000
+      assert invoice["amount_due"] == 4000
+    end
+
+    test "returns 404 for non-existent subscription" do
+      conn = request(:get, "/v1/invoices/upcoming?subscription=sub_nonexistent")
+
+      assert conn.status == 404
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+    end
+
+    test "returns error when subscription param is missing" do
+      conn = request(:get, "/v1/invoices/upcoming")
+
+      assert conn.status != 200
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+    end
+
+    test "returns 400 for invalid subscription_items quantity", ctx do
+      conn =
+        request(:get, "/v1/invoices/upcoming", %{
+          "subscription" => ctx.subscription["id"],
+          "subscription_items" => %{
+            "0" => %{"price" => ctx.price["id"], "quantity" => "abc"}
+          }
+        })
+
+      assert conn.status == 400
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+      assert response["error"]["param"] == "subscription_items[0][quantity]"
+    end
+  end
+
+  describe "POST /v1/invoices/create_preview - Preview invoice" do
+    setup do
+      product = PaperTiger.TestHelpers.create_product(name: "Premium Plan")
+
+      price =
+        PaperTiger.TestHelpers.create_price(product["id"],
+          unit_amount: 2000,
+          currency: "usd",
+          recurring: %{interval: "month"}
+        )
+
+      new_price =
+        PaperTiger.TestHelpers.create_price(product["id"],
+          unit_amount: 5000,
+          currency: "usd",
+          recurring: %{interval: "month"}
+        )
+
+      customer = PaperTiger.TestHelpers.create_customer(email: "preview@test.com")
+
+      subscription =
+        PaperTiger.TestHelpers.create_subscription(customer["id"], price["id"],
+          items: %{"0" => %{price: price["id"], quantity: 1}}
+        )
+
+      %{
+        customer: customer,
+        new_price: new_price,
+        price: price,
+        product: product,
+        subscription: subscription
+      }
+    end
+
+    test "previews invoice with proposed item changes", ctx do
+      existing_item = hd(ctx.subscription["items"]["data"])
+
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription" => ctx.subscription["id"],
+          "subscription_details" => %{
+            "items" => %{
+              "0" => %{"deleted" => "true", "id" => existing_item["id"]},
+              "1" => %{"price" => ctx.new_price["id"], "quantity" => "3"}
+            }
+          }
+        })
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["object"] == "invoice"
+      assert invoice["subscription"] == ctx.subscription["id"]
+
+      lines = invoice["lines"]["data"]
+      assert is_list(lines)
+
+      regular_lines = Enum.reject(lines, & &1["proration"])
+      proration_lines = Enum.filter(lines, & &1["proration"])
+
+      # Regular line: new item 5000 * 3 = 15000
+      assert length(regular_lines) == 1
+      assert hd(regular_lines)["amount"] == 15_000
+
+      # Proration lines: credit for old item, charge for new item
+      assert proration_lines != []
+      assert Enum.all?(proration_lines, & &1["proration"])
+    end
+
+    test "returns 404 for non-existent subscription" do
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription" => "sub_nonexistent",
+          "subscription_details" => %{
+            "items" => %{"0" => %{"price" => "price_xxx", "quantity" => "1"}}
+          }
+        })
+
+      assert conn.status == 404
+    end
+
+    test "returns error when subscription param is missing" do
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription_details" => %{
+            "items" => %{"0" => %{"price" => "price_xxx", "quantity" => "1"}}
+          }
+        })
+
+      assert conn.status != 200
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+    end
+
+    test "preview with quantity update on existing item", ctx do
+      existing_item = hd(ctx.subscription["items"]["data"])
+
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription" => ctx.subscription["id"],
+          "subscription_details" => %{
+            "items" => %{
+              "0" => %{"id" => existing_item["id"], "quantity" => "5"}
+            }
+          }
+        })
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      lines = invoice["lines"]["data"]
+
+      regular_lines = Enum.reject(lines, & &1["proration"])
+      proration_lines = Enum.filter(lines, & &1["proration"])
+
+      # Regular line: existing price (2000) * 5 = 10000
+      assert hd(regular_lines)["amount"] == 10_000
+
+      # Proration lines for quantity change (1 -> 5)
+      assert proration_lines != []
+    end
+
+    test "returns 400 for invalid quantity value", ctx do
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription" => ctx.subscription["id"],
+          "subscription_details" => %{
+            "items" => %{
+              "0" => %{"price" => ctx.new_price["id"], "quantity" => "abc"}
+            }
+          }
+        })
+
+      assert conn.status == 400
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+      assert response["error"]["param"] == "subscription_details[items][0][quantity]"
+    end
+
+    test "keeps duplicate same-price items when updating one by item id", ctx do
+      subscription_with_duplicates =
+        PaperTiger.TestHelpers.create_subscription(ctx.customer["id"], ctx.price["id"],
+          items: %{
+            "0" => %{price: ctx.price["id"], quantity: 1},
+            "1" => %{price: ctx.price["id"], quantity: 1}
+          }
+        )
+
+      first_item = hd(subscription_with_duplicates["items"]["data"])
+
+      conn =
+        request(:post, "/v1/invoices/create_preview", %{
+          "subscription" => subscription_with_duplicates["id"],
+          "subscription_details" => %{
+            "items" => %{
+              "0" => %{"id" => first_item["id"], "quantity" => "2"}
+            }
+          }
+        })
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+
+      regular_lines =
+        invoice["lines"]["data"]
+        |> Enum.reject(& &1["proration"])
+
+      # Updated item should be quantity 2 and unchanged sibling should remain.
+      assert length(regular_lines) == 2
+      assert Enum.reduce(regular_lines, 0, fn line, acc -> acc + line["amount"] end) == 6000
+    end
+  end
+
   describe "Edge cases and validation" do
     test "invoice with very long description" do
       customer_id = create_customer()

@@ -1072,6 +1072,39 @@ This allows test tokens to be available first, then real data from your database
 
 ## Development
 
+### Setup with Nix
+
+Install [Nix](https://nixos.org/) with flakes enabled and [direnv](https://direnv.net/):
+
+```bash
+# Install Nix with flakes (Determinate Systems installer enables flakes by default)
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+
+# Install direnv (macOS)
+brew install direnv
+
+# Install direnv (Nix)
+nix profile install nixpkgs#direnv
+
+# Add the direnv hook to your shell (~/.zshrc or ~/.bashrc)
+eval "$(direnv hook zsh)"   # for zsh
+eval "$(direnv hook bash)"  # for bash
+```
+
+Then from the project directory:
+
+```bash
+direnv allow
+```
+
+This provides Elixir, Erlang, and rebar3 via the included `flake.nix`. On Linux, `inotify-tools` is included for file watching.
+
+Without direnv, you can enter the shell manually:
+
+```bash
+nix develop
+```
+
 ### Running Tests
 
 ```bash

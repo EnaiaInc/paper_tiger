@@ -50,6 +50,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Plug.APIChaos
   alias PaperTiger.Plugs.Auth
   alias PaperTiger.Plugs.CORS
+  alias PaperTiger.Plugs.GetFormBody
   alias PaperTiger.Plugs.Idempotency
   alias PaperTiger.Plugs.Sandbox
   alias PaperTiger.Plugs.UnflattenParams
@@ -88,6 +89,7 @@ defmodule PaperTiger.Router do
   plug(CORS)
   plug(Sandbox)
   plug(APIChaos)
+  plug(GetFormBody)
 
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
@@ -193,6 +195,16 @@ defmodule PaperTiger.Router do
   stripe_resource("subscriptions", Subscription, [])
   stripe_resource("products", Product, [])
   stripe_resource("prices", Price, except: [:delete])
+  # Custom invoice endpoints — must come BEFORE stripe_resource so they
+  # match before the generic GET /v1/invoices/:id route.
+  get "/v1/invoices/upcoming" do
+    Invoice.upcoming(conn)
+  end
+
+  post "/v1/invoices/create_preview" do
+    Invoice.create_preview(conn)
+  end
+
   stripe_resource("invoices", Invoice, [])
   stripe_resource("payment_methods", PaymentMethod, [])
   stripe_resource("payment_intents", PaymentIntent, except: [:delete])

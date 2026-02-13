@@ -262,18 +262,43 @@ defmodule PaperTiger.ChaosCoordinator do
   ## Public API - API Chaos
 
   @doc """
-  Determines if an API request should fail.
+  Determines if an API request should fail or return a custom response.
 
   Returns:
   - `:ok` - Request should proceed normally
   - `{:timeout, ms}` - Request should timeout after sleeping
   - `:rate_limit` - Request should return 429
   - `:server_error` - Request should return 500/502/503
+  - `{:custom_response, status, body}` - Return a custom JSON response
+
+  ## Custom Response Example
+
+      PaperTiger.ChaosCoordinator.configure(%{
+        api: %{
+          endpoint_overrides: %{
+            "/v1/subscriptions" => {:custom_response, 200, %{"id" => "sub_1", "status" => "past_due"}}
+          }
+        }
+      })
   """
-  @spec should_api_fail?(String.t()) :: :ok | {:timeout, non_neg_integer()} | :rate_limit | :server_error
+  @spec should_api_fail?(String.t()) ::
+          :ok | {:timeout, non_neg_integer()} | :rate_limit | :server_error | {:custom_response, pos_integer(), map()}
   def should_api_fail?(path) do
     namespace = PaperTiger.Test.current_namespace()
-    GenServer.call(__MODULE__, {:should_api_fail, namespace, path})
+
+    # Read directly from ETS to avoid deadlock during sync webhook delivery.
+    # ChaosCoordinator's handle_cast delivers webhooks synchronously, and the
+    # target app may call back into PaperTiger (e.g. to update a subscription
+    # during metadata cleanup). Using GenServer.call here would deadlock.
+    case :ets.lookup(@table, {namespace, :state}) do
+      [{{^namespace, :state}, state}] ->
+        {result, new_state} = determine_api_result(path, state)
+        :ets.insert(@table, {{namespace, :state}, new_state})
+        result
+
+      [] ->
+        :ok
+    end
   end
 
   ## Server Callbacks
@@ -524,8 +549,10 @@ defmodule PaperTiger.ChaosCoordinator do
   defp determine_api_result(path, state) do
     api_config = state.config.api
 
-    # Check endpoint overrides first
-    case Map.get(api_config[:endpoint_overrides] || %{}, path) do
+    # Check endpoint overrides first (exact match, then prefix match)
+    overrides = api_config[:endpoint_overrides] || %{}
+
+    case Map.get(overrides, path) || find_prefix_override(overrides, path) do
       nil ->
         determine_random_api_result(api_config, state)
 
@@ -541,7 +568,24 @@ defmodule PaperTiger.ChaosCoordinator do
       :server_error ->
         stats = Map.update!(state.stats, :api_errors, &(&1 + 1))
         {:server_error, %{state | stats: stats}}
+
+      {:custom_response, status, body} ->
+        {{:custom_response, status, body}, state}
     end
+  end
+
+  # Finds an override where the key ends with "*" and the path starts with the prefix
+  defp find_prefix_override(overrides, path) do
+    Enum.find_value(overrides, fn
+      {pattern, action} ->
+        if String.ends_with?(pattern, "*") and
+             String.starts_with?(path, String.trim_trailing(pattern, "*")) do
+          action
+        end
+
+      _ ->
+        nil
+    end)
   end
 
   defp determine_random_api_result(api_config, state) do
