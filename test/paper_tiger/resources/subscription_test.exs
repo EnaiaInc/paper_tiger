@@ -599,6 +599,40 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       assert body["metadata"]["tier"] == "premium"
     end
 
+    test "metadata update merges keys instead of replacing", %{subscription_id: subscription_id} do
+      # Set initial metadata
+      request(:post, "/v1/subscriptions/#{subscription_id}", %{
+        "metadata" => %{"practice_id" => "abc123", "team" => "acme"}
+      })
+
+      # Update only one key — the other should survive
+      conn =
+        request(:post, "/v1/subscriptions/#{subscription_id}", %{
+          "metadata" => %{"team" => "beta"}
+        })
+
+      body = json_response(conn)
+      assert body["metadata"]["practice_id"] == "abc123"
+      assert body["metadata"]["team"] == "beta"
+    end
+
+    test "metadata update with empty string deletes the key", %{subscription_id: subscription_id} do
+      # Set initial metadata
+      request(:post, "/v1/subscriptions/#{subscription_id}", %{
+        "metadata" => %{"practice_id" => "abc123", "team" => "acme"}
+      })
+
+      # Setting a key to "" should remove it (Stripe behavior)
+      conn =
+        request(:post, "/v1/subscriptions/#{subscription_id}", %{
+          "metadata" => %{"practice_id" => ""}
+        })
+
+      body = json_response(conn)
+      refute Map.has_key?(body["metadata"], "practice_id")
+      assert body["metadata"]["team"] == "acme"
+    end
+
     test "updates cancel_at_period_end flag", %{subscription_id: subscription_id} do
       update_params = %{
         "cancel_at_period_end" => true

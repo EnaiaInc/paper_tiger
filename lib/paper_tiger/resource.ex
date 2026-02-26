@@ -182,7 +182,24 @@ defmodule PaperTiger.Resource do
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
     |> Map.drop(immutable_fields)
+    |> stripe_merge_metadata(existing)
     |> then(&Map.merge(existing, &1))
+  end
+
+  # Stripe metadata semantics: keys are merged (not replaced wholesale),
+  # and setting a value to "" deletes that key.
+  defp stripe_merge_metadata(updates, existing) do
+    with %{metadata: new_meta} when is_map(new_meta) <- updates,
+         %{metadata: old_meta} when is_map(old_meta) <- existing do
+      merged =
+        old_meta
+        |> Map.merge(new_meta)
+        |> Map.reject(fn {_k, v} -> v == "" end)
+
+      Map.put(updates, :metadata, merged)
+    else
+      _ -> updates
+    end
   end
 
   @doc """
