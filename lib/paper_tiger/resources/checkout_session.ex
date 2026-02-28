@@ -492,6 +492,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
       id: generate_id("pi"),
       invoice: nil,
       last_payment_error: nil,
+      latest_charge: nil,
       livemode: false,
       mandate: nil,
       metadata: session.metadata || %{},
@@ -511,6 +512,12 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
 
     {:ok, payment_intent} = PaymentIntents.insert(payment_intent)
+
+    # Create charge + balance transaction chain
+    {:ok, _charge} = PaperTiger.ChargeHelper.create_for_payment_intent(payment_intent)
+    # Re-fetch to get updated latest_charge
+    {:ok, payment_intent} = PaymentIntents.get(payment_intent.id)
+
     payment_intent
   end
 
@@ -722,7 +729,9 @@ defmodule PaperTiger.Resources.CheckoutSession do
       billing_address_collection: Map.get(params, :billing_address_collection),
       shipping_address_collection: Map.get(params, :shipping_address_collection),
       consent_collection: Map.get(params, :consent_collection),
-      currency: Map.get(params, :currency),
+      currency:
+        Map.get(params, :currency) ||
+          derive_currency_from_line_items(Map.get(params, :line_items, [])),
       customer_creation: Map.get(params, :customer_creation),
       expires_at: PaperTiger.now() + 86_400,
       locale: Map.get(params, :locale),
@@ -754,4 +763,25 @@ defmodule PaperTiger.Resources.CheckoutSession do
     expand_params = parse_expand_params(params)
     PaperTiger.Hydrator.hydrate(session, expand_params)
   end
+
+  defp derive_currency_from_line_items(line_items) when is_list(line_items) do
+    Enum.find_value(line_items, fn item ->
+      get_in_flexible(item, [:price_data, :currency])
+    end)
+  end
+
+  defp derive_currency_from_line_items(_), do: nil
+
+  defp get_in_flexible(nil, _), do: nil
+
+  defp get_in_flexible(map, [key | rest]) when is_map(map) do
+    value = Map.get(map, key) || Map.get(map, to_string(key))
+
+    case rest do
+      [] -> value
+      _ -> get_in_flexible(value, rest)
+    end
+  end
+
+  defp get_in_flexible(_, _), do: nil
 end

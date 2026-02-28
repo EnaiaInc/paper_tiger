@@ -368,6 +368,7 @@ defmodule PaperTiger.BillingEngine do
       customer: invoice.customer,
       id: PaperTiger.Resource.generate_id("pi"),
       invoice: invoice.id,
+      latest_charge: nil,
       livemode: false,
       metadata: %{},
       object: "payment_intent",
@@ -378,25 +379,8 @@ defmodule PaperTiger.BillingEngine do
     :telemetry.execute([:paper_tiger, :payment_intent, :created], %{}, %{object: pi})
     :telemetry.execute([:paper_tiger, :payment_intent, :succeeded], %{}, %{object: pi})
 
-    # Create charge
-    charge = %{
-      amount: amount,
-      captured: true,
-      created: now,
-      currency: invoice.currency,
-      customer: invoice.customer,
-      id: PaperTiger.Resource.generate_id("ch"),
-      invoice: invoice.id,
-      livemode: false,
-      metadata: %{},
-      object: "charge",
-      paid: true,
-      payment_intent: pi.id,
-      status: "succeeded"
-    }
-
-    {:ok, ch} = Charges.insert(charge)
-    :telemetry.execute([:paper_tiger, :charge, :succeeded], %{}, %{object: ch})
+    # Create charge via ChargeHelper (also creates balance transaction + updates PI.latest_charge)
+    {:ok, _ch} = PaperTiger.ChargeHelper.create_for_payment_intent(pi)
 
     # Update invoice to paid
     paid_invoice =
@@ -431,6 +415,7 @@ defmodule PaperTiger.BillingEngine do
         message: decline_code_message(decline_code),
         type: "card_error"
       },
+      latest_charge: nil,
       livemode: false,
       metadata: %{},
       object: "payment_intent",
