@@ -514,6 +514,21 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## BalanceTransaction Operations
+
+  @doc """
+  Retrieves a balance transaction by ID.
+  """
+  def get_balance_transaction(txn_id) do
+    case mode() do
+      :real_stripe ->
+        get_balance_transaction_real(txn_id)
+
+      :paper_tiger ->
+        get_balance_transaction_mock(txn_id)
+    end
+  end
+
   ## PaymentIntent Operations
 
   @doc """
@@ -539,6 +554,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         get_payment_intent_mock(payment_intent_id)
+    end
+  end
+
+  @doc """
+  Confirms a payment intent.
+  """
+  def confirm_payment_intent(payment_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        confirm_payment_intent_real(payment_intent_id, params)
+
+      :paper_tiger ->
+        confirm_payment_intent_mock(payment_intent_id, params)
     end
   end
 
@@ -957,6 +985,20 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp confirm_payment_intent_real(payment_intent_id, params) do
+    case Stripe.PaymentIntent.confirm(payment_intent_id, normalize_params(params), stripe_opts()) do
+      {:ok, pi} -> {:ok, stripe_to_map(pi)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
+  defp get_balance_transaction_real(txn_id) do
+    case Stripe.BalanceTransaction.retrieve(txn_id, %{}, stripe_opts()) do
+      {:ok, txn} -> {:ok, stripe_to_map(txn)}
+      {:error, error} -> {:error, stripe_error_to_map(error)}
+    end
+  end
+
   defp create_refund_real(params) do
     case Stripe.Refund.create(normalize_params(params), stripe_opts()) do
       {:ok, refund} -> {:ok, stripe_to_map(refund)}
@@ -1141,6 +1183,16 @@ defmodule PaperTiger.TestClient do
 
   defp get_payment_intent_mock(payment_intent_id) do
     conn = request(:get, "/v1/payment_intents/#{payment_intent_id}", %{})
+    handle_response(conn)
+  end
+
+  defp confirm_payment_intent_mock(payment_intent_id, params) do
+    conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/confirm", params)
+    handle_response(conn)
+  end
+
+  defp get_balance_transaction_mock(txn_id) do
+    conn = request(:get, "/v1/balance_transactions/#{txn_id}", %{})
     handle_response(conn)
   end
 

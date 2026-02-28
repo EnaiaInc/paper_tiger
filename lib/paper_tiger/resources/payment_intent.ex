@@ -137,7 +137,57 @@ defmodule PaperTiger.Resources.PaymentIntent do
     json_response(conn, 200, result)
   end
 
+  @doc """
+  Confirms a payment intent, transitioning it to "succeeded" and creating
+  a charge + balance transaction.
+  """
+  @spec confirm(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def confirm(conn, id) do
+    with {:ok, pi} <- PaymentIntents.get(id),
+         :ok <- validate_confirmable(pi) do
+      # Apply payment_method from confirm params if provided
+      updated =
+        case conn.params do
+          %{payment_method: pm} when is_binary(pm) -> %{pi | payment_method: pm}
+          _ -> pi
+        end
+
+      # Transition to succeeded
+      updated = %{updated | status: "succeeded"}
+      {:ok, updated} = PaymentIntents.update(updated)
+
+      # Create charge + balance transaction
+      {:ok, _charge} = PaperTiger.ChargeHelper.create_for_payment_intent(updated)
+
+      # Re-fetch to get latest_charge
+      {:ok, final} = PaymentIntents.get(id)
+
+      :telemetry.execute([:paper_tiger, :payment_intent, :succeeded], %{}, %{object: final})
+
+      final
+      |> maybe_expand(conn.params)
+      |> then(&json_response(conn, 200, &1))
+    else
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("payment_intent", id))
+
+      {:error, :not_confirmable, status} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This PaymentIntent's status (#{status}) does not allow confirmation.",
+            "status"
+          )
+        )
+    end
+  end
+
   ## Private Functions
+
+  defp validate_confirmable(%{status: status}) when status in ["requires_payment_method", "requires_confirmation"],
+    do: :ok
+
+  defp validate_confirmable(%{status: status}), do: {:error, :not_confirmable, status}
 
   defp build_payment_intent(params) do
     %{
@@ -171,6 +221,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
       application: nil,
       application_fee_amount: nil,
       invoice: nil,
+      latest_charge: nil,
       mandate: nil,
       source: Map.get(params, :source)
     }

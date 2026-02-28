@@ -211,6 +211,28 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
       pi = json_response(pi_conn)
       assert pi["status"] == "succeeded"
       assert pi["customer"] == customer_id
+
+      # Verify payment intent has latest_charge
+      assert pi["latest_charge"] != nil
+      assert String.starts_with?(pi["latest_charge"], "ch_")
+
+      # Verify charge was created
+      ch_conn = request(:get, "/v1/charges/#{pi["latest_charge"]}")
+      assert ch_conn.status == 200
+      ch = json_response(ch_conn)
+      assert ch["amount"] == 2000
+      assert ch["currency"] == "usd"
+      assert ch["payment_intent"] == pi["id"]
+      assert ch["status"] == "succeeded"
+
+      # Verify balance transaction was created
+      assert ch["balance_transaction"] != nil
+      assert String.starts_with?(ch["balance_transaction"], "txn_")
+      bt_conn = request(:get, "/v1/balance_transactions/#{ch["balance_transaction"]}")
+      assert bt_conn.status == 200
+      bt = json_response(bt_conn)
+      assert bt["amount"] == 2000
+      assert bt["type"] == "charge"
     end
 
     test "completes a subscription mode session and creates subscription" do
@@ -344,6 +366,39 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
       conn = request(:post, "/_test/checkout/sessions/cs_nonexistent/complete")
 
       assert conn.status == 404
+    end
+
+    test "derives currency from line_items price_data when not explicitly set" do
+      cust_conn = request(:post, "/v1/customers", %{"email" => "currency@example.com"})
+      customer_id = json_response(cust_conn)["id"]
+
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "customer" => customer_id,
+        "line_items" => [
+          %{
+            "price_data" => %{
+              "currency" => "gbp",
+              "product_data" => %{"name" => "Test"},
+              "unit_amount" => 1500
+            },
+            "quantity" => 2
+          }
+        ],
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      create_conn = request(:post, "/v1/checkout/sessions", params)
+      session = json_response(create_conn)
+      assert session["currency"] == "gbp"
+
+      # Complete and verify PI currency
+      complete_conn = request(:post, "/_test/checkout/sessions/#{session["id"]}/complete")
+      completed = json_response(complete_conn)
+      pi_conn = request(:get, "/v1/payment_intents/#{completed["payment_intent"]}")
+      pi = json_response(pi_conn)
+      assert pi["currency"] == "gbp"
     end
   end
 
