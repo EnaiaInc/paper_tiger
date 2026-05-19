@@ -1084,19 +1084,17 @@ defmodule PaperTiger.Resources.Invoice do
 
   defp build_charge_proration_line(_price_id, _old, nil), do: nil
 
-  defp build_charge_proration_line(price_id, old, new) do
+  defp build_charge_proration_line(price_id, _old, new) do
     amount = proration_amount(new)
 
     if amount > 0 do
-      base_item = new || old
-
       %{
         amount: div(amount, 2),
         currency: "usd",
         description: "Remaining time on #{proration_quantity(new)} x (#{price_id})",
         id: generate_id("il"),
         object: "line_item",
-        price: %{id: price_id, product: base_item.product, unit_amount: new.unit_amount},
+        price: %{id: price_id, product: new.product, unit_amount: new.unit_amount},
         proration: true,
         quantity: proration_quantity(new),
         type: "subscription"
@@ -1104,6 +1102,5 @@ defmodule PaperTiger.Resources.Invoice do
     end
   end
 
-  defp proration_quantity(nil), do: 0
   defp proration_quantity(item), do: item.quantity
 end
