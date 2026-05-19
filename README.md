@@ -642,6 +642,18 @@ Tests run against stripe.com to validate that PaperTiger behavior matches produc
 >
 > If you accidentally configure a live-mode key, the tests will refuse to run with a clear error message. This prevents accidental charges to real customers.
 
+### Drift Validation
+
+The backend-switchable contract tests above prove the same assertions can pass against either PaperTiger or Stripe. Drift validation goes one step further: a single scenario runs against both backends in the same ExUnit test, normalizes volatile fields like IDs and timestamps, then compares the normalized Stripe shape against the normalized PaperTiger shape.
+
+```bash
+export STRIPE_API_KEY=sk_test_your_key_here
+export VALIDATE_CONTRACT_DRIFT=true
+mix test test/paper_tiger/contract_drift_test.exs
+```
+
+Drift tests are tagged `:stripe_live` and excluded by default, so the regular suite stays offline. When a mismatch appears, the failure includes the scenario name, first mismatched path, Stripe expected value, PaperTiger actual value, and both normalized response shapes. Add new drift scenarios for endpoint work when behavior must stay aligned over time, especially lifecycle transitions, error objects, expansion shapes, and related webhook/event side effects.
+
 ### Writing Contract Tests
 
 ```elixir
@@ -1105,6 +1117,10 @@ mix test test/paper_tiger/contract_test.exs
 # Contract tests (Stripe validation mode)
 STRIPE_API_KEY=sk_test_xxx VALIDATE_AGAINST_STRIPE=true \
   mix test test/paper_tiger/contract_test.exs
+
+# Side-by-side contract drift tests (Stripe validation mode)
+STRIPE_API_KEY=sk_test_xxx VALIDATE_CONTRACT_DRIFT=true \
+  mix test test/paper_tiger/contract_drift_test.exs
 ```
 
 ### Quality Checks

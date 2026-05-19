@@ -34,6 +34,8 @@ defmodule PaperTiger.TestClient do
   alias PaperTiger.Router
   alias Stripe.Checkout.Session
 
+  @forced_mode_key {__MODULE__, :forced_mode}
+
   @doc """
   Returns the current test mode.
 
@@ -51,6 +53,38 @@ defmodule PaperTiger.TestClient do
       :paper_tiger
   """
   def mode do
+    case Process.get(@forced_mode_key) do
+      nil ->
+        env_mode()
+
+      mode when mode in [:paper_tiger, :real_stripe] ->
+        mode
+    end
+  end
+
+  @doc """
+  Runs a function with `TestClient` forced to the given backend.
+
+  This is primarily for drift tests that need to call both PaperTiger and real
+  Stripe from the same ExUnit process. Forcing `:real_stripe` still validates the
+  API key before any Stripe call is allowed.
+  """
+  def with_mode(mode, fun) when mode in [:paper_tiger, :real_stripe] and is_function(fun, 0) do
+    if mode == :real_stripe do
+      validate_test_mode_key!()
+    end
+
+    previous_mode = Process.get(@forced_mode_key, :unset)
+    Process.put(@forced_mode_key, mode)
+
+    try do
+      fun.()
+    after
+      restore_forced_mode(previous_mode)
+    end
+  end
+
+  defp env_mode do
     if System.get_env("VALIDATE_AGAINST_STRIPE") == "true" do
       validate_test_mode_key!()
       :real_stripe
@@ -58,6 +92,9 @@ defmodule PaperTiger.TestClient do
       :paper_tiger
     end
   end
+
+  defp restore_forced_mode(:unset), do: Process.delete(@forced_mode_key)
+  defp restore_forced_mode(previous_mode), do: Process.put(@forced_mode_key, previous_mode)
 
   @doc """
   Validates that the STRIPE_API_KEY is a test-mode key (sk_test_*).

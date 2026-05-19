@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_contract_validation:
+        description: Run live Stripe contract and drift validation
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   quality:
@@ -64,7 +71,7 @@ jobs:
   contract-validation:
     name: Contract Validation (Stripe API)
     runs-on: ubuntu-latest
-    if: false
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_contract_validation }}
     strategy:
       matrix:
         otp: ['27.0']
@@ -92,8 +99,26 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
+      - name: Check Stripe API key secret
+        id: stripe_secret
+        run: |
+          if [ -z "$STRIPE_API_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "STRIPE_TEST_API_KEY is not configured; skipping live contract validation."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_TEST_API_KEY }}
+
       - name: Run contract tests against Stripe
-        run: mix test test/paper_tiger/contract_test.exs
+        if: steps.stripe_secret.outputs.configured == 'true'
+        run: |
+          mix test \
+            test/paper_tiger/contract_test.exs \
+            test/paper_tiger/contract/payment_intent_chain_test.exs \
+            test/paper_tiger/contract_drift_test.exs
         env:
           STRIPE_API_KEY: ${{ secrets.STRIPE_TEST_API_KEY }}
           VALIDATE_AGAINST_STRIPE: true
+          VALIDATE_CONTRACT_DRIFT: true
