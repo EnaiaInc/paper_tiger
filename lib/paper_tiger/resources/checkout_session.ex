@@ -491,9 +491,12 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
     payment_intent = %{
       amount: amount,
+      amount_capturable: 0,
       amount_details: nil,
+      amount_received: amount,
       application: nil,
       application_fee_amount: nil,
+      canceled_at: nil,
       cancellation_reason: nil,
       capture_method: "automatic",
       client_secret: generate_client_secret(),

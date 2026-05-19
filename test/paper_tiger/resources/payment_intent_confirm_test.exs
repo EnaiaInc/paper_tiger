@@ -74,6 +74,8 @@ defmodule PaperTiger.Resources.PaymentIntentConfirmTest do
       confirmed = json_response(confirm_conn)
       assert confirmed["id"] == pi_id
       assert confirmed["status"] == "succeeded"
+      assert confirmed["amount_capturable"] == 0
+      assert confirmed["amount_received"] == 5000
       assert confirmed["latest_charge"] != nil
       assert String.starts_with?(confirmed["latest_charge"], "ch_")
 
@@ -85,6 +87,8 @@ defmodule PaperTiger.Resources.PaymentIntentConfirmTest do
       assert ch["currency"] == "usd"
       assert ch["payment_intent"] == pi_id
       assert ch["status"] == "succeeded"
+      assert ch["captured"] == true
+      assert ch["amount_captured"] == 5000
       assert ch["customer"] == customer_id
       assert ch["payment_method"] == pm_id
 

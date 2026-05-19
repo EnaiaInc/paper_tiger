@@ -155,8 +155,11 @@ defmodule PaperTiger.Resources.Charge do
   end
 
   defp build_charge(params) do
+    amount = get_integer(params, :amount)
+
     %{
-      amount: get_integer(params, :amount),
+      amount: amount,
+      amount_captured: get_integer(params, :amount_captured, amount),
       amount_refunded: get_integer(params, :amount_refunded),
       balance_transaction: nil,
       billing_details: Map.get(params, :billing_details),
