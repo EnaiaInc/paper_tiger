@@ -194,6 +194,41 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Search Operations" do
+    @tag :contract
+    test "searches customers by email and metadata" do
+      marker = "pt_search_#{System.unique_integer([:positive])}"
+      email = "#{marker}@example.com"
+
+      {:ok, customer} =
+        TestClient.create_customer(%{
+          "email" => email,
+          "metadata" => %{"paper_tiger_search" => marker},
+          "name" => "PaperTiger Search Contract"
+        })
+
+      query = "email:'#{email}' AND metadata['paper_tiger_search']:'#{marker}'"
+      result = eventually_search_customer(query, customer["id"])
+
+      assert result["object"] == "search_result"
+      assert is_list(result["data"])
+      assert is_boolean(result["has_more"])
+      assert Enum.any?(result["data"], fn item -> item["id"] == customer["id"] end)
+
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
+    test "search returns an invalid request error for mixed connectors" do
+      {:error, error} =
+        TestClient.search_customers(%{
+          "query" => "email:'one@example.com' AND email:'two@example.com' OR email:'three@example.com'"
+        })
+
+      assert error["error"]["type"] == "invalid_request_error"
+    end
+  end
+
   describe "Subscription CRUD Operations" do
     # Helper to create a product and price for subscription tests
     defp create_test_price(name, amount \\ 2000) do
@@ -1362,4 +1397,51 @@ defmodule PaperTiger.ContractTest do
     # Just leave them - they're in test mode anyway
     :ok
   end
+
+  defp eventually_search_customer(query, customer_id) do
+    attempts = if TestClient.real_stripe?(), do: 20, else: 1
+
+    1..attempts
+    |> Enum.find_value(fn attempt ->
+      query
+      |> search_customer_once(customer_id)
+      |> handle_search_attempt(attempt, attempts)
+    end)
+    |> case do
+      nil -> flunk("Customer #{customer_id} did not appear in search results for #{inspect(query)}")
+      result -> result
+    end
+  end
+
+  defp search_customer_once(query, customer_id) do
+    case TestClient.search_customers(%{"limit" => 10, "query" => query}) do
+      {:ok, result} -> maybe_found_customer(result, customer_id)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp maybe_found_customer(result, customer_id) do
+    if Enum.any?(result["data"], fn item -> item["id"] == customer_id end) do
+      {:found, result}
+    else
+      :missing
+    end
+  end
+
+  defp handle_search_attempt({:found, result}, _attempt, _attempts), do: result
+
+  defp handle_search_attempt(:missing, attempt, attempts) do
+    maybe_wait_for_search_index(attempt, attempts)
+    nil
+  end
+
+  defp handle_search_attempt({:error, error}, _attempt, _attempts) do
+    flunk("Customer search failed: #{inspect(error)}")
+  end
+
+  defp maybe_wait_for_search_index(attempt, attempts) when attempt < attempts and attempts > 1 do
+    Process.sleep(3_000)
+  end
+
+  defp maybe_wait_for_search_index(_attempt, _attempts), do: :ok
 end

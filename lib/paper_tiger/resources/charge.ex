@@ -32,7 +32,21 @@ defmodule PaperTiger.Resources.Charge do
   import PaperTiger.Resource
 
   alias PaperTiger.BalanceTransactionHelper
+  alias PaperTiger.Search
   alias PaperTiger.Store.Charges
+
+  @search_fields %{
+    "amount" => :numeric,
+    "created" => :numeric,
+    "currency" => :token,
+    "customer" => :token,
+    "disputed" => :token,
+    "metadata" => :token,
+    "payment_method_details.card.last4" => :token,
+    "receipt_email" => :string,
+    "refunded" => :token,
+    "status" => :string
+  }
 
   @doc """
   Creates a new charge.
@@ -153,6 +167,23 @@ defmodule PaperTiger.Resources.Charge do
 
     json_response(conn, 200, result)
   end
+
+  @doc """
+  Searches charges with Stripe-style search query syntax.
+  """
+  @spec search(Plug.Conn.t()) :: Plug.Conn.t()
+  def search(conn) do
+    Charges.list_namespace(PaperTiger.Test.current_namespace())
+    |> Search.run(conn.params,
+      fields: @search_fields,
+      url: "/v1/charges/search",
+      decorate: &maybe_expand(&1, conn.params)
+    )
+    |> respond_to_search(conn)
+  end
+
+  defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
+  defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
 
   defp build_charge(params) do
     amount = get_integer(params, :amount)

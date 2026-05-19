@@ -32,10 +32,19 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Search
   alias PaperTiger.Store.PaymentIntents
 
   @cancelable_statuses ~w(requires_payment_method requires_capture requires_confirmation requires_action processing)
   @cancellation_reasons ~w(duplicate fraudulent requested_by_customer abandoned)
+  @search_fields %{
+    "amount" => :numeric,
+    "created" => :numeric,
+    "currency" => :token,
+    "customer" => :token,
+    "metadata" => :token,
+    "status" => :string
+  }
 
   @doc """
   Creates a new payment intent.
@@ -141,6 +150,20 @@ defmodule PaperTiger.Resources.PaymentIntent do
     result = PaymentIntents.list(pagination_opts)
 
     json_response(conn, 200, result)
+  end
+
+  @doc """
+  Searches payment intents with Stripe-style search query syntax.
+  """
+  @spec search(Plug.Conn.t()) :: Plug.Conn.t()
+  def search(conn) do
+    PaymentIntents.list_namespace(PaperTiger.Test.current_namespace())
+    |> Search.run(conn.params,
+      fields: @search_fields,
+      url: "/v1/payment_intents/search",
+      decorate: &maybe_expand(&1, conn.params)
+    )
+    |> respond_to_search(conn)
   end
 
   @doc """
@@ -305,6 +328,9 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   defp validate_capturable(%{amount_capturable: amount, status: "requires_capture"}) when amount > 0, do: :ok
   defp validate_capturable(%{status: status}), do: {:error, :not_capturable, status}
+
+  defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
+  defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
 
   defp validate_cancellation_reason(nil), do: {:ok, nil}
   defp validate_cancellation_reason(reason) when reason in @cancellation_reasons, do: {:ok, reason}
