@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Subscription do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.AutomaticTax
   alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.InvoiceItems
@@ -48,7 +49,6 @@ defmodule PaperTiger.Resources.Subscription do
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
-  alias PaperTiger.Tax
 
   @doc """
   Creates a new subscription.
@@ -343,7 +343,7 @@ defmodule PaperTiger.Resources.Subscription do
     status = determine_subscription_status(params, trial_end)
 
     %{
-      automatic_tax: Tax.automatic_tax(params),
+      automatic_tax: AutomaticTax.automatic_tax(params, :subscription),
       billing_cycle_anchor: Map.get(params, :billing_cycle_anchor, current_period_start),
       cancel_at: nil,
       cancel_at_period_end: false,
@@ -803,7 +803,7 @@ defmodule PaperTiger.Resources.Subscription do
       now = PaperTiger.now()
       subtotal = calculate_items_total(items)
       default_pm = Map.get(params, :default_payment_method)
-      automatic_tax = Tax.automatic_tax(params)
+      automatic_tax = AutomaticTax.automatic_tax(params, :invoice)
 
       # If payment method provided, auto-confirm; otherwise requires_payment_method
       {pi_status, inv_status, sub_status, paid, amt_paid, amt_remaining} =
@@ -816,8 +816,8 @@ defmodule PaperTiger.Resources.Subscription do
       # Create invoice with payment_intent reference
       invoice_id = generate_id("in")
       line_items = build_initial_invoice_line_items(subscription, invoice_id)
-      {line_items, totals} = Tax.apply_to_line_items(line_items, params)
-      total = if(Tax.enabled?(params), do: totals.total, else: subtotal)
+      {line_items, totals} = AutomaticTax.apply_to_line_items(line_items, params, :invoice)
+      total = if(AutomaticTax.enabled?(params), do: totals.total, else: subtotal)
       amount_paid = if(amt_paid == :paid_total, do: total, else: amt_paid)
       amount_remaining = if(amt_remaining == :remaining_total, do: total, else: amt_remaining)
 

@@ -1,4 +1,4 @@
-defmodule PaperTiger.Tax do
+defmodule PaperTiger.AutomaticTax do
   @moduledoc """
   Deterministic Stripe Tax helpers for PaperTiger's local test surface.
 
@@ -16,15 +16,13 @@ defmodule PaperTiger.Tax do
   @doc """
   Returns a Stripe-shaped automatic_tax map from request params or a resource.
   """
-  @spec automatic_tax(map()) :: map()
-  def automatic_tax(source) when is_map(source) do
+  @spec automatic_tax(map(), atom()) :: map()
+  def automatic_tax(source, resource \\ :checkout_session)
+
+  def automatic_tax(source, resource) when is_map(source) do
     enabled = source |> value(:automatic_tax) |> value(:enabled) |> truthy?()
 
-    %{
-      enabled: enabled,
-      liability: nil,
-      status: if(enabled, do: "complete")
-    }
+    resource_automatic_tax(enabled, resource)
   end
 
   @doc """
@@ -32,14 +30,16 @@ defmodule PaperTiger.Tax do
   """
   @spec enabled?(map()) :: boolean()
   def enabled?(source) when is_map(source) do
-    source |> automatic_tax() |> Map.fetch!(:enabled)
+    source |> automatic_tax(:checkout_session) |> Map.fetch!(:enabled)
   end
 
   @doc """
   Applies deterministic automatic-tax fields to line items and returns totals.
   """
-  @spec apply_to_line_items([map()], map()) :: {[map()], map()}
-  def apply_to_line_items(line_items, source) when is_list(line_items) and is_map(source) do
+  @spec apply_to_line_items([map()], map(), atom()) :: {[map()], map()}
+  def apply_to_line_items(line_items, source, resource \\ :invoice)
+
+  def apply_to_line_items(line_items, source, resource) when is_list(line_items) and is_map(source) do
     if enabled?(source) do
       jurisdiction = jurisdiction(source)
       rate_bps = rate_bps(jurisdiction)
@@ -50,15 +50,15 @@ defmodule PaperTiger.Tax do
           tax_amount = calculate_tax(taxable_amount, rate_bps)
 
           line
+          |> Map.put(:amount_subtotal, taxable_amount)
+          |> Map.put(:amount_tax, tax_amount)
+          |> Map.put(:amount_total, taxable_amount + tax_amount)
           |> Map.put(:amount_excluding_tax, taxable_amount)
+          |> Map.put(:subtotal, taxable_amount)
+          |> Map.put(:taxes, [tax(tax_amount, taxable_amount)])
           |> Map.put(:unit_amount_excluding_tax, unit_amount_excluding_tax(line))
           |> Map.put(:tax_amounts, [
-            %{
-              amount: tax_amount,
-              inclusive: false,
-              tax_rate: nil,
-              taxable_amount: taxable_amount
-            }
+            legacy_tax_amount(tax_amount, taxable_amount)
           ])
         end)
 
@@ -68,7 +68,7 @@ defmodule PaperTiger.Tax do
       {taxed_lines,
        %{
          amount_tax: amount_tax,
-         automatic_tax: automatic_tax(source),
+         automatic_tax: automatic_tax(source, resource),
          subtotal: subtotal,
          total: subtotal + amount_tax,
          total_details: %{amount_discount: 0, amount_shipping: 0, amount_tax: amount_tax}
@@ -79,7 +79,7 @@ defmodule PaperTiger.Tax do
       {line_items,
        %{
          amount_tax: 0,
-         automatic_tax: automatic_tax(source),
+         automatic_tax: automatic_tax(source, resource),
          subtotal: subtotal,
          total: subtotal,
          total_details: %{amount_discount: 0, amount_shipping: 0, amount_tax: 0}
@@ -87,11 +87,53 @@ defmodule PaperTiger.Tax do
     end
   end
 
-  def apply_to_line_items(_line_items, source) when is_map(source) do
-    {[], apply_to_line_items([], source) |> elem(1)}
+  def apply_to_line_items(_line_items, source, resource) when is_map(source) do
+    {[], apply_to_line_items([], source, resource) |> elem(1)}
   end
 
-  def apply_to_line_items(_line_items, _source), do: {[], %{amount_tax: 0, subtotal: 0, total: 0}}
+  def apply_to_line_items(_line_items, _source, _resource), do: {[], %{amount_tax: 0, subtotal: 0, total: 0}}
+
+  defp resource_automatic_tax(enabled, :subscription) do
+    %{
+      disabled_reason: nil,
+      enabled: enabled,
+      liability: nil
+    }
+  end
+
+  defp resource_automatic_tax(enabled, :invoice) do
+    %{
+      disabled_reason: nil,
+      enabled: enabled,
+      liability: nil,
+      status: if(enabled, do: "complete")
+    }
+  end
+
+  defp resource_automatic_tax(enabled, _resource) do
+    %{
+      enabled: enabled,
+      liability: nil,
+      status: if(enabled, do: "complete")
+    }
+  end
+
+  defp tax(amount, taxable_amount) do
+    %{
+      amount: amount,
+      tax_behavior: "exclusive",
+      taxable_amount: taxable_amount
+    }
+  end
+
+  defp legacy_tax_amount(amount, taxable_amount) do
+    %{
+      amount: amount,
+      inclusive: false,
+      tax_rate: nil,
+      taxable_amount: taxable_amount
+    }
+  end
 
   defp jurisdiction(source) do
     value(source, :tax_jurisdiction) ||
@@ -127,11 +169,24 @@ defmodule PaperTiger.Tax do
   defp calculate_tax(amount, rate_bps), do: round(amount * rate_bps / 10_000)
 
   defp line_tax_amount(line) do
+    cond do
+      tax_amount = first_tax_amount(line, :tax_amounts) ->
+        tax_amount
+
+      tax_amount = first_tax_amount(line, :taxes) ->
+        tax_amount
+
+      true ->
+        0
+    end
+  end
+
+  defp first_tax_amount(line, key) do
     line
-    |> value(:tax_amounts)
+    |> value(key)
     |> case do
-      [%{} = tax_amount | _] -> value(tax_amount, :amount) || 0
-      _ -> 0
+      [%{} = tax | _] -> value(tax, :amount) || 0
+      _ -> nil
     end
   end
 

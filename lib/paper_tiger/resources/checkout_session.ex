@@ -37,6 +37,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.AutomaticTax
   alias PaperTiger.Store.CheckoutSessions
   alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.PaymentIntents
@@ -45,7 +46,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
   alias PaperTiger.Store.SetupIntents
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
-  alias PaperTiger.Tax
 
   require Logger
 
@@ -705,7 +705,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
     %{
       amount_subtotal: nil,
       amount_total: nil,
-      automatic_tax: Tax.automatic_tax(params),
+      automatic_tax: AutomaticTax.automatic_tax(params, :checkout_session),
       billing_address_collection: Map.get(params, :billing_address_collection),
       cancel_url: Map.get(params, :cancel_url),
       completed_at: nil,
@@ -742,11 +742,11 @@ defmodule PaperTiger.Resources.CheckoutSession do
   end
 
   defp maybe_apply_automatic_tax(session) do
-    if Tax.enabled?(session) do
+    if AutomaticTax.enabled?(session) do
       {line_items, totals} =
         session.line_items
         |> normalize_checkout_line_items_for_tax()
-        |> Tax.apply_to_line_items(session)
+        |> AutomaticTax.apply_to_line_items(session, :checkout_session)
 
       session
       |> Map.put(:amount_subtotal, totals.subtotal)
@@ -761,10 +761,20 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp normalize_checkout_line_items_for_tax(line_items) when is_list(line_items) do
     Enum.map(line_items, fn item ->
+      price = normalize_checkout_line_item_price(item)
+
       unit_amount =
         Map.get(item, :amount) ||
           Map.get(item, "amount") ||
-          get_in_flexible(item, [:price_data, :unit_amount])
+          get_in_flexible(item, [:price_data, :unit_amount]) ||
+          get_in_flexible(price, [:unit_amount])
+
+      item =
+        if price do
+          Map.put(item, :price, price)
+        else
+          item
+        end
 
       if unit_amount do
         Map.put(item, :unit_amount_excluding_tax, unit_amount)
@@ -775,6 +785,14 @@ defmodule PaperTiger.Resources.CheckoutSession do
   end
 
   defp normalize_checkout_line_items_for_tax(line_items), do: line_items
+
+  defp normalize_checkout_line_item_price(item) do
+    case Map.get(item, :price) || Map.get(item, "price") do
+      %{} = price -> price
+      price_id when is_binary(price_id) -> fetch_price_object(price_id)
+      _ -> nil
+    end
+  end
 
   # Generates a checkout URL pointing to PaperTiger's auto-complete endpoint.
   #

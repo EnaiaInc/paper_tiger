@@ -1452,6 +1452,7 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       [line] = invoice["lines"]["data"]
       assert line["amount"] == 19_800
       assert [%{"amount" => 1485, "taxable_amount" => 19_800}] = line["tax_amounts"]
+      assert [%{"amount" => 1485, "tax_behavior" => "exclusive", "taxable_amount" => 19_800}] = line["taxes"]
 
       pi_conn = request(:get, "/v1/payment_intents/#{invoice["payment_intent"]}", %{})
       pi = json_response(pi_conn)

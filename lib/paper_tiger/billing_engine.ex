@@ -41,6 +41,7 @@ defmodule PaperTiger.BillingEngine do
 
   use GenServer
 
+  alias PaperTiger.AutomaticTax
   alias PaperTiger.ChaosCoordinator
   alias PaperTiger.Store.Charges
   alias PaperTiger.Store.Customers
@@ -50,7 +51,6 @@ defmodule PaperTiger.BillingEngine do
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.Subscriptions
-  alias PaperTiger.Tax
 
   require Logger
 
@@ -317,15 +317,15 @@ defmodule PaperTiger.BillingEngine do
       unit_amount_excluding_tax: amount
     }
 
-    {[line_item], totals} = Tax.apply_to_line_items([line_item], subscription)
-    total = if(Tax.enabled?(subscription), do: totals.total, else: amount)
+    {[line_item], totals} = AutomaticTax.apply_to_line_items([line_item], subscription, :invoice)
+    total = if(AutomaticTax.enabled?(subscription), do: totals.total, else: amount)
 
     invoice = %{
       amount_due: total,
       amount_paid: 0,
       amount_remaining: total,
       auto_advance: true,
-      automatic_tax: Tax.automatic_tax(subscription),
+      automatic_tax: AutomaticTax.automatic_tax(subscription, :invoice),
       billing_reason: "subscription_cycle",
       collection_method: "charge_automatically",
       created: now,

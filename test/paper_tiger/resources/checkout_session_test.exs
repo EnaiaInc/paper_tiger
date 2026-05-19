@@ -405,12 +405,24 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
       cust_conn = request(:post, "/v1/customers", %{"email" => "taxed-checkout@example.com"})
       customer_id = json_response(cust_conn)["id"]
 
+      prod_conn = request(:post, "/v1/products", %{"name" => "Taxed Product"})
+      product_id = json_response(prod_conn)["id"]
+
+      price_conn =
+        request(:post, "/v1/prices", %{
+          "currency" => "usd",
+          "product" => product_id,
+          "unit_amount" => 1000
+        })
+
+      price_id = json_response(price_conn)["id"]
+
       params = %{
         "automatic_tax" => %{"enabled" => true},
         "cancel_url" => "https://example.com/cancel",
         "currency" => "usd",
         "customer" => customer_id,
-        "line_items" => [%{"amount" => 1000, "quantity" => 2}],
+        "line_items" => [%{"price" => price_id, "quantity" => 2}],
         "metadata" => %{"tax_country" => "US"},
         "mode" => "payment",
         "success_url" => "https://example.com/success"
@@ -424,7 +436,15 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
       assert session["amount_subtotal"] == 2000
       assert session["total_details"]["amount_tax"] == 150
       assert session["amount_total"] == 2150
-      assert [%{"tax_amounts" => [%{"amount" => 150, "taxable_amount" => 2000}]}] = session["line_items"]
+
+      assert [
+               %{
+                 "amount_tax" => 150,
+                 "amount_total" => 2150,
+                 "tax_amounts" => [%{"amount" => 150, "taxable_amount" => 2000}],
+                 "taxes" => [%{"amount" => 150, "tax_behavior" => "exclusive", "taxable_amount" => 2000}]
+               }
+             ] = session["line_items"]
 
       complete_conn = request(:post, "/_test/checkout/sessions/#{session["id"]}/complete")
       completed = json_response(complete_conn)

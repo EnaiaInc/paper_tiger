@@ -163,6 +163,7 @@ defmodule PaperTiger.BillingEngineTest do
       [line] = InvoiceItems.find_by_invoice(invoice.id)
       assert line.amount == 2000
       assert [%{amount: 150, taxable_amount: 2000}] = line.tax_amounts
+      assert [%{amount: 150, tax_behavior: "exclusive", taxable_amount: 2000}] = line.taxes
 
       %{data: [payment_intent]} = PaymentIntents.list(%{})
       assert payment_intent.amount == 2150
