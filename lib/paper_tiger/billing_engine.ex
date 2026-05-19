@@ -50,6 +50,7 @@ defmodule PaperTiger.BillingEngine do
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.Subscriptions
+  alias PaperTiger.Tax
 
   require Logger
 
@@ -300,11 +301,31 @@ defmodule PaperTiger.BillingEngine do
     now = PaperTiger.now()
     invoice_id = PaperTiger.Resource.generate_id("in")
 
+    line_item = %{
+      amount: amount,
+      created: now,
+      currency: currency,
+      customer: customer.id,
+      description: "Subscription renewal",
+      id: PaperTiger.Resource.generate_id("ii"),
+      invoice: invoice_id,
+      livemode: false,
+      metadata: %{},
+      object: "invoiceitem",
+      quantity: 1,
+      subscription: subscription.id,
+      unit_amount_excluding_tax: amount
+    }
+
+    {[line_item], totals} = Tax.apply_to_line_items([line_item], subscription)
+    total = if(Tax.enabled?(subscription), do: totals.total, else: amount)
+
     invoice = %{
-      amount_due: amount,
+      amount_due: total,
       amount_paid: 0,
-      amount_remaining: amount,
+      amount_remaining: total,
       auto_advance: true,
+      automatic_tax: Tax.automatic_tax(subscription),
       billing_reason: "subscription_cycle",
       collection_method: "charge_automatically",
       created: now,
@@ -321,25 +342,13 @@ defmodule PaperTiger.BillingEngine do
       status: "draft",
       subscription: subscription.id,
       subtotal: amount,
-      total: amount
+      tax: totals.amount_tax,
+      total: total,
+      total_details: totals.total_details
     }
 
     # Create invoice item
-    invoice_item = %{
-      amount: amount,
-      created: now,
-      currency: currency,
-      customer: customer.id,
-      description: "Subscription renewal",
-      id: PaperTiger.Resource.generate_id("ii"),
-      invoice: invoice_id,
-      livemode: false,
-      metadata: %{},
-      object: "invoiceitem",
-      subscription: subscription.id
-    }
-
-    {:ok, _item} = InvoiceItems.insert(invoice_item)
+    {:ok, _item} = InvoiceItems.insert(line_item)
     {:ok, inv} = Invoices.insert(invoice)
 
     # Fire invoice.created event
@@ -357,8 +366,9 @@ defmodule PaperTiger.BillingEngine do
     end
   end
 
-  defp finalize_successful_payment(invoice, subscription, amount) do
+  defp finalize_successful_payment(invoice, subscription, _amount) do
     now = PaperTiger.now()
+    amount = invoice.amount_due
 
     # Create payment intent
     payment_intent = %{

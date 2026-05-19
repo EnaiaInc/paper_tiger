@@ -41,12 +41,14 @@ defmodule PaperTiger.Resources.Subscription do
 
   alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
+  alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.PaymentIntents
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
+  alias PaperTiger.Tax
 
   @doc """
   Creates a new subscription.
@@ -354,6 +356,7 @@ defmodule PaperTiger.Resources.Subscription do
 
     %{
       billing_cycle_anchor: Map.get(params, :billing_cycle_anchor, current_period_start),
+      automatic_tax: Tax.automatic_tax(params),
       cancel_at: nil,
       cancel_at_period_end: false,
       canceled_at: nil,
@@ -810,18 +813,26 @@ defmodule PaperTiger.Resources.Subscription do
     # Trialing subs have no immediate charge, so no PI needed
     if payment_behavior == "default_incomplete" and subscription.status != "trialing" do
       now = PaperTiger.now()
-      total = calculate_items_total(items)
+      subtotal = calculate_items_total(items)
       default_pm = Map.get(params, :default_payment_method)
+      automatic_tax = Tax.automatic_tax(params)
 
       # If payment method provided, auto-confirm; otherwise requires_payment_method
       {pi_status, inv_status, sub_status, paid, amt_paid, amt_remaining} =
         if default_pm do
-          {"succeeded", "paid", "active", true, total, 0}
+          {"succeeded", "paid", "active", true, :paid_total, 0}
         else
-          {"requires_payment_method", "draft", "incomplete", false, 0, total}
+          {"requires_payment_method", "draft", "incomplete", false, 0, :remaining_total}
         end
 
-      # Create payment intent
+      # Create invoice with payment_intent reference
+      invoice_id = generate_id("in")
+      line_items = build_initial_invoice_line_items(subscription, invoice_id)
+      {line_items, totals} = Tax.apply_to_line_items(line_items, params)
+      total = if(Tax.enabled?(params), do: totals.total, else: subtotal)
+      amount_paid = if(amt_paid == :paid_total, do: total, else: amt_paid)
+      amount_remaining = if(amt_remaining == :remaining_total, do: total, else: amt_remaining)
+
       pi_id = generate_id("pi")
       client_secret = pi_id <> "_secret_" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
@@ -846,13 +857,11 @@ defmodule PaperTiger.Resources.Subscription do
 
       {:ok, _} = PaymentIntents.insert(pi)
 
-      # Create invoice with payment_intent reference
-      invoice_id = generate_id("in")
-
       invoice = %{
         amount_due: total,
-        amount_paid: amt_paid,
-        amount_remaining: amt_remaining,
+        amount_paid: amount_paid,
+        amount_remaining: amount_remaining,
+        automatic_tax: automatic_tax,
         created: now,
         currency: "usd",
         customer: subscription.customer,
@@ -868,10 +877,13 @@ defmodule PaperTiger.Resources.Subscription do
         status: inv_status,
         status_transitions: %{finalized_at: nil, marked_uncollectible_at: nil, paid_at: nil, voided_at: nil},
         subscription: subscription.id,
-        subtotal: total,
-        total: total
+        subtotal: subtotal,
+        tax: totals.amount_tax,
+        total: total,
+        total_details: totals.total_details
       }
 
+      Enum.each(line_items, &InvoiceItems.insert/1)
       {:ok, _} = Invoices.insert(invoice)
 
       # Update subscription with latest_invoice and final status
@@ -896,6 +908,40 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   defp calculate_items_total(_), do: 0
+
+  defp build_initial_invoice_line_items(subscription, invoice_id) do
+    now = PaperTiger.now()
+
+    SubscriptionItems.find_by_subscription(subscription.id)
+    |> Enum.sort_by(& &1.created, :asc)
+    |> Enum.map(fn item ->
+      price = item[:price] || %{}
+      unit_amount = price[:unit_amount] || 0
+      quantity = item[:quantity] || 1
+      amount = unit_amount * quantity
+
+      %{
+        amount: amount,
+        currency: price[:currency] || "usd",
+        customer: subscription.customer,
+        date: now,
+        description: price[:nickname] || "Subscription",
+        id: generate_id("ii"),
+        invoice: invoice_id,
+        livemode: false,
+        metadata: %{},
+        object: "invoiceitem",
+        period: %{end: subscription.current_period_end, start: subscription.current_period_start},
+        price: price,
+        proration: false,
+        quantity: quantity,
+        subscription: subscription.id,
+        subscription_item: item.id,
+        type: "invoiceitem",
+        unit_amount_excluding_tax: unit_amount
+      }
+    end)
+  end
 
   # Loads the latest invoice ID for this subscription from the store
   # Note: By default Stripe returns only the invoice ID, not the full object

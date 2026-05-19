@@ -1423,6 +1423,41 @@ defmodule PaperTiger.Resources.SubscriptionTest do
       assert pi["client_secret"] != nil
     end
 
+    test "applies automatic tax to default_incomplete subscription invoice", %{customer: customer, price: price} do
+      sub_conn =
+        request(:post, "/v1/subscriptions", %{
+          "automatic_tax" => %{"enabled" => true},
+          "customer" => customer["id"],
+          "items" => [%{"price" => price["id"], "quantity" => "2"}],
+          "metadata" => %{"tax_country" => "US"},
+          "payment_behavior" => "default_incomplete"
+        })
+
+      assert sub_conn.status == 200
+      sub = json_response(sub_conn)
+      assert sub["automatic_tax"]["enabled"] == true
+      assert is_binary(sub["latest_invoice"])
+
+      inv_conn = request(:get, "/v1/invoices/#{sub["latest_invoice"]}", %{})
+      invoice = json_response(inv_conn)
+
+      assert invoice["automatic_tax"]["enabled"] == true
+      assert invoice["subtotal"] == 19_800
+      assert invoice["tax"] == 1485
+      assert invoice["total_details"]["amount_tax"] == 1485
+      assert invoice["total"] == 21_285
+      assert invoice["amount_due"] == 21_285
+      assert invoice["amount_remaining"] == 21_285
+
+      [line] = invoice["lines"]["data"]
+      assert line["amount"] == 19_800
+      assert [%{"amount" => 1485, "taxable_amount" => 19_800}] = line["tax_amounts"]
+
+      pi_conn = request(:get, "/v1/payment_intents/#{invoice["payment_intent"]}", %{})
+      pi = json_response(pi_conn)
+      assert pi["amount"] == 21_285
+    end
+
     test "expands latest_invoice.payment_intent", %{customer: customer, price: price} do
       sub_conn =
         request(:post, "/v1/subscriptions", %{
