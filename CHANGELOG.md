@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `[:paper_tiger, :webhook, :delivering]` telemetry event, emitted for every delivery in every adapter immediately before the adapter is invoked. Metadata: `event`, `webhook`, `url`, `payload` (exact signed bytes), `signature_header`, `headers`, `timestamp`, `namespace`. **Observability only** — not the delivery mechanism (that is the adapter behaviour). Use for metrics/tracing.
 - CI quality checks now include Elixir `1.20.0-rc.5`, and the package version requirement accepts the `1.20` release-candidate line.
 - Side-by-side contract drift harness for running a scenario against both PaperTiger and Stripe test mode in the same test, normalizing volatile fields, and reporting the first mismatch with both backend shapes. The first live drift scenario covers customer create/retrieve/update/delete.
+- Deterministic automatic-tax fixtures for Checkout Session totals, PaymentIntent amounts, initial subscription invoices, and subscription renewal invoices.
 
 ### Fixed
 
