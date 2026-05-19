@@ -603,6 +603,50 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "SetupIntent Lifecycle Validation" do
+    @tag :contract
+    test "confirms a card setup intent and records a setup attempt" do
+      {:ok, setup_intent} =
+        TestClient.create_setup_intent(%{
+          "payment_method" => "pm_card_visa"
+        })
+
+      {:ok, confirmed} = TestClient.confirm_setup_intent(setup_intent["id"])
+
+      assert confirmed["object"] == "setup_intent"
+      assert confirmed["status"] == "succeeded"
+      assert is_binary(confirmed["payment_method"])
+      assert String.starts_with?(confirmed["payment_method"], "pm_")
+      assert is_binary(confirmed["latest_attempt"])
+      assert String.starts_with?(confirmed["latest_attempt"], "setatt_")
+
+      {:ok, attempts} = TestClient.list_setup_attempts(%{"setup_intent" => confirmed["id"]})
+
+      assert attempts["object"] == "list"
+      assert length(attempts["data"]) == 1
+
+      [attempt] = attempts["data"]
+      assert attempt["object"] == "setup_attempt"
+      assert attempt["setup_intent"] == confirmed["id"]
+      assert attempt["status"] == "succeeded"
+      assert is_binary(attempt["payment_method"])
+    end
+
+    @tag :contract
+    test "cancels a setup intent with a cancellation reason" do
+      {:ok, setup_intent} = TestClient.create_setup_intent()
+
+      {:ok, canceled} =
+        TestClient.cancel_setup_intent(setup_intent["id"], %{
+          "cancellation_reason" => "duplicate"
+        })
+
+      assert canceled["object"] == "setup_intent"
+      assert canceled["status"] == "canceled"
+      assert canceled["cancellation_reason"] == "duplicate"
+    end
+  end
+
   describe "Refund Structure Validation" do
     @tag :contract
     test "refund has balance_transaction" do

@@ -522,6 +522,86 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## SetupIntent Operations
+
+  @doc """
+  Creates a setup intent.
+  """
+  def create_setup_intent(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        create_setup_intent_real(params)
+
+      :paper_tiger ->
+        create_setup_intent_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a setup intent by ID.
+  """
+  def get_setup_intent(setup_intent_id) do
+    case mode() do
+      :real_stripe ->
+        get_setup_intent_real(setup_intent_id)
+
+      :paper_tiger ->
+        get_setup_intent_mock(setup_intent_id)
+    end
+  end
+
+  @doc """
+  Confirms a setup intent.
+  """
+  def confirm_setup_intent(setup_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        confirm_setup_intent_real(setup_intent_id, params)
+
+      :paper_tiger ->
+        confirm_setup_intent_mock(setup_intent_id, params)
+    end
+  end
+
+  @doc """
+  Cancels a setup intent.
+  """
+  def cancel_setup_intent(setup_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        cancel_setup_intent_real(setup_intent_id, params)
+
+      :paper_tiger ->
+        cancel_setup_intent_mock(setup_intent_id, params)
+    end
+  end
+
+  @doc """
+  Verifies setup intent microdeposits.
+  """
+  def verify_setup_intent_microdeposits(setup_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        verify_setup_intent_microdeposits_real(setup_intent_id, params)
+
+      :paper_tiger ->
+        verify_setup_intent_microdeposits_mock(setup_intent_id, params)
+    end
+  end
+
+  @doc """
+  Lists setup attempts.
+  """
+  def list_setup_attempts(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_setup_attempts_real(params)
+
+      :paper_tiger ->
+        list_setup_attempts_mock(params)
+    end
+  end
+
   ## Charge Operations
 
   @doc """
@@ -1117,6 +1197,30 @@ defmodule PaperTiger.TestClient do
     stripe_request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
   end
 
+  defp create_setup_intent_real(params) do
+    stripe_request(:post, "/v1/setup_intents", params)
+  end
+
+  defp get_setup_intent_real(setup_intent_id) do
+    stripe_request(:get, "/v1/setup_intents/#{setup_intent_id}")
+  end
+
+  defp confirm_setup_intent_real(setup_intent_id, params) do
+    stripe_request(:post, "/v1/setup_intents/#{setup_intent_id}/confirm", params)
+  end
+
+  defp cancel_setup_intent_real(setup_intent_id, params) do
+    stripe_request(:post, "/v1/setup_intents/#{setup_intent_id}/cancel", params)
+  end
+
+  defp verify_setup_intent_microdeposits_real(setup_intent_id, params) do
+    stripe_request(:post, "/v1/setup_intents/#{setup_intent_id}/verify_microdeposits", params)
+  end
+
+  defp list_setup_attempts_real(params) do
+    stripe_request(:get, "/v1/setup_attempts", params)
+  end
+
   defp get_balance_transaction_real(txn_id) do
     stripe_request(:get, "/v1/balance_transactions/#{txn_id}")
   end
@@ -1319,6 +1423,36 @@ defmodule PaperTiger.TestClient do
 
   defp capture_payment_intent_mock(payment_intent_id, params) do
     conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
+    handle_response(conn)
+  end
+
+  defp create_setup_intent_mock(params) do
+    conn = request(:post, "/v1/setup_intents", params)
+    handle_response(conn)
+  end
+
+  defp get_setup_intent_mock(setup_intent_id) do
+    conn = request(:get, "/v1/setup_intents/#{setup_intent_id}", %{})
+    handle_response(conn)
+  end
+
+  defp confirm_setup_intent_mock(setup_intent_id, params) do
+    conn = request(:post, "/v1/setup_intents/#{setup_intent_id}/confirm", params)
+    handle_response(conn)
+  end
+
+  defp cancel_setup_intent_mock(setup_intent_id, params) do
+    conn = request(:post, "/v1/setup_intents/#{setup_intent_id}/cancel", params)
+    handle_response(conn)
+  end
+
+  defp verify_setup_intent_microdeposits_mock(setup_intent_id, params) do
+    conn = request(:post, "/v1/setup_intents/#{setup_intent_id}/verify_microdeposits", params)
+    handle_response(conn)
+  end
+
+  defp list_setup_attempts_mock(params) do
+    conn = request(:get, "/v1/setup_attempts", params)
     handle_response(conn)
   end
 
