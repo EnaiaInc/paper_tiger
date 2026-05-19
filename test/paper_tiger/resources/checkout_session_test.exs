@@ -127,6 +127,153 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
     end
   end
 
+  describe "POST /v1/checkout/sessions/:id - Update" do
+    test "updates metadata with Stripe merge and delete semantics" do
+      session = create_checkout_session(%{"metadata" => %{"keep" => "yes", "remove" => "old"}})
+
+      conn =
+        request(:post, "/v1/checkout/sessions/#{session["id"]}", %{
+          "metadata" => %{"add" => "new", "remove" => ""}
+        })
+
+      assert conn.status == 200
+      updated = json_response(conn)
+      assert updated["metadata"] == %{"add" => "new", "keep" => "yes"}
+    end
+
+    test "replaces line items as a full array and recalculates totals" do
+      session =
+        create_checkout_session(%{
+          "line_items" => [
+            price_data_line_item("Original", 1000, 1),
+            price_data_line_item("Removed", 500, 2)
+          ]
+        })
+
+      [existing | _] = session["line_items"]
+
+      conn =
+        request(:post, "/v1/checkout/sessions/#{session["id"]}", %{
+          "line_items" => [
+            %{"id" => existing["id"], "quantity" => 3},
+            price_data_line_item("Added", 250, 2)
+          ]
+        })
+
+      assert conn.status == 200
+      updated = json_response(conn)
+      assert updated["amount_subtotal"] == 3500
+      assert updated["amount_total"] == 3500
+      assert length(updated["line_items"]) == 2
+      assert Enum.map(updated["line_items"], & &1["description"]) == ["Original", "Added"]
+      assert hd(updated["line_items"])["id"] == existing["id"]
+      assert hd(updated["line_items"])["quantity"] == 3
+    end
+
+    test "updates collected information and shipping options" do
+      session = create_checkout_session()
+
+      shipping_options = [
+        %{
+          "shipping_rate_data" => %{
+            "display_name" => "Ground",
+            "fixed_amount" => %{"amount" => 500, "currency" => "usd"},
+            "type" => "fixed_amount"
+          }
+        }
+      ]
+
+      collected_information = %{
+        "shipping_details" => %{
+          "address" => %{"country" => "US", "line1" => "1 Main"},
+          "name" => "Test Customer"
+        }
+      }
+
+      conn =
+        request(:post, "/v1/checkout/sessions/#{session["id"]}", %{
+          "collected_information" => collected_information,
+          "shipping_options" => shipping_options
+        })
+
+      assert conn.status == 200
+      updated = json_response(conn)
+      assert updated["collected_information"] == collected_information
+      assert updated["shipping_options"] == shipping_options
+    end
+  end
+
+  describe "GET /v1/checkout/sessions/:id/line_items" do
+    test "returns full line items with Stripe list shape and cursor pagination" do
+      session =
+        create_checkout_session(%{
+          "line_items" => [
+            price_data_line_item("One", 100, 1),
+            price_data_line_item("Two", 200, 2),
+            price_data_line_item("Three", 300, 3)
+          ]
+        })
+
+      page1_conn = request(:get, "/v1/checkout/sessions/#{session["id"]}/line_items?limit=2")
+
+      assert page1_conn.status == 200
+      page1 = json_response(page1_conn)
+      assert page1["object"] == "list"
+      assert page1["url"] == "/v1/checkout/sessions/#{session["id"]}/line_items"
+      assert page1["has_more"] == true
+      assert Enum.map(page1["data"], & &1["description"]) == ["One", "Two"]
+
+      last_id = List.last(page1["data"])["id"]
+      page2_conn = request(:get, "/v1/checkout/sessions/#{session["id"]}/line_items?starting_after=#{last_id}")
+
+      assert page2_conn.status == 200
+      page2 = json_response(page2_conn)
+      assert page2["has_more"] == false
+      assert Enum.map(page2["data"], & &1["description"]) == ["Three"]
+    end
+
+    test "line items remain retrievable after checkout completion" do
+      session =
+        create_checkout_session(%{
+          "line_items" => [
+            price_data_line_item("Paid item", 1500, 2)
+          ]
+        })
+
+      complete_conn = request(:post, "/_test/checkout/sessions/#{session["id"]}/complete")
+      assert complete_conn.status == 200
+
+      line_items_conn = request(:get, "/v1/checkout/sessions/#{session["id"]}/line_items")
+      assert line_items_conn.status == 200
+
+      result = json_response(line_items_conn)
+      assert [%{"amount_total" => 3000, "description" => "Paid item", "quantity" => 2}] = result["data"]
+    end
+
+    test "supports expand[]=line_items on checkout session retrieval" do
+      session =
+        create_checkout_session(%{
+          "line_items" => [
+            price_data_line_item("Expanded item", 1200, 1)
+          ]
+        })
+
+      conn = request(:get, "/v1/checkout/sessions/#{session["id"]}?expand[]=line_items")
+
+      assert conn.status == 200
+      retrieved = json_response(conn)
+      assert retrieved["line_items"]["object"] == "list"
+      assert [%{"description" => "Expanded item"}] = retrieved["line_items"]["data"]
+    end
+
+    test "returns 404 for a missing session" do
+      conn = request(:get, "/v1/checkout/sessions/cs_missing/line_items")
+
+      assert conn.status == 404
+      assert json_response(conn)["error"]["code"] == "resource_missing"
+    end
+  end
+
   describe "POST /v1/checkout/sessions/:id/expire - Expire" do
     test "expires an open checkout session" do
       params = %{
@@ -473,5 +620,32 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
       assert length(result["data"]) == 3
       assert result["object"] == "list"
     end
+  end
+
+  defp create_checkout_session(overrides \\ %{}) do
+    params =
+      Map.merge(
+        %{
+          "cancel_url" => "https://example.com/cancel",
+          "line_items" => [price_data_line_item("Default", 1000, 1)],
+          "mode" => "payment",
+          "success_url" => "https://example.com/success"
+        },
+        overrides
+      )
+
+    request(:post, "/v1/checkout/sessions", params)
+    |> json_response()
+  end
+
+  defp price_data_line_item(name, unit_amount, quantity) do
+    %{
+      "price_data" => %{
+        "currency" => "usd",
+        "product_data" => %{"name" => name},
+        "unit_amount" => unit_amount
+      },
+      "quantity" => quantity
+    }
   end
 end

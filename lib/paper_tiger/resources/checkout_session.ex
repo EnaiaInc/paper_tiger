@@ -6,6 +6,8 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   - POST   /v1/checkout/sessions            - Create checkout session
   - GET    /v1/checkout/sessions/:id        - Retrieve checkout session
+  - POST   /v1/checkout/sessions/:id        - Update checkout session
+  - GET    /v1/checkout/sessions/:id/line_items - Retrieve checkout session line items
   - GET    /v1/checkout/sessions            - List checkout sessions
   - POST   /v1/checkout/sessions/:id/expire - Expire checkout session (Stripe API)
 
@@ -13,7 +15,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   - POST   /_test/checkout/sessions/:id/complete - Complete checkout session (test helper)
 
-  Note: Checkout sessions are immutable after creation (no update or delete).
+  Note: Checkout sessions cannot be deleted.
   The complete endpoint is a PaperTiger test helper - real Stripe completes sessions
   automatically when payment succeeds.
 
@@ -95,6 +97,49 @@ defmodule PaperTiger.Resources.CheckoutSession do
         session
         |> maybe_expand(conn.params)
         |> then(&json_response(conn, 200, &1))
+
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("checkout.session", id))
+    end
+  end
+
+  @doc """
+  Updates a checkout session.
+
+  Stable Stripe API versions allow metadata, collected_information, and
+  shipping_options updates. PaperTiger also supports preview-style full-array
+  line item replacement so tests can model dynamic Checkout updates.
+  """
+  @spec update(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def update(conn, id) do
+    with {:ok, session} <- CheckoutSessions.get(id),
+         {:ok, updated} <- update_session(session, conn.params),
+         {:ok, updated} <- CheckoutSessions.update(updated) do
+      updated
+      |> maybe_expand(conn.params)
+      |> then(&json_response(conn, 200, &1))
+    else
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("checkout.session", id))
+
+      {:error, :invalid_line_items, message} ->
+        error_response(conn, PaperTiger.Error.invalid_request(message, "line_items"))
+    end
+  end
+
+  @doc """
+  Lists a checkout session's line items with Stripe-style cursor pagination.
+  """
+  @spec line_items(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def line_items(conn, id) do
+    case CheckoutSessions.get(id) do
+      {:ok, session} ->
+        result =
+          session
+          |> session_line_items()
+          |> paginate_line_items(conn.params, "/v1/checkout/sessions/#{id}/line_items")
+
+        json_response(conn, 200, result)
 
       {:error, :not_found} ->
         error_response(conn, PaperTiger.Error.not_found("checkout.session", id))
@@ -472,6 +517,8 @@ defmodule PaperTiger.Resources.CheckoutSession do
     end
   end
 
+  defp fetch_price_object(%{} = price), do: price
+
   defp fetch_price_object(_), do: nil
 
   defp build_minimal_price_object(price_id) do
@@ -719,7 +766,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
       customer_creation: Map.get(params, :customer_creation),
       expires_at: PaperTiger.now() + 86_400,
       id: session_id,
-      line_items: Map.get(params, :line_items, []),
+      line_items: normalize_checkout_line_items(Map.get(params, :line_items, []), session_id),
       livemode: false,
       locale: Map.get(params, :locale),
       metadata: Map.get(params, :metadata, %{}),
@@ -741,15 +788,87 @@ defmodule PaperTiger.Resources.CheckoutSession do
       ui_mode: Map.get(params, :ui_mode, "hosted"),
       url: generate_checkout_url(session_id)
     }
-    |> maybe_apply_automatic_tax()
+    |> apply_checkout_totals()
   end
 
-  defp maybe_apply_automatic_tax(session) do
-    if AutomaticTax.enabled?(session) do
-      {line_items, totals} =
-        session.line_items
-        |> normalize_checkout_line_items_for_tax()
-        |> AutomaticTax.apply_to_line_items(session, :checkout_session)
+  defp update_session(session, params) do
+    session
+    |> update_metadata(params)
+    |> maybe_replace(:collected_information, params)
+    |> maybe_replace(:shipping_options, params)
+    |> update_line_items(params)
+  end
+
+  defp update_metadata(session, %{metadata: ""}), do: %{session | metadata: %{}}
+
+  defp update_metadata(session, %{metadata: metadata}) when is_map(metadata) do
+    old_metadata = Map.get(session, :metadata) || %{}
+
+    merged_metadata =
+      old_metadata
+      |> Map.merge(metadata)
+      |> Map.reject(fn {_key, value} -> value == "" end)
+
+    %{session | metadata: merged_metadata}
+  end
+
+  defp update_metadata(session, _params), do: session
+
+  defp maybe_replace(session, key, params) do
+    if Map.has_key?(params, key) do
+      Map.put(session, key, Map.get(params, key))
+    else
+      session
+    end
+  end
+
+  defp update_line_items(session, %{line_items: line_items}) when is_list(line_items) do
+    line_items =
+      line_items
+      |> merge_line_item_updates(session_line_items(session))
+      |> normalize_checkout_line_items(session.id)
+
+    updated =
+      session
+      |> Map.put(:line_items, line_items)
+      |> apply_checkout_totals()
+
+    {:ok, updated}
+  end
+
+  defp update_line_items(_session, %{line_items: _line_items}) do
+    {:error, :invalid_line_items, "Invalid array"}
+  end
+
+  defp update_line_items(session, _params), do: {:ok, session}
+
+  defp merge_line_item_updates(line_items, existing_line_items) do
+    existing_by_id = Map.new(existing_line_items, &{Map.get(&1, :id), &1})
+
+    Enum.map(line_items, fn item ->
+      item = normalize_map_keys(item)
+
+      case Map.get(item, :id) || Map.get(item, "id") do
+        id when is_binary(id) ->
+          existing_by_id
+          |> Map.get(id, %{})
+          |> Map.merge(item)
+
+        _ ->
+          item
+      end
+    end)
+  end
+
+  defp apply_checkout_totals(session) do
+    line_items = session_line_items(session)
+
+    if line_items == [] do
+      session
+    else
+      {line_items, totals} = AutomaticTax.apply_to_line_items(line_items, session, :checkout_session)
+
+      line_items = finalize_checkout_line_item_amounts(line_items)
 
       session
       |> Map.put(:amount_subtotal, totals.subtotal)
@@ -757,44 +876,187 @@ defmodule PaperTiger.Resources.CheckoutSession do
       |> Map.put(:automatic_tax, totals.automatic_tax)
       |> Map.put(:line_items, line_items)
       |> Map.put(:total_details, totals.total_details)
-    else
-      session
     end
   end
 
-  defp normalize_checkout_line_items_for_tax(line_items) when is_list(line_items) do
+  defp finalize_checkout_line_item_amounts(line_items) do
     Enum.map(line_items, fn item ->
-      price = normalize_checkout_line_item_price(item)
+      amount_subtotal =
+        Map.get(item, :amount_subtotal) ||
+          line_item_unit_amount(item) * line_item_quantity(item)
 
-      unit_amount =
-        Map.get(item, :amount) ||
-          Map.get(item, "amount") ||
-          get_in_flexible(item, [:price_data, :unit_amount]) ||
-          get_in_flexible(price, [:unit_amount])
+      amount_tax = Map.get(item, :amount_tax, 0)
+      amount_discount = Map.get(item, :amount_discount, 0)
+      amount_total = Map.get(item, :amount_total) || amount_subtotal + amount_tax - amount_discount
 
-      item =
-        if price do
-          Map.put(item, :price, price)
-        else
-          item
-        end
-
-      if unit_amount do
-        Map.put(item, :unit_amount_excluding_tax, unit_amount)
-      else
-        item
-      end
+      item
+      |> Map.put(:amount_discount, amount_discount)
+      |> Map.put(:amount_subtotal, amount_subtotal)
+      |> Map.put(:amount_tax, amount_tax)
+      |> Map.put(:amount_total, amount_total)
     end)
   end
 
-  defp normalize_checkout_line_items_for_tax(line_items), do: line_items
+  defp normalize_checkout_line_items(line_items, session_id) when is_list(line_items) do
+    Enum.map(line_items, &normalize_checkout_line_item(&1, session_id))
+  end
+
+  defp normalize_checkout_line_items(_line_items, _session_id), do: []
+
+  defp normalize_checkout_line_item(item, session_id) do
+    price = normalize_checkout_line_item_price(item)
+    quantity = line_item_quantity(item)
+    unit_amount = line_item_unit_amount(item, price)
+    currency = line_item_currency(item, price)
+    amount_subtotal = value(item, :amount_subtotal) || unit_amount * quantity
+    amount_tax = value(item, :amount_tax) || 0
+    amount_discount = value(item, :amount_discount) || 0
+    amount_total = value(item, :amount_total) || amount_subtotal + amount_tax - amount_discount
+
+    item
+    |> normalize_map_keys()
+    |> Map.merge(%{
+      amount_discount: amount_discount,
+      amount_subtotal: amount_subtotal,
+      amount_tax: amount_tax,
+      amount_total: amount_total,
+      currency: currency,
+      description: line_item_description(item, price),
+      id: value(item, :id) || generate_id("li"),
+      object: "item",
+      price: price,
+      quantity: quantity,
+      unit_amount_excluding_tax: unit_amount
+    })
+    |> Map.drop([:amount, :price_data, :session])
+    |> Map.put(:session, session_id)
+  end
+
+  defp normalize_map_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) ->
+        {String.to_atom(key), value}
+
+      {key, value} ->
+        {key, value}
+    end)
+  end
+
+  defp normalize_map_keys(_), do: %{}
 
   defp normalize_checkout_line_item_price(item) do
     case Map.get(item, :price) || Map.get(item, "price") do
       %{} = price -> price
       price_id when is_binary(price_id) -> fetch_price_object(price_id)
+      _ -> build_price_from_price_data(item)
+    end
+  end
+
+  defp build_price_from_price_data(item) do
+    case Map.get(item, :price_data) || Map.get(item, "price_data") do
+      %{} = price_data -> build_embedded_price(price_data)
       _ -> nil
     end
+  end
+
+  defp build_embedded_price(price_data) do
+    unit_amount = value(price_data, :unit_amount) || 0
+    recurring = value(price_data, :recurring)
+
+    %{
+      active: true,
+      currency: value(price_data, :currency) || "usd",
+      id: generate_id("price"),
+      livemode: false,
+      lookup_key: nil,
+      metadata: value(price_data, :metadata) || %{},
+      nickname: nil,
+      object: "price",
+      product: value(price_data, :product) || value(price_data, :product_data),
+      recurring: recurring,
+      tax_behavior: value(price_data, :tax_behavior) || "unspecified",
+      type: price_type(recurring),
+      unit_amount: unit_amount,
+      unit_amount_decimal: to_string(unit_amount)
+    }
+  end
+
+  defp price_type(nil), do: "one_time"
+  defp price_type(false), do: "one_time"
+  defp price_type(_recurring), do: "recurring"
+
+  defp line_item_quantity(item), do: item |> value(:quantity) |> to_integer_value(1)
+
+  defp line_item_unit_amount(item, price \\ nil) do
+    item
+    |> value(:unit_amount_excluding_tax)
+    |> case do
+      nil ->
+        value(item, :unit_amount) ||
+          value(item, :amount) ||
+          (price || value(item, :price)) |> value(:unit_amount) ||
+          item |> value(:price_data) |> value(:unit_amount) ||
+          0
+
+      amount ->
+        amount
+    end
+    |> to_integer_value()
+  end
+
+  defp line_item_currency(item, price) do
+    value(item, :currency) ||
+      value(price, :currency) ||
+      item |> value(:price_data) |> value(:currency) ||
+      "usd"
+  end
+
+  defp line_item_description(item, price) do
+    value(item, :description) ||
+      value(price, :nickname) ||
+      item |> value(:price_data) |> value(:product_data) |> value(:name)
+  end
+
+  defp session_line_items(session), do: Map.get(session, :line_items) || []
+
+  defp line_items_list(session, params) do
+    session
+    |> session_line_items()
+    |> paginate_line_items(params, "/v1/checkout/sessions/#{session.id}/line_items")
+  end
+
+  defp paginate_line_items(line_items, params, url) do
+    limit = params |> get_integer(:limit, 10) |> min(100)
+    starting_after = Map.get(params, :starting_after)
+    ending_before = Map.get(params, :ending_before)
+
+    line_items
+    |> apply_line_item_cursor(starting_after, ending_before)
+    |> Enum.take(limit + 1)
+    |> then(fn page ->
+      %{
+        data: Enum.take(page, limit),
+        has_more: length(page) > limit,
+        object: "list",
+        url: url
+      }
+    end)
+  end
+
+  defp apply_line_item_cursor(line_items, nil, nil), do: line_items
+
+  defp apply_line_item_cursor(line_items, starting_after, nil) when is_binary(starting_after) do
+    line_items
+    |> Enum.drop_while(fn item -> Map.get(item, :id) != starting_after end)
+    |> Enum.drop(1)
+  end
+
+  defp apply_line_item_cursor(line_items, nil, ending_before) when is_binary(ending_before) do
+    Enum.take_while(line_items, fn item -> Map.get(item, :id) != ending_before end)
+  end
+
+  defp apply_line_item_cursor(line_items, _starting_after, ending_before) do
+    apply_line_item_cursor(line_items, nil, ending_before)
   end
 
   # Generates a checkout URL pointing to PaperTiger's auto-complete endpoint.
@@ -809,7 +1071,15 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp maybe_expand(session, params) do
     expand_params = parse_expand_params(params)
-    PaperTiger.Hydrator.hydrate(session, expand_params)
+
+    session =
+      if "line_items" in expand_params do
+        Map.put(session, :line_items, line_items_list(session, %{}))
+      else
+        session
+      end
+
+    PaperTiger.Hydrator.hydrate(session, expand_params -- ["line_items"])
   end
 
   defp derive_currency_from_line_items(line_items) when is_list(line_items) do
@@ -832,4 +1102,25 @@ defmodule PaperTiger.Resources.CheckoutSession do
   end
 
   defp get_in_flexible(_, _), do: nil
+
+  defp value(nil, _key), do: nil
+
+  defp value(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp value(_other, _key), do: nil
+
+  defp to_integer_value(value, default \\ 0)
+  defp to_integer_value(value, _default) when is_integer(value), do: value
+
+  defp to_integer_value(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, _} -> integer
+      :error -> default
+    end
+  end
+
+  defp to_integer_value(nil, default), do: default
+  defp to_integer_value(_value, default), do: default
 end
