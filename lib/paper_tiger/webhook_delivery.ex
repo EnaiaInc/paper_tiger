@@ -19,6 +19,40 @@ defmodule PaperTiger.WebhookDelivery do
   In sync mode, `deliver_event_sync/2` is used which blocks until the webhook
   is delivered (or fails after all retries).
 
+  ## Delivery adapter (host-owned delivery)
+
+  How and where the signed request is sent is a pluggable
+  `PaperTiger.WebhookDelivery.Adapter`:
+
+      config :paper_tiger, webhook_delivery_adapter: MyApp.WebhookSink
+
+  The default is `PaperTiger.WebhookDelivery.HTTPAdapter`, which performs the
+  HTTP POST itself (historical behavior). A host embedding PaperTiger
+  implements the behaviour to take durable ownership of delivery — persist
+  the webhook so it survives restarts, then deliver/retry on its own
+  schedule. The adapter contract (`{:ok, %Response{}}` = terminal success /
+  ownership taken; `{:error, reason}` = PaperTiger retries) is explicit and
+  enforced by a real function return, so a missing or crashing host cannot
+  silently drop webhooks. See `PaperTiger.WebhookDelivery.Adapter`.
+
+  This is separate from `:webhook_mode` (`:sync`/`:async`/`:collect`), which
+  controls *when* delivery is dispatched, not *where* it goes.
+
+  ## Telemetry
+
+  `[:paper_tiger, :webhook, :delivering]` is emitted for **every** delivery,
+  in every adapter, immediately after the payload is signed and the headers
+  are built and immediately before the adapter is called.
+
+  - measurements: `%{system_time: System.system_time()}`
+  - metadata: `%{event: map, webhook: map, url: String.t(), payload: String.t(),
+    headers: [{String.t(), String.t()}], signature_header: String.t(),
+    timestamp: integer()}`
+
+  This event is **observability only** — it is not the delivery mechanism.
+  Delivery handoff is the `Adapter` behaviour. Use this event for metrics and
+  tracing, not for correctness-critical work.
+
   ## Architecture
 
   - **Async delivery**: `deliver_event/2` - Queues a delivery task (default)
@@ -55,12 +89,14 @@ defmodule PaperTiger.WebhookDelivery do
 
   alias PaperTiger.Store.Events
   alias PaperTiger.Store.Webhooks
+  alias PaperTiger.WebhookDelivery.HTTPAdapter
+  alias PaperTiger.WebhookDelivery.Request
+  alias PaperTiger.WebhookDelivery.Response
 
   require Logger
 
   @max_retries 5
   @base_backoff_ms 1000
-  @timeout_ms 30_000
 
   ## Client API
 
@@ -228,20 +264,12 @@ defmodule PaperTiger.WebhookDelivery do
 
   defp deliver_with_retries_sync(event, webhook, attempt) do
     case perform_delivery(event, webhook) do
-      {:ok, status_code, response_body} when status_code >= 200 and status_code < 300 ->
+      {:ok, %Response{} = response} ->
+        # Terminal success: the adapter delivered, or durably accepted
+        # ownership. No retry.
         Logger.info("WebhookDelivery: Event #{event.id} delivered to #{webhook.url} (attempt #{attempt + 1})")
-        update_event_delivery_attempts(event, webhook, attempt, :delivered, response_body)
+        update_event_delivery_attempts(event, webhook, attempt, :delivered, response.body)
         {:ok, :delivered}
-
-      {:ok, status_code, _response_body} ->
-        Logger.warning(
-          "WebhookDelivery: Event #{event.id} rejected by #{webhook.url} with status #{status_code} (attempt #{attempt + 1}/#{@max_retries})"
-        )
-
-        # Wait for backoff, then retry synchronously
-        delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
-        Process.sleep(delay_ms)
-        deliver_with_retries_sync(event, webhook, attempt + 1)
 
       {:error, reason} ->
         Logger.warning(
@@ -265,19 +293,11 @@ defmodule PaperTiger.WebhookDelivery do
 
   defp deliver_with_retries(event, webhook, attempt, _ref) do
     case perform_delivery(event, webhook) do
-      {:ok, status_code, response_body} when status_code >= 200 and status_code < 300 ->
+      {:ok, %Response{} = response} ->
+        # Terminal success: the adapter delivered, or durably accepted
+        # ownership. No retry.
         Logger.info("WebhookDelivery: Event #{event.id} delivered to #{webhook.url} (attempt #{attempt + 1})")
-
-        # Update event with successful delivery
-        update_event_delivery_attempts(event, webhook, attempt, :delivered, response_body)
-
-      {:ok, status_code, _response_body} ->
-        Logger.warning(
-          "WebhookDelivery: Event #{event.id} rejected by #{webhook.url} with status #{status_code} (attempt #{attempt + 1}/#{@max_retries})"
-        )
-
-        # Schedule retry with exponential backoff
-        schedule_retry(event, webhook, attempt)
+        update_event_delivery_attempts(event, webhook, attempt, :delivered, response.body)
 
       {:error, reason} ->
         Logger.warning(
@@ -289,7 +309,10 @@ defmodule PaperTiger.WebhookDelivery do
     end
   end
 
-  # Performs the actual HTTP POST to the webhook endpoint
+  # Signs the payload, emits the observability telemetry event, then hands a
+  # fully-prepared Request to the configured delivery adapter. The adapter's
+  # `{:ok, %Response{}} | {:error, reason}` return is interpreted by the
+  # retry machinery (success is terminal; error retries with backoff).
   defp perform_delivery(event, webhook) do
     timestamp = PaperTiger.Clock.now()
     payload = Jason.encode!(event)
@@ -307,33 +330,90 @@ defmodule PaperTiger.WebhookDelivery do
       {"User-Agent", "Stripe/1.0 (+https://stripe.com/docs/webhooks)"}
     ]
 
-    Logger.debug("WebhookDelivery: Posting event #{event.id} to #{webhook.url} with timestamp #{timestamp}")
+    request = %Request{
+      event: event,
+      headers: headers,
+      payload: payload,
+      signature_header: stripe_signature,
+      timestamp: timestamp,
+      url: webhook.url,
+      webhook: webhook
+    }
 
-    # Use Req library for HTTP POST
-    try do
-      response =
-        Req.post!(
-          webhook.url,
-          body: payload,
-          headers: headers,
-          receive_timeout: @timeout_ms,
-          connect_options: [timeout: @timeout_ms]
-        )
+    # Observability ONLY. This telemetry event is emitted for every delivery
+    # in every adapter, but it is not load-bearing — delivery handoff happens
+    # via the explicit `Adapter` behaviour below, not via whoever may or may
+    # not be attached to this event. Use it for metrics/tracing.
+    :telemetry.execute(
+      [:paper_tiger, :webhook, :delivering],
+      %{system_time: System.system_time()},
+      %{
+        event: event,
+        headers: headers,
+        payload: payload,
+        signature_header: stripe_signature,
+        timestamp: timestamp,
+        url: webhook.url,
+        webhook: webhook
+      }
+    )
 
-      {:ok, response.status, response.body || ""}
-    rescue
-      e in Req.HTTPError ->
-        {:error, {:http_error, inspect(e)}}
+    safe_adapter_deliver(delivery_adapter(), request)
+  end
 
-      e ->
-        {:error, {:unexpected_error, inspect(e)}}
-    catch
-      :exit, {:timeout, _} ->
-        {:error, :timeout}
+  # Invokes the configured adapter and guarantees a normalized
+  # `{:ok, %Response{}} | {:error, reason}` result no matter how badly the
+  # adapter misbehaves. This is what actually enforces the "a missing or
+  # crashing host cannot silently drop webhooks" guarantee: a raising,
+  # exiting, throwing, undefined, or wrong-shape-returning adapter is turned
+  # into an `{:error, reason}` so `deliver_with_retries/{3,4}` apply
+  # PaperTiger's own backoff/retry and record a delivery attempt, instead of
+  # the spawned delivery task crashing before the retry machinery runs (and,
+  # in sync mode, taking the linked `Task.async` / GenServer down with it).
+  defp safe_adapter_deliver(adapter, request) do
+    cond do
+      not is_atom(adapter) ->
+        {:error, {:invalid_adapter, adapter}}
 
-      :exit, reason ->
-        {:error, {:exit, reason}}
+      not Code.ensure_loaded?(adapter) ->
+        {:error, {:adapter_not_loaded, adapter}}
+
+      not function_exported?(adapter, :deliver, 1) ->
+        {:error, {:adapter_missing_deliver, adapter}}
+
+      true ->
+        invoke_adapter(adapter, request)
     end
+  end
+
+  defp invoke_adapter(adapter, request) do
+    case adapter.deliver(request) do
+      {:ok, %Response{}} = ok -> ok
+      {:error, _reason} = err -> err
+      other -> {:error, {:invalid_adapter_response, other}}
+    end
+  rescue
+    e ->
+      {:error, {:adapter_raised, Exception.format(:error, e, __STACKTRACE__)}}
+  catch
+    :throw, value ->
+      {:error, {:adapter_threw, value}}
+
+    :exit, reason ->
+      {:error, {:adapter_exited, reason}}
+  end
+
+  # Resolves the configured webhook delivery adapter. Defaults to the
+  # built-in HTTP adapter (historical behavior). A host embedding PaperTiger
+  # sets `config :paper_tiger, webhook_delivery_adapter: MyApp.WebhookSink`
+  # to take durable ownership of delivery.
+  @spec delivery_adapter() :: module()
+  defp delivery_adapter do
+    Application.get_env(
+      :paper_tiger,
+      :webhook_delivery_adapter,
+      HTTPAdapter
+    )
   end
 
   # Schedules a retry after exponential backoff delay

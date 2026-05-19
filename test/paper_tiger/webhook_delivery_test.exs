@@ -1,13 +1,37 @@
 defmodule PaperTiger.WebhookDeliveryTest do
   use ExUnit.Case, async: false
 
+  alias NoSuch.Adapter.Nope
   alias PaperTiger.Store.Events
   alias PaperTiger.Store.Webhooks
+  alias PaperTiger.WebhookDelivery.Request
+  alias PaperTiger.WebhookDelivery.Response
 
   setup do
     # Clear all data between tests
     PaperTiger.flush()
     :ok
+  end
+
+  # Polls `fun` until it returns true or the deadline passes. Used for
+  # asserting on async retry outcomes without a fixed sleep.
+  defp wait_for(fun, timeout \\ 6_000, interval \\ 50) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_wait_for(fun, deadline, interval)
+  end
+
+  defp do_wait_for(fun, deadline, interval) do
+    cond do
+      fun.() ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("wait_for/1 timed out")
+
+      true ->
+        Process.sleep(interval)
+        do_wait_for(fun, deadline, interval)
+    end
   end
 
   describe "sign_payload/2" do
@@ -110,6 +134,286 @@ defmodule PaperTiger.WebhookDeliveryTest do
 
       assert {:ok, ref} = result
       assert is_reference(ref)
+    end
+  end
+
+  describe "webhook_delivery_adapter (host-owned delivery)" do
+    defmodule CapturingAdapter do
+      @behaviour PaperTiger.WebhookDelivery.Adapter
+
+      @impl true
+      def deliver(request) do
+        pid = :persistent_term.get({__MODULE__, :pid})
+        send(pid, {:adapter_called, request})
+
+        case :persistent_term.get({__MODULE__, :reply}) do
+          :ok ->
+            {:ok, %Response{body: "enqueued", status: 202}}
+
+          :error ->
+            {:error, :sink_unavailable}
+
+          :error_once ->
+            key = {__MODULE__, :calls}
+            n = :persistent_term.get(key, 0)
+            :persistent_term.put(key, n + 1)
+            if n == 0, do: {:error, :sink_unavailable}, else: {:ok, %Response{body: "ok", status: 202}}
+        end
+      end
+    end
+
+    setup do
+      webhook = %{
+        created: PaperTiger.now(),
+        enabled_events: ["charge.succeeded"],
+        id: "we_adapter_1",
+        metadata: %{},
+        object: "webhook_endpoint",
+        secret: "whsec_adapter_secret",
+        status: "enabled",
+        # Unroutable: if the default HTTP adapter were used instead of ours,
+        # the test would see a connection error, not our synthetic 202.
+        url: "http://127.0.0.1:1/never"
+      }
+
+      {:ok, _} = Webhooks.insert(webhook)
+
+      event = %{
+        created: PaperTiger.now(),
+        data: %{object: %{amount: 4242, currency: "usd", id: "ch_a"}},
+        delivery_attempts: [],
+        id: "evt_adapter_1",
+        livemode: false,
+        metadata: %{},
+        object: "event",
+        type: "charge.succeeded"
+      }
+
+      {:ok, _} = Events.insert(event)
+
+      :persistent_term.put({CapturingAdapter, :pid}, self())
+      :persistent_term.put({CapturingAdapter, :reply}, :ok)
+      :persistent_term.erase({CapturingAdapter, :calls})
+      prev = Application.get_env(:paper_tiger, :webhook_delivery_adapter)
+      Application.put_env(:paper_tiger, :webhook_delivery_adapter, CapturingAdapter)
+
+      on_exit(fn ->
+        if prev == nil do
+          Application.delete_env(:paper_tiger, :webhook_delivery_adapter)
+        else
+          Application.put_env(:paper_tiger, :webhook_delivery_adapter, prev)
+        end
+      end)
+
+      {:ok, webhook: webhook, event: event}
+    end
+
+    test "the configured adapter receives a fully-prepared Request and PT does not POST",
+         %{event: event, webhook: webhook} do
+      :persistent_term.put({CapturingAdapter, :reply}, :ok)
+
+      result = PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+
+      # Adapter accepted ownership → terminal success. No :queued leak in the
+      # public return contract.
+      assert result == {:ok, :delivered}
+
+      assert_receive {:adapter_called, %Request{} = req}, 2_000
+      assert req.url == webhook.url
+      assert req.event.id == event.id
+      assert req.webhook.id == webhook.id
+      # Exact signed bytes + full signature header — adapter delivers without
+      # re-signing.
+      assert req.payload == Jason.encode!(event)
+      assert req.signature_header =~ ~r/^t=\d+,v1=[0-9a-f]{64}$/
+      assert {"Stripe-Signature", req.signature_header} in req.headers
+
+      {:ok, reloaded} = Events.get(event.id)
+
+      assert [%{status: :delivered, webhook_endpoint_id: "we_adapter_1"}] =
+               reloaded.delivery_attempts
+    end
+
+    test "adapter {:error, _} drives the async retry path and recovers (no leaked timers)",
+         %{event: event, webhook: webhook} do
+      # Async dispatch covers the schedule_retry/Process.send_after branch
+      # that deliver_event_sync/2 does not. Fail once then succeed so the
+      # single scheduled retry resolves to a terminal success ~1 backoff
+      # later, leaving no always-failing retry timer to bleed into the rest
+      # of the suite.
+      :persistent_term.put({CapturingAdapter, :reply}, :error_once)
+
+      assert {:ok, ref} = PaperTiger.WebhookDelivery.deliver_event(event.id, webhook.id)
+      assert is_reference(ref)
+
+      # First attempt (error) and the retried attempt (ok) both hit the
+      # adapter.
+      assert_receive {:adapter_called, %Request{}}, 2_000
+      assert_receive {:adapter_called, %Request{}}, 5_000
+
+      # The retried attempt recorded a successful delivery on the event.
+      wait_for(fn ->
+        {:ok, reloaded} = Events.get(event.id)
+        match?([%{status: :delivered} | _], Enum.reverse(reloaded.delivery_attempts))
+      end)
+    end
+
+    test "[:paper_tiger, :webhook, :delivering] still fires (observability), even with a custom adapter",
+         %{event: event, webhook: webhook} do
+      test_pid = self()
+      handler_id = "adapter-telemetry-#{System.unique_integer([:positive])}"
+
+      event_id = event.id
+
+      :telemetry.attach(
+        handler_id,
+        [:paper_tiger, :webhook, :delivering],
+        fn _name, measurements, metadata, _config ->
+          # Filter to THIS test's event so a stale :delivering from any
+          # other in-flight delivery (e.g. an async retry elsewhere in the
+          # suite) cannot satisfy the assertion. A non-matching event is
+          # ignored (not a handler crash → no auto-detach).
+          if metadata.event.id == event_id do
+            send(test_pid, {:webhook_delivering, measurements, metadata})
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+
+      assert_receive {:webhook_delivering, measurements, metadata}, 2_000
+      assert is_integer(measurements.system_time)
+      assert metadata.event.id == event.id
+      assert metadata.url == webhook.url
+      assert metadata.payload == Jason.encode!(event)
+    end
+  end
+
+  describe "misbehaving adapter cannot silently drop or crash" do
+    # Each adapter faults on its FIRST call then succeeds on the SECOND.
+    # Driven through deliver_event_sync/2, whose retry path uses Process.sleep
+    # recursion inside its own awaited Task — it does NOT Process.send_after
+    # to the singleton GenServer — so the whole thing is terminal in ~1
+    # backoff (@base_backoff_ms = 1s), deterministic, and leaves no scheduled
+    # retry messages to contaminate later tests. A terminal {:ok, :delivered}
+    # proves the fault was normalized into PaperTiger's retry path (not a
+    # crash / silent drop) and that the WebhookDelivery GenServer survived.
+    defmodule RaisingThenOkAdapter do
+      @behaviour PaperTiger.WebhookDelivery.Adapter
+
+      @impl true
+      def deliver(_request) do
+        key = {__MODULE__, :calls}
+        n = :persistent_term.get(key, 0)
+        :persistent_term.put(key, n + 1)
+        send(:persistent_term.get({__MODULE__, :pid}), {:called, n})
+        if n == 0, do: raise("sink blew up"), else: {:ok, %Response{body: "", status: 202}}
+      end
+    end
+
+    defmodule BadShapeThenOkAdapter do
+      @behaviour PaperTiger.WebhookDelivery.Adapter
+
+      @impl true
+      def deliver(_request) do
+        key = {__MODULE__, :calls}
+        n = :persistent_term.get(key, 0)
+        :persistent_term.put(key, n + 1)
+        send(:persistent_term.get({__MODULE__, :pid}), {:called, n})
+        if n == 0, do: :banana, else: {:ok, %Response{body: "", status: 202}}
+      end
+    end
+
+    setup do
+      webhook = %{
+        created: PaperTiger.now(),
+        enabled_events: ["charge.succeeded"],
+        id: "we_misbehave_1",
+        metadata: %{},
+        object: "webhook_endpoint",
+        secret: "whsec_misbehave",
+        status: "enabled",
+        url: "http://127.0.0.1:1/never"
+      }
+
+      {:ok, _} = Webhooks.insert(webhook)
+
+      event = %{
+        created: PaperTiger.now(),
+        data: %{object: %{amount: 7, currency: "usd", id: "ch_m"}},
+        delivery_attempts: [],
+        id: "evt_misbehave_1",
+        livemode: false,
+        metadata: %{},
+        object: "event",
+        type: "charge.succeeded"
+      }
+
+      {:ok, _} = Events.insert(event)
+
+      prev = Application.get_env(:paper_tiger, :webhook_delivery_adapter)
+      :persistent_term.erase({RaisingThenOkAdapter, :calls})
+      :persistent_term.erase({BadShapeThenOkAdapter, :calls})
+
+      on_exit(fn ->
+        if prev == nil do
+          Application.delete_env(:paper_tiger, :webhook_delivery_adapter)
+        else
+          Application.put_env(:paper_tiger, :webhook_delivery_adapter, prev)
+        end
+      end)
+
+      {:ok, webhook: webhook, event: event}
+    end
+
+    test "a raising adapter is normalized into the retry path, recovers, GenServer survives",
+         %{event: event, webhook: webhook} do
+      :persistent_term.put({RaisingThenOkAdapter, :pid}, self())
+      Application.put_env(:paper_tiger, :webhook_delivery_adapter, RaisingThenOkAdapter)
+      pid_before = Process.whereis(PaperTiger.WebhookDelivery)
+
+      assert {:ok, :delivered} =
+               PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+
+      assert_received {:called, 0}
+      assert_received {:called, 1}
+      # The raise did not cascade through the linked Task and kill the server.
+      assert Process.whereis(PaperTiger.WebhookDelivery) == pid_before
+    end
+
+    test "an invalid return shape is normalized into the retry path, recovers",
+         %{event: event, webhook: webhook} do
+      :persistent_term.put({BadShapeThenOkAdapter, :pid}, self())
+      Application.put_env(:paper_tiger, :webhook_delivery_adapter, BadShapeThenOkAdapter)
+
+      assert {:ok, :delivered} =
+               PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+
+      assert_received {:called, 0}
+      assert_received {:called, 1}
+    end
+
+    test "an undefined adapter module is normalized (no crash), recovers when config is fixed",
+         %{event: event, webhook: webhook} do
+      :persistent_term.put({RaisingThenOkAdapter, :pid}, self())
+      Application.put_env(:paper_tiger, :webhook_delivery_adapter, Nope)
+
+      caller =
+        Task.async(fn ->
+          PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+        end)
+
+      # First attempt: module undefined → safe_adapter_deliver returns
+      # {:error, {:adapter_not_loaded, _}} (no crash). Fix the config before
+      # the retry budget runs out; RaisingThenOk still faults once then ok.
+      Process.sleep(300)
+      Application.put_env(:paper_tiger, :webhook_delivery_adapter, RaisingThenOkAdapter)
+
+      assert {:ok, :delivered} = Task.await(caller, 20_000)
+      assert Process.alive?(Process.whereis(PaperTiger.WebhookDelivery))
     end
   end
 
