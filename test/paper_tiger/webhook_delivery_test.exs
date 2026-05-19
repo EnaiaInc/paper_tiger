@@ -34,6 +34,57 @@ defmodule PaperTiger.WebhookDeliveryTest do
     end
   end
 
+  defp with_process_namespace(namespace, fun) do
+    previous = Process.get(:paper_tiger_namespace, :__paper_tiger_unset__)
+    Process.put(:paper_tiger_namespace, namespace)
+
+    try do
+      fun.()
+    after
+      case previous do
+        :__paper_tiger_unset__ -> Process.delete(:paper_tiger_namespace)
+        value -> Process.put(:paper_tiger_namespace, value)
+      end
+    end
+  end
+
+  defp insert_adapter_fixture(namespace, suffix) do
+    with_process_namespace(namespace, fn ->
+      webhook = %{
+        created: PaperTiger.now(),
+        enabled_events: ["charge.succeeded"],
+        id: "we_adapter_#{suffix}",
+        metadata: %{},
+        object: "webhook_endpoint",
+        secret: "whsec_adapter_secret_#{suffix}",
+        status: "enabled",
+        url: "http://127.0.0.1:1/#{suffix}"
+      }
+
+      {:ok, _} = Webhooks.insert(webhook)
+
+      event = %{
+        created: PaperTiger.now(),
+        data: %{object: %{amount: 4242, currency: "usd", id: "ch_#{suffix}"}},
+        delivery_attempts: [],
+        id: "evt_adapter_#{suffix}",
+        livemode: false,
+        metadata: %{},
+        object: "event",
+        type: "charge.succeeded"
+      }
+
+      {:ok, _} = Events.insert(event)
+      {event, webhook}
+    end)
+  end
+
+  defp lowercase_hex?(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.all?(fn char -> char in ?0..?9 or char in ?a..?f end)
+  end
+
   describe "sign_payload/2" do
     test "creates HMAC SHA256 signature" do
       payload = "test_payload"
@@ -71,7 +122,7 @@ defmodule PaperTiger.WebhookDeliveryTest do
       signature = PaperTiger.WebhookDelivery.sign_payload("test", "secret")
 
       # Verify it's all lowercase hex characters
-      assert signature =~ ~r/^[0-9a-f]+$/
+      assert lowercase_hex?(signature)
     end
   end
 
@@ -225,7 +276,10 @@ defmodule PaperTiger.WebhookDeliveryTest do
       # Exact signed bytes + full signature header — adapter delivers without
       # re-signing.
       assert req.payload == Jason.encode!(event)
-      assert req.signature_header =~ ~r/^t=\d+,v1=[0-9a-f]{64}$/
+      assert ["t=" <> timestamp, "v1=" <> signature] = String.split(req.signature_header, ",")
+      assert {_timestamp, ""} = Integer.parse(timestamp)
+      assert String.length(signature) == 64
+      assert lowercase_hex?(signature)
       assert {"Stripe-Signature", req.signature_header} in req.headers
 
       {:ok, reloaded} = Events.get(event.id)
@@ -289,6 +343,59 @@ defmodule PaperTiger.WebhookDeliveryTest do
       assert metadata.event.id == event.id
       assert metadata.url == webhook.url
       assert metadata.payload == Jason.encode!(event)
+    end
+
+    test "sync adapter request carries the namespace captured by the caller" do
+      namespace = self()
+      suffix = "sync_ns_#{System.unique_integer([:positive])}"
+      {event, webhook} = insert_adapter_fixture(namespace, suffix)
+
+      on_exit(fn -> PaperTiger.Test.cleanup_namespace(namespace) end)
+
+      assert {:ok, :delivered} =
+               with_process_namespace(namespace, fn ->
+                 PaperTiger.WebhookDelivery.deliver_event_sync(event.id, webhook.id)
+               end)
+
+      assert_receive {:adapter_called, %Request{namespace: ^namespace} = req}, 2_000
+      assert req.event.id == event.id
+      assert req.webhook.id == webhook.id
+
+      with_process_namespace(namespace, fn ->
+        assert {:ok, reloaded} = Events.get(event.id)
+        assert [%{status: :delivered, webhook_endpoint_id: webhook_id}] = reloaded.delivery_attempts
+        assert webhook_id == webhook.id
+      end)
+    end
+
+    test "async adapter request and delivery-attempt update keep the captured namespace" do
+      namespace = self()
+      suffix = "async_ns_#{System.unique_integer([:positive])}"
+      {event, webhook} = insert_adapter_fixture(namespace, suffix)
+
+      on_exit(fn -> PaperTiger.Test.cleanup_namespace(namespace) end)
+
+      assert {:ok, ref} =
+               with_process_namespace(namespace, fn ->
+                 PaperTiger.WebhookDelivery.deliver_event(event.id, webhook.id)
+               end)
+
+      assert is_reference(ref)
+      assert_receive {:adapter_called, %Request{namespace: ^namespace} = req}, 2_000
+      assert req.event.id == event.id
+      assert req.webhook.id == webhook.id
+
+      with_process_namespace(namespace, fn ->
+        wait_for(fn ->
+          expected_webhook_id = webhook.id
+          {:ok, reloaded} = Events.get(event.id)
+
+          match?(
+            [%{status: :delivered, webhook_endpoint_id: ^expected_webhook_id}],
+            reloaded.delivery_attempts
+          )
+        end)
+      end)
     end
   end
 

@@ -5,7 +5,10 @@ defmodule PaperTiger.WebhookDelivery.Adapter do
   PaperTiger signs the payload, builds the `Stripe-Signature` header, emits
   the `[:paper_tiger, :webhook, :delivering]` telemetry event (observability
   only), then calls the configured adapter's `deliver/1` with a
-  `PaperTiger.WebhookDelivery.Request`.
+  `PaperTiger.WebhookDelivery.Request`. The request includes the sandbox or
+  tenant namespace captured when the delivery was queued, so durable adapters
+  can persist work with the same context even though delivery runs in a
+  detached task.
 
   Configure with:
 

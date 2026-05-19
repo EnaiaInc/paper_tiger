@@ -184,20 +184,20 @@ defmodule PaperTiger.TelemetryHandler do
   defp build_delivery_fn(matching_webhooks, event_type) do
     sync_mode? = Application.get_env(:paper_tiger, :webhook_mode) == :sync
 
-    fn evt ->
+    fn evt, namespace ->
       Enum.each(matching_webhooks, fn webhook ->
-        deliver_to_webhook(evt, webhook, event_type, sync_mode?)
+        deliver_to_webhook(evt, webhook, event_type, sync_mode?, namespace)
       end)
     end
   end
 
-  defp deliver_to_webhook(evt, webhook, event_type, sync_mode?) do
+  defp deliver_to_webhook(evt, webhook, event_type, sync_mode?, namespace) do
     Logger.debug("Delivering #{event_type} to webhook #{webhook.id}")
 
     if sync_mode? do
-      WebhookDelivery.deliver_event_sync(evt.id, webhook.id)
+      WebhookDelivery.deliver_event_sync(evt.id, webhook.id, namespace)
     else
-      WebhookDelivery.deliver_event(evt.id, webhook.id)
+      WebhookDelivery.deliver_event(evt.id, webhook.id, namespace)
     end
   end
 
