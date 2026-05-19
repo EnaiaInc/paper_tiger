@@ -25,6 +25,7 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Products
   alias PaperTiger.Store.Refunds
   alias PaperTiger.Store.Reviews
+  alias PaperTiger.Store.SetupAttempts
   alias PaperTiger.Store.SetupIntents
   alias PaperTiger.Store.Sources
   alias PaperTiger.Store.SubscriptionItems
@@ -73,6 +74,7 @@ defmodule PaperTiger.Application do
         Charges,
         Refunds,
         PaymentIntents,
+        SetupAttempts,
         SetupIntents,
         SubscriptionItems,
         SubscriptionSchedules,

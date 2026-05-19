@@ -74,6 +74,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Product
   alias PaperTiger.Resources.Refund
   alias PaperTiger.Resources.Review
+  alias PaperTiger.Resources.SetupAttempt
   alias PaperTiger.Resources.SetupIntent
   alias PaperTiger.Resources.Source
   alias PaperTiger.Resources.Subscription
@@ -221,7 +222,21 @@ defmodule PaperTiger.Router do
   end
 
   stripe_resource("payment_intents", PaymentIntent, except: [:delete])
+  # Custom setup intent endpoints — must come BEFORE stripe_resource
+  post "/v1/setup_intents/:id/confirm" do
+    SetupIntent.confirm(conn, id)
+  end
+
+  post "/v1/setup_intents/:id/cancel" do
+    SetupIntent.cancel(conn, id)
+  end
+
+  post "/v1/setup_intents/:id/verify_microdeposits" do
+    SetupIntent.verify_microdeposits(conn, id)
+  end
+
   stripe_resource("setup_intents", SetupIntent, except: [:delete])
+  stripe_resource("setup_attempts", SetupAttempt, only: [:list])
   stripe_resource("charges", Charge, except: [:delete])
   stripe_resource("refunds", Refund, except: [:delete])
   stripe_resource("coupons", Coupon, [])

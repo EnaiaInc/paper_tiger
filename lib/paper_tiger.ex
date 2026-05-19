@@ -60,6 +60,7 @@ defmodule PaperTiger do
     Products,
     Refunds,
     Reviews,
+    SetupAttempts,
     SetupIntents,
     Sources,
     SubscriptionItems,
@@ -223,6 +224,7 @@ defmodule PaperTiger do
   def flush(:plans), do: Plans.clear()
   def flush(:payment_methods), do: PaymentMethods.clear()
   def flush(:payment_intents), do: PaymentIntents.clear()
+  def flush(:setup_attempts), do: SetupAttempts.clear()
   def flush(:setup_intents), do: SetupIntents.clear()
   def flush(:charges), do: Charges.clear()
   def flush(:refunds), do: Refunds.clear()
