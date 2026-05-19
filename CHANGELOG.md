@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Side-by-side contract drift harness for running a scenario against both PaperTiger and Stripe test mode in the same test, normalizing volatile fields, and reporting the first mismatch with both backend shapes. The first live drift scenario covers customer create/retrieve/update/delete.
 - Deterministic automatic-tax fixtures for Checkout Session totals, PaymentIntent amounts, initial subscription invoices, and subscription renewal invoices.
 - PaymentIntent lifecycle endpoints for `POST /v1/payment_intents/:id/cancel` and `POST /v1/payment_intents/:id/capture`, including manual-capture authorization, partial capture, `amount_capturable` / `amount_received`, captured Charge state, and Stripe-shaped invalid-state errors.
+- Checkout Session update and line-item retrieval endpoints, including metadata merge/delete semantics, paginated `GET /v1/checkout/sessions/:id/line_items`, `expand[]=line_items`, and preview-style full-array line item updates for dynamic Checkout tests.
 
 ### Fixed
 

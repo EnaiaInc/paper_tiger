@@ -32,7 +32,6 @@ defmodule PaperTiger.TestClient do
   """
 
   alias PaperTiger.Router
-  alias Stripe.Checkout.Session
 
   @forced_mode_key {__MODULE__, :forced_mode}
 
@@ -690,6 +689,32 @@ defmodule PaperTiger.TestClient do
   end
 
   @doc """
+  Updates a checkout session.
+  """
+  def update_checkout_session(session_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_checkout_session_real(session_id, params)
+
+      :paper_tiger ->
+        update_checkout_session_mock(session_id, params)
+    end
+  end
+
+  @doc """
+  Lists checkout session line items.
+  """
+  def list_checkout_session_line_items(session_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_checkout_session_line_items_real(session_id, params)
+
+      :paper_tiger ->
+        list_checkout_session_line_items_mock(session_id, params)
+    end
+  end
+
+  @doc """
   Expires a checkout session.
   """
   def expire_checkout_session(session_id) do
@@ -1111,24 +1136,23 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_checkout_session_real(params) do
-    case Session.create(normalize_params(params), stripe_opts()) do
-      {:ok, session} -> {:ok, stripe_to_map(session)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/checkout/sessions", params)
   end
 
   defp get_checkout_session_real(session_id) do
-    case Session.retrieve(session_id, %{}, stripe_opts()) do
-      {:ok, session} -> {:ok, stripe_to_map(session)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/checkout/sessions/#{session_id}")
+  end
+
+  defp update_checkout_session_real(session_id, params) do
+    stripe_request(:post, "/v1/checkout/sessions/#{session_id}", params)
+  end
+
+  defp list_checkout_session_line_items_real(session_id, params) do
+    stripe_request(:get, "/v1/checkout/sessions/#{session_id}/line_items", params)
   end
 
   defp expire_checkout_session_real(session_id) do
-    case Session.expire(session_id, %{}, stripe_opts()) do
-      {:ok, session} -> {:ok, stripe_to_map(session)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/checkout/sessions/#{session_id}/expire")
   end
 
   ## Private - PaperTiger Mock
@@ -1320,6 +1344,16 @@ defmodule PaperTiger.TestClient do
 
   defp get_checkout_session_mock(session_id) do
     conn = request(:get, "/v1/checkout/sessions/#{session_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_checkout_session_mock(session_id, params) do
+    conn = request(:post, "/v1/checkout/sessions/#{session_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_checkout_session_line_items_mock(session_id, params) do
+    conn = request(:get, "/v1/checkout/sessions/#{session_id}/line_items", params)
     handle_response(conn)
   end
 

@@ -787,6 +787,71 @@ defmodule PaperTiger.ContractTest do
     end
 
     @tag :contract
+    test "updates checkout session metadata" do
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "line_items" => [
+          %{
+            "price_data" => %{"currency" => "usd", "product_data" => %{"name" => "Test Product"}, "unit_amount" => 2000},
+            "quantity" => 1
+          }
+        ],
+        "metadata" => %{"existing" => "yes"},
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      {:ok, created} = TestClient.create_checkout_session(params)
+
+      {:ok, updated} =
+        TestClient.update_checkout_session(created["id"], %{
+          "metadata" => %{"existing" => "", "order_id" => "6735"}
+        })
+
+      assert updated["id"] == created["id"]
+      assert updated["metadata"] == %{"order_id" => "6735"}
+    end
+
+    @tag :contract
+    test "lists checkout session line items" do
+      params = %{
+        "cancel_url" => "https://example.com/cancel",
+        "line_items" => [
+          %{
+            "price_data" => %{
+              "currency" => "usd",
+              "product_data" => %{"name" => "First Product"},
+              "unit_amount" => 1200
+            },
+            "quantity" => 1
+          },
+          %{
+            "price_data" => %{
+              "currency" => "usd",
+              "product_data" => %{"name" => "Second Product"},
+              "unit_amount" => 800
+            },
+            "quantity" => 2
+          }
+        ],
+        "mode" => "payment",
+        "success_url" => "https://example.com/success"
+      }
+
+      {:ok, created} = TestClient.create_checkout_session(params)
+      {:ok, line_items} = TestClient.list_checkout_session_line_items(created["id"], %{"limit" => 1})
+
+      assert line_items["object"] == "list"
+      assert length(line_items["data"]) == 1
+      assert line_items["has_more"] == true
+
+      [line_item] = line_items["data"]
+      assert line_item["object"] == "item"
+      assert line_item["amount_total"] == 1200
+      assert line_item["quantity"] == 1
+    end
+
+    @tag :contract
     test "expires a checkout session" do
       params = %{
         "cancel_url" => "https://example.com/cancel",

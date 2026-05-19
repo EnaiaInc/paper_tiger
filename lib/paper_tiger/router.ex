@@ -242,9 +242,13 @@ defmodule PaperTiger.Router do
   stripe_resource("webhook_endpoints", Webhook, [])
   stripe_resource("events", Event, only: [:retrieve, :list])
   stripe_resource("tokens", Token, only: [:create, :retrieve])
-  stripe_resource("checkout/sessions", CheckoutSession, only: [:create, :retrieve, :list])
+  stripe_resource("checkout/sessions", CheckoutSession, only: [:create, :retrieve, :update, :list])
 
   ## Custom Checkout Session Endpoints
+
+  get "/v1/checkout/sessions/:id/line_items" do
+    CheckoutSession.line_items(conn, id)
+  end
 
   post "/v1/checkout/sessions/:id/expire" do
     CheckoutSession.expire(conn, id)
