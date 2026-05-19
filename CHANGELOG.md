@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Pluggable webhook delivery adapter.** `PaperTiger.WebhookDelivery.Adapter` behaviour with a single `deliver/1` callback taking a `PaperTiger.WebhookDelivery.Request` (the signed payload, full headers, signature header, url, event, webhook) and returning `{:ok, %PaperTiger.WebhookDelivery.Response{}}` (terminal success / ownership taken) or `{:error, reason}` (PaperTiger retries with its existing exponential backoff). Configure with `config :paper_tiger, webhook_delivery_adapter: MyApp.Sink`. Lets a host embedding PaperTiger take durable ownership of webhook delivery via an explicit, enforced contract — a missing or crashing host cannot silently drop webhooks. Default is `PaperTiger.WebhookDelivery.HTTPAdapter`, which performs the HTTP POST exactly as before; **no behavior change when the adapter is not configured.**
+- `[:paper_tiger, :webhook, :delivering]` telemetry event, emitted for every delivery in every adapter immediately before the adapter is invoked. Metadata: `event`, `webhook`, `url`, `payload` (exact signed bytes), `signature_header`, `headers`, `timestamp`. **Observability only** — not the delivery mechanism (that is the adapter behaviour). Use for metrics/tracing.
+
+### Hardened
+
+- Adapter invocation is wrapped: a raising, exiting, throwing, undefined, missing-`deliver/1`, or wrong-shape-returning adapter is normalized into `{:error, reason}` so PaperTiger's own backoff/retry runs and a delivery attempt is recorded — instead of the spawned delivery task crashing before the retry machinery (and, in sync mode, the linked `Task.async` taking down `PaperTiger.WebhookDelivery`). This is what actually enforces the "a missing or crashing host cannot silently drop webhooks" guarantee.
+
+### Notes
+
+- The `:webhook_mode` config (`:sync` / `:async` / `:collect`) is unchanged and continues to control *when* delivery is dispatched. The new adapter controls *where/how* the signed request goes. The two are orthogonal.
+- `deliver_event_sync/2`'s public contract is unchanged (`{:ok, :delivered | :failed} | {:error, term()}`); adapter handoff does not leak a new return value.
+
 ## [1.0.2] - 2026-02-28
 
 ### Added
