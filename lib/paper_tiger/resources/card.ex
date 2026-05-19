@@ -173,32 +173,32 @@ defmodule PaperTiger.Resources.Card do
   ## Private Functions
 
   defp build_card(params) do
+    # Additional fields
     %{
-      id: generate_id("card"),
-      object: "card",
-      created: PaperTiger.now(),
-      customer: Map.get(params, :customer),
-      brand: Map.get(params, :brand, "Visa"),
-      last4: Map.get(params, :last4),
-      exp_month: Map.get(params, :exp_month),
-      exp_year: Map.get(params, :exp_year),
-      fingerprint: Map.get(params, :fingerprint, generate_fingerprint()),
-      funding: Map.get(params, :funding, "credit"),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
       address_city: Map.get(params, :address_city),
       address_country: Map.get(params, :address_country),
       address_line1: Map.get(params, :address_line1),
       address_line2: Map.get(params, :address_line2),
       address_state: Map.get(params, :address_state),
       address_zip: Map.get(params, :address_zip),
+      brand: Map.get(params, :brand, "Visa"),
       country: Map.get(params, :country),
+      created: PaperTiger.now(),
+      customer: Map.get(params, :customer),
       cvc_check: Map.get(params, :cvc_check),
       dynamic_last4: Map.get(params, :dynamic_last4),
       empty: Map.get(params, :empty),
       exp_check: Map.get(params, :exp_check),
+      exp_month: Map.get(params, :exp_month),
+      exp_year: Map.get(params, :exp_year),
+      fingerprint: Map.get(params, :fingerprint, generate_fingerprint()),
+      funding: Map.get(params, :funding, "credit"),
+      id: generate_id("card"),
+      last4: Map.get(params, :last4),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
       name: Map.get(params, :name),
+      object: "card",
       tokenization_method: Map.get(params, :tokenization_method),
       wallet: Map.get(params, :wallet)
     }

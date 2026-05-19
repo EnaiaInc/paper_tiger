@@ -100,7 +100,43 @@ defmodule PaperTiger.WebhookDelivery do
   @namespace_key :paper_tiger_namespace
 
   ## Client API
-
+  ## Server Callbacks
+  # Spawn a task so we don't block the GenServer during retries/backoff
+  # Wait indefinitely for the task to complete
+  ## Private Functions
+  # Dispatches a delivery by spawning an async task
+  # Dispatches a delivery synchronously, waiting for completion
+  # Synchronous version of deliver_with_retries - blocks until complete
+  # Terminal success: the adapter delivered, or durably accepted
+  # ownership. No retry.
+  # Wait for backoff, then retry synchronously
+  # Delivers with exponential backoff retry logic
+  # Update event with final failed delivery attempt
+  # Terminal success: the adapter delivered, or durably accepted
+  # ownership. No retry.
+  # Schedule retry with exponential backoff
+  # Signs the payload, emits the observability telemetry event, then hands a
+  # fully-prepared Request to the configured delivery adapter. The adapter's
+  # `{:ok, %Response{}} | {:error, reason}` return is interpreted by the
+  # retry machinery (success is terminal; error retries with backoff).
+  # Create Stripe-compatible signature: HMAC(secret, "{timestamp}.{payload}")
+  # Build Stripe-Signature header
+  # Observability ONLY. This telemetry event is emitted for every delivery
+  # in every adapter, but it is not load-bearing — delivery handoff happens
+  # via the explicit `Adapter` behaviour below, not via whoever may or may
+  # not be attached to this event. Use it for metrics/tracing.
+  # Invokes the configured adapter and guarantees a normalized
+  # `{:ok, %Response{}} | {:error, reason}` result no matter how badly the
+  # adapter misbehaves. This is what actually enforces the "a missing or
+  # crashing host cannot silently drop webhooks" guarantee: a raising,
+  # exiting, throwing, undefined, or wrong-shape-returning adapter is turned
+  # into an `{:error, reason}` so `deliver_with_retries/{3,4}` apply
+  # PaperTiger's own backoff/retry and record a delivery attempt, instead of
+  # the spawned delivery task crashing before the retry machinery runs (and,
+  # in sync mode, taking the linked `Task.async` / GenServer down with it).
+  # Resolves the configured webhook delivery adapter. Defaults to the
+  # built-in HTTP adapter (historical behavior). A host embedding PaperTiger
+  # sets `config :paper_tiger, webhook_delivery_adapter: MyApp.WebhookSink`
   @doc """
   Starts the WebhookDelivery GenServer.
   """
@@ -136,11 +172,17 @@ defmodule PaperTiger.WebhookDelivery do
 
   @doc false
   @spec deliver_event(String.t(), String.t(), term()) :: {:ok, reference()} | {:error, term()}
+  # to take durable ownership of delivery.
+  # Schedules a retry after exponential backoff delay
+  # Calculate backoff: 1s, 2s, 4s, 8s, 16s
   def deliver_event(event_id, webhook_endpoint_id, namespace)
       when is_binary(event_id) and is_binary(webhook_endpoint_id) do
     GenServer.call(__MODULE__, {:deliver_event, namespace, event_id, webhook_endpoint_id})
   end
 
+  # Send to GenServer, not to spawned process (which exits immediately)
+  # Updates the event's delivery_attempts array with the result
+  # Build delivery attempt record
   @doc """
   Delivers a webhook event synchronously, waiting for completion.
 
@@ -201,8 +243,6 @@ defmodule PaperTiger.WebhookDelivery do
     |> Base.encode16(case: :lower)
   end
 
-  ## Server Callbacks
-
   @impl true
   def init(_opts) do
     Logger.debug("PaperTiger.WebhookDelivery started")
@@ -217,20 +257,15 @@ defmodule PaperTiger.WebhookDelivery do
 
   @impl true
   def handle_call({:deliver_event_sync, namespace, event_id, webhook_endpoint_id}, _from, state) do
-    # Spawn a task so we don't block the GenServer during retries/backoff
     task =
       Task.async(fn ->
         dispatch_delivery_sync(namespace, event_id, webhook_endpoint_id)
       end)
 
-    # Wait indefinitely for the task to complete
     result = Task.await(task, :infinity)
     {:reply, result, state}
   end
 
-  ## Private Functions
-
-  # Dispatches a delivery by spawning an async task
   defp dispatch_delivery(namespace, event_id, webhook_endpoint_id) do
     case fetch_delivery_resources(namespace, event_id, webhook_endpoint_id) do
       {:ok, event, webhook} -> start_delivery_task(namespace, event, webhook)
@@ -238,7 +273,6 @@ defmodule PaperTiger.WebhookDelivery do
     end
   end
 
-  # Dispatches a delivery synchronously, waiting for completion
   defp dispatch_delivery_sync(namespace, event_id, webhook_endpoint_id) do
     case fetch_delivery_resources(namespace, event_id, webhook_endpoint_id) do
       {:ok, event, webhook} ->
@@ -284,7 +318,6 @@ defmodule PaperTiger.WebhookDelivery do
     {:ok, ref}
   end
 
-  # Synchronous version of deliver_with_retries - blocks until complete
   defp deliver_with_retries_sync(event, webhook, _namespace, attempt) when attempt >= @max_retries do
     Logger.error("WebhookDelivery: Max retries (#{@max_retries}) exceeded for event #{event.id} to #{webhook.url}")
     update_event_delivery_attempts(event, webhook, attempt, :failed, nil)
@@ -294,8 +327,6 @@ defmodule PaperTiger.WebhookDelivery do
   defp deliver_with_retries_sync(event, webhook, namespace, attempt) do
     case perform_delivery(event, webhook, namespace) do
       {:ok, %Response{} = response} ->
-        # Terminal success: the adapter delivered, or durably accepted
-        # ownership. No retry.
         Logger.info("WebhookDelivery: Event #{event.id} delivered to #{webhook.url} (attempt #{attempt + 1})")
         update_event_delivery_attempts(event, webhook, attempt, :delivered, response.body)
         {:ok, :delivered}
@@ -305,26 +336,20 @@ defmodule PaperTiger.WebhookDelivery do
           "WebhookDelivery: Event #{event.id} delivery to #{webhook.url} failed: #{inspect(reason)} (attempt #{attempt + 1}/#{@max_retries})"
         )
 
-        # Wait for backoff, then retry synchronously
         delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
         Process.sleep(delay_ms)
         deliver_with_retries_sync(event, webhook, namespace, attempt + 1)
     end
   end
 
-  # Delivers with exponential backoff retry logic
   defp deliver_with_retries(event, webhook, _namespace, attempt, _ref) when attempt >= @max_retries do
     Logger.error("WebhookDelivery: Max retries (#{@max_retries}) exceeded for event #{event.id} to #{webhook.url}")
-
-    # Update event with final failed delivery attempt
     update_event_delivery_attempts(event, webhook, attempt, :failed, nil)
   end
 
   defp deliver_with_retries(event, webhook, namespace, attempt, _ref) do
     case perform_delivery(event, webhook, namespace) do
       {:ok, %Response{} = response} ->
-        # Terminal success: the adapter delivered, or durably accepted
-        # ownership. No retry.
         Logger.info("WebhookDelivery: Event #{event.id} delivered to #{webhook.url} (attempt #{attempt + 1})")
         update_event_delivery_attempts(event, webhook, attempt, :delivered, response.body)
 
@@ -333,24 +358,15 @@ defmodule PaperTiger.WebhookDelivery do
           "WebhookDelivery: Event #{event.id} delivery to #{webhook.url} failed: #{inspect(reason)} (attempt #{attempt + 1}/#{@max_retries})"
         )
 
-        # Schedule retry with exponential backoff
         schedule_retry(event, webhook, namespace, attempt)
     end
   end
 
-  # Signs the payload, emits the observability telemetry event, then hands a
-  # fully-prepared Request to the configured delivery adapter. The adapter's
-  # `{:ok, %Response{}} | {:error, reason}` return is interpreted by the
-  # retry machinery (success is terminal; error retries with backoff).
   defp perform_delivery(event, webhook, namespace) do
     timestamp = PaperTiger.Clock.now()
     payload = Jason.encode!(event)
-
-    # Create Stripe-compatible signature: HMAC(secret, "{timestamp}.{payload}")
     signed_content = "#{timestamp}.#{payload}"
     signature = sign_payload(signed_content, webhook.secret)
-
-    # Build Stripe-Signature header
     stripe_signature = "t=#{timestamp},v1=#{signature}"
 
     headers = [
@@ -370,10 +386,6 @@ defmodule PaperTiger.WebhookDelivery do
       webhook: webhook
     }
 
-    # Observability ONLY. This telemetry event is emitted for every delivery
-    # in every adapter, but it is not load-bearing — delivery handoff happens
-    # via the explicit `Adapter` behaviour below, not via whoever may or may
-    # not be attached to this event. Use it for metrics/tracing.
     :telemetry.execute(
       [:paper_tiger, :webhook, :delivering],
       %{system_time: System.system_time()},
@@ -392,15 +404,6 @@ defmodule PaperTiger.WebhookDelivery do
     safe_adapter_deliver(delivery_adapter(), request)
   end
 
-  # Invokes the configured adapter and guarantees a normalized
-  # `{:ok, %Response{}} | {:error, reason}` result no matter how badly the
-  # adapter misbehaves. This is what actually enforces the "a missing or
-  # crashing host cannot silently drop webhooks" guarantee: a raising,
-  # exiting, throwing, undefined, or wrong-shape-returning adapter is turned
-  # into an `{:error, reason}` so `deliver_with_retries/{3,4}` apply
-  # PaperTiger's own backoff/retry and record a delivery attempt, instead of
-  # the spawned delivery task crashing before the retry machinery runs (and,
-  # in sync mode, taking the linked `Task.async` / GenServer down with it).
   defp safe_adapter_deliver(adapter, request) do
     cond do
       not is_atom(adapter) ->
@@ -434,10 +437,6 @@ defmodule PaperTiger.WebhookDelivery do
       {:error, {:adapter_exited, reason}}
   end
 
-  # Resolves the configured webhook delivery adapter. Defaults to the
-  # built-in HTTP adapter (historical behavior). A host embedding PaperTiger
-  # sets `config :paper_tiger, webhook_delivery_adapter: MyApp.WebhookSink`
-  # to take durable ownership of delivery.
   @spec delivery_adapter() :: module()
   defp delivery_adapter do
     Application.get_env(
@@ -447,16 +446,13 @@ defmodule PaperTiger.WebhookDelivery do
     )
   end
 
-  # Schedules a retry after exponential backoff delay
   defp schedule_retry(event, webhook, namespace, attempt) do
-    # Calculate backoff: 1s, 2s, 4s, 8s, 16s
     delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
 
     Logger.debug(
       "WebhookDelivery: Scheduling retry for event #{event.id} after #{delay_ms}ms (attempt #{attempt + 2}/#{@max_retries})"
     )
 
-    # Send to GenServer, not to spawned process (which exits immediately)
     Process.send_after(
       __MODULE__,
       {:retry_delivery, namespace, event, webhook, attempt + 1},
@@ -464,19 +460,17 @@ defmodule PaperTiger.WebhookDelivery do
     )
   end
 
-  # Updates the event's delivery_attempts array with the result
   defp update_event_delivery_attempts(event, webhook, attempt, status, response_body) do
     now = PaperTiger.Clock.now()
 
-    # Build delivery attempt record
     delivery_attempt = %{
-      webhook_endpoint_id: webhook.id,
       attempt: attempt + 1,
-      timestamp: now,
-      status: status,
-      response_body: response_body,
       # Would be filled in if we had status code
-      http_status: nil
+      http_status: nil,
+      response_body: response_body,
+      status: status,
+      timestamp: now,
+      webhook_endpoint_id: webhook.id
     }
 
     # Get existing delivery_attempts or create empty list

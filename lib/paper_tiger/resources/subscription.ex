@@ -147,21 +147,30 @@ defmodule PaperTiger.Resources.Subscription do
          updated = maybe_activate_subscription_after_trial(updated),
          {:ok, updated} <- Subscriptions.update(updated) do
       # Handle items update if provided
+      # Create proration invoice when proration_behavior requests it
+      # Get all subscriptions in current namespace
+      # Filter by customer and/or status if provided
+      # Load subscription items and latest invoice for each subscription in the list
+      # Paginate the filtered results
+      ## Private Functions
+      # Convert subscription from "trialing" to "active" when trial_end is set to now or past
+      # If subscription is trialing and trial_end is now or in the past, activate it
+      # Otherwise, leave subscription as is
+      # Helper to get field from item map (supports both atom and string keys)
       if Map.has_key?(conn.params, :items) do
         update_subscription_items(id, conn.params.items)
       end
 
       items_after_update = SubscriptionItems.find_by_subscription(id)
       billable_items_changed = billable_items_changed?(existing_items, items_after_update)
-
-      # Create proration invoice when proration_behavior requests it
       updated = maybe_create_proration_invoice(updated, conn.params, billable_items_changed)
 
       updated_with_items = load_subscription_items(updated)
+      # items will be loaded separately
       previous_attributes = diff_attributes(existing, updated_with_items)
       items_changed = Map.has_key?(conn.params, :items)
       maybe_emit_subscription_updated_telemetry(previous_attributes, items_changed, updated_with_items)
-
+      # Additional fields
       updated_with_items
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))
@@ -208,11 +217,8 @@ defmodule PaperTiger.Resources.Subscription do
   @spec list(Plug.Conn.t()) :: Plug.Conn.t()
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
-
-    # Get all subscriptions in current namespace
     all_subscriptions = Subscriptions.list_namespace(PaperTiger.Test.current_namespace())
 
-    # Filter by customer and/or status if provided
     filtered_subscriptions =
       case {Map.get(conn.params, :customer), Map.get(conn.params, :status)} do
         {nil, nil} ->
@@ -233,13 +239,11 @@ defmodule PaperTiger.Resources.Subscription do
           end)
       end
 
-    # Load subscription items and latest invoice for each subscription in the list
     subscriptions_with_details =
       filtered_subscriptions
       |> Enum.map(&load_subscription_items/1)
       |> Enum.map(&load_latest_invoice/1)
 
-    # Paginate the filtered results
     result =
       PaperTiger.List.paginate(
         subscriptions_with_details,
@@ -271,8 +275,6 @@ defmodule PaperTiger.Resources.Subscription do
     end
   end
 
-  ## Private Functions
-
   defp coerce_update_params(params) do
     params
     |> maybe_coerce_cancel_at_period_end()
@@ -296,13 +298,11 @@ defmodule PaperTiger.Resources.Subscription do
     end
   end
 
-  # Convert subscription from "trialing" to "active" when trial_end is set to now or past
   defp maybe_activate_subscription_after_trial(subscription) do
     now = PaperTiger.now()
     trial_end = Map.get(subscription, :trial_end)
     status = Map.get(subscription, :status)
 
-    # If subscription is trialing and trial_end is now or in the past, activate it
     if status == "trialing" && trial_end != nil && trial_end <= now do
       subscription
       |> Map.put(:status, "active")
@@ -311,12 +311,10 @@ defmodule PaperTiger.Resources.Subscription do
       |> Map.put(:current_period_start, now)
       |> Map.put(:current_period_end, now + 30 * 86_400)
     else
-      # Otherwise, leave subscription as is
       subscription
     end
   end
 
-  # Helper to get field from item map (supports both atom and string keys)
   defp get_item_field(item, field, default \\ nil) do
     Map.get(item, field) || Map.get(item, Atom.to_string(field), default)
   end
@@ -355,34 +353,32 @@ defmodule PaperTiger.Resources.Subscription do
     status = determine_subscription_status(params, trial_end)
 
     %{
-      id: generate_id("sub", Map.get(params, :id)),
-      object: "subscription",
-      created: now,
-      status: status,
-      customer: Map.get(params, :customer),
-      # items will be loaded separately
-      items: %{data: [], has_more: false, object: "list", url: "/v1/subscription_items"},
-      current_period_start: current_period_start,
-      current_period_end: current_period_end,
-      trial_start: if(trial_end, do: now),
-      trial_end: trial_end,
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
       billing_cycle_anchor: Map.get(params, :billing_cycle_anchor, current_period_start),
-      cancel_at_period_end: false,
       cancel_at: nil,
+      cancel_at_period_end: false,
       canceled_at: nil,
+      collection_method: "charge_automatically",
+      created: now,
+      current_period_end: current_period_end,
+      current_period_start: current_period_start,
+      customer: Map.get(params, :customer),
+      days_until_due: nil,
       default_payment_method: Map.get(params, :default_payment_method),
       discount: build_discount_from_coupon(params),
-      collection_method: "charge_automatically",
-      days_until_due: nil,
       ended_at: nil,
+      id: generate_id("sub", Map.get(params, :id)),
+      items: %{data: [], has_more: false, object: "list", url: "/v1/subscription_items"},
       latest_invoice: nil,
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
       next_pending_invoice_item_invoice: nil,
+      object: "subscription",
       pending_setup_intent: nil,
       pending_update: nil,
-      start_date: now
+      start_date: now,
+      status: status,
+      trial_end: trial_end,
+      trial_start: if(trial_end, do: now)
     }
   end
 

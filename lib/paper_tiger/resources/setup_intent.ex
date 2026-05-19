@@ -124,29 +124,29 @@ defmodule PaperTiger.Resources.SetupIntent do
   ## Private Functions
 
   defp build_setup_intent(params) do
+    # Additional fields
     %{
-      id: generate_id("seti"),
-      object: "setup_intent",
-      created: PaperTiger.now(),
-      customer: Map.get(params, :customer),
-      payment_method: Map.get(params, :payment_method),
-      status: "requires_payment_method",
-      usage: Map.get(params, :usage, "off_session"),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
       application: Map.get(params, :application),
       cancellation_reason: nil,
       client_secret: generate_client_secret(),
+      created: PaperTiger.now(),
+      customer: Map.get(params, :customer),
       description: Map.get(params, :description),
       flow_directions: Map.get(params, :flow_directions, []),
+      id: generate_id("seti"),
       last_setup_error: nil,
+      livemode: false,
       mandate: Map.get(params, :mandate),
+      metadata: Map.get(params, :metadata, %{}),
       next_action: nil,
+      object: "setup_intent",
       on_behalf_of: Map.get(params, :on_behalf_of),
+      payment_method: Map.get(params, :payment_method),
       payment_method_options: Map.get(params, :payment_method_options),
       payment_method_types: Map.get(params, :payment_method_types, ["card"]),
-      single_use_mandate: nil
+      single_use_mandate: nil,
+      status: "requires_payment_method",
+      usage: Map.get(params, :usage, "off_session")
     }
   end
 

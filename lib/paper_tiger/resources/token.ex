@@ -88,6 +88,7 @@ defmodule PaperTiger.Resources.Token do
 
   ## Private Functions
 
+  # Additional fields
   defp validate_token_params(params) do
     has_card = Map.has_key?(params, :card) and not is_nil(Map.get(params, :card))
 
@@ -113,16 +114,15 @@ defmodule PaperTiger.Resources.Token do
       end
 
     %{
-      id: generate_id("tok"),
-      object: "token",
-      created: PaperTiger.now(),
-      type: type,
-      used: false,
-      card: processed_card,
       bank_account: processed_bank_account,
+      card: processed_card,
+      created: PaperTiger.now(),
+      id: generate_id("tok"),
+      livemode: false,
       metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false
+      object: "token",
+      type: type,
+      used: false
     }
   end
 

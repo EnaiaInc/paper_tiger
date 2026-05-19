@@ -142,32 +142,32 @@ defmodule PaperTiger.Resources.Payout do
 
   ## Private Functions
 
+  # Additional fields
   defp build_payout(params) do
     %{
-      id: generate_id("po"),
-      object: "payout",
-      created: PaperTiger.now(),
       amount: get_integer(params, :amount),
-      currency: Map.get(params, :currency),
-      status: Map.get(params, :status, "pending"),
       arrival_date: Map.get(params, :arrival_date),
-      method: Map.get(params, :method, "standard"),
-      type: Map.get(params, :type),
-      destination: Map.get(params, :destination),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
       automatic: Map.get(params, :automatic, false),
       balance_transaction: Map.get(params, :balance_transaction),
       connected_account: Map.get(params, :connected_account),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency),
       description: Map.get(params, :description),
+      destination: Map.get(params, :destination),
       failure_balance_transaction: Map.get(params, :failure_balance_transaction),
       failure_code: Map.get(params, :failure_code),
       failure_message: Map.get(params, :failure_message),
+      id: generate_id("po"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      method: Map.get(params, :method, "standard"),
+      object: "payout",
       original_payout: Map.get(params, :original_payout),
       reversed_by: Map.get(params, :reversed_by),
       source_type: Map.get(params, :source_type, "card"),
-      statement_descriptor: Map.get(params, :statement_descriptor)
+      statement_descriptor: Map.get(params, :statement_descriptor),
+      status: Map.get(params, :status, "pending"),
+      type: Map.get(params, :type)
     }
   end
 

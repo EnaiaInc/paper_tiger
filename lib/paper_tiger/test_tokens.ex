@@ -41,10 +41,14 @@ defmodule PaperTiger.TestTokens do
   require Logger
 
   # Card brand configurations
+  # Special decline cards
+  ## Private Functions
+
   @card_brands %{
     "amex" => %{
       country: "US",
       exp_month: 12,
+      # Store decline code in metadata for PaperTiger to use
       exp_year: 2030,
       fingerprint: "pm_card_amex_fingerprint",
       funding: "credit",
@@ -126,8 +130,6 @@ defmodule PaperTiger.TestTokens do
       last4: "5556"
     }
   }
-
-  # Special decline cards
   @decline_cards %{
     "chargeDeclined" => %{
       brand: "visa",
@@ -199,8 +201,6 @@ defmodule PaperTiger.TestTokens do
     Enum.map(Map.keys(@card_brands), &"tok_#{&1}")
   end
 
-  ## Private Functions
-
   defp load_payment_methods do
     count = load_brand_payment_methods() + load_decline_payment_methods()
     count
@@ -260,36 +260,15 @@ defmodule PaperTiger.TestTokens do
       id = "pm_card_#{name}"
 
       payment_method = %{
-        id: id,
-        object: "payment_method",
-        created: PaperTiger.now(),
-        type: "card",
-        customer: nil,
-        metadata: %{
-          # Store decline code in metadata for PaperTiger to use
-          _paper_tiger_decline_code: config.decline_code
-        },
-        livemode: false,
         billing_details: %{
-          address: %{
-            city: nil,
-            country: nil,
-            line1: nil,
-            line2: nil,
-            postal_code: nil,
-            state: nil
-          },
+          address: %{city: nil, country: nil, line1: nil, line2: nil, postal_code: nil, state: nil},
           email: nil,
           name: nil,
           phone: nil
         },
         card: %{
           brand: config.brand,
-          checks: %{
-            address_line1_check: nil,
-            address_postal_code_check: nil,
-            cvc_check: "pass"
-          },
+          checks: %{address_line1_check: nil, address_postal_code_check: nil, cvc_check: "pass"},
           country: "US",
           exp_month: 12,
           exp_year: 2030,
@@ -298,7 +277,14 @@ defmodule PaperTiger.TestTokens do
           last4: config.last4,
           three_d_secure_usage: %{supported: true},
           wallet: nil
-        }
+        },
+        created: PaperTiger.now(),
+        customer: nil,
+        id: id,
+        livemode: false,
+        metadata: %{_paper_tiger_decline_code: config.decline_code},
+        object: "payment_method",
+        type: "card"
       }
 
       {:ok, _} = PaymentMethods.insert(payment_method)

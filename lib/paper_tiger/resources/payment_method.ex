@@ -235,18 +235,18 @@ defmodule PaperTiger.Resources.PaymentMethod do
 
   ## Private Functions
 
+  # Additional fields
   defp build_payment_method(params) do
     %{
-      id: generate_id("pm", Map.get(params, :id)),
-      object: "payment_method",
-      created: PaperTiger.now(),
-      type: Map.get(params, :type),
-      customer: Map.get(params, :customer),
-      metadata: Map.get(params, :metadata, %{}),
-      card: coerce_card_fields(Map.get(params, :card)),
       billing_details: Map.get(params, :billing_details),
-      # Additional fields
-      livemode: false
+      card: coerce_card_fields(Map.get(params, :card)),
+      created: PaperTiger.now(),
+      customer: Map.get(params, :customer),
+      id: generate_id("pm", Map.get(params, :id)),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "payment_method",
+      type: Map.get(params, :type)
     }
   end
 

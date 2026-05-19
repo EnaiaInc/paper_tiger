@@ -146,20 +146,21 @@ defmodule PaperTiger.Resources.PaymentIntent do
     with {:ok, pi} <- PaymentIntents.get(id),
          :ok <- validate_confirmable(pi) do
       # Apply payment_method from confirm params if provided
+      # Transition to succeeded
+      # Create charge + balance transaction
+      # Re-fetch to get latest_charge
+      ## Private Functions
+
       updated =
         case conn.params do
           %{payment_method: pm} when is_binary(pm) -> %{pi | payment_method: pm}
           _ -> pi
         end
 
-      # Transition to succeeded
       updated = %{updated | status: "succeeded"}
+      # Additional fields
       {:ok, updated} = PaymentIntents.update(updated)
-
-      # Create charge + balance transaction
       {:ok, _charge} = PaperTiger.ChargeHelper.create_for_payment_intent(updated)
-
-      # Re-fetch to get latest_charge
       {:ok, final} = PaymentIntents.get(id)
 
       :telemetry.execute([:paper_tiger, :payment_intent, :succeeded], %{}, %{object: final})
@@ -182,8 +183,6 @@ defmodule PaperTiger.Resources.PaymentIntent do
     end
   end
 
-  ## Private Functions
-
   defp validate_confirmable(%{status: status}) when status in ["requires_payment_method", "requires_confirmation"],
     do: :ok
 
@@ -191,39 +190,38 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   defp build_payment_intent(params) do
     %{
-      id: generate_id("pi"),
-      object: "payment_intent",
-      created: PaperTiger.now(),
       amount: get_integer(params, :amount),
-      currency: Map.get(params, :currency),
-      status: "requires_payment_method",
-      customer: Map.get(params, :customer),
-      payment_method: Map.get(params, :payment_method),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      description: Map.get(params, :description),
-      statement_descriptor: Map.get(params, :statement_descriptor),
-      confirmation_method: Map.get(params, :confirmation_method, "automatic"),
-      setup_future_usage: Map.get(params, :setup_future_usage),
-      off_session: Map.get(params, :off_session),
-      receipt_email: Map.get(params, :receipt_email),
-      capture_method: Map.get(params, :capture_method, "automatic"),
       amount_details: Map.get(params, :amount_details),
-      cancellation_reason: nil,
-      client_secret: generate_client_secret(),
-      next_action: nil,
-      shipping: Map.get(params, :shipping),
-      on_behalf_of: Map.get(params, :on_behalf_of),
-      last_payment_error: nil,
-      processing: nil,
-      review: nil,
       application: nil,
       application_fee_amount: nil,
+      cancellation_reason: nil,
+      capture_method: Map.get(params, :capture_method, "automatic"),
+      client_secret: generate_client_secret(),
+      confirmation_method: Map.get(params, :confirmation_method, "automatic"),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency),
+      customer: Map.get(params, :customer),
+      description: Map.get(params, :description),
+      id: generate_id("pi"),
       invoice: nil,
+      last_payment_error: nil,
       latest_charge: nil,
+      livemode: false,
       mandate: nil,
-      source: Map.get(params, :source)
+      metadata: Map.get(params, :metadata, %{}),
+      next_action: nil,
+      object: "payment_intent",
+      off_session: Map.get(params, :off_session),
+      on_behalf_of: Map.get(params, :on_behalf_of),
+      payment_method: Map.get(params, :payment_method),
+      processing: nil,
+      receipt_email: Map.get(params, :receipt_email),
+      review: nil,
+      setup_future_usage: Map.get(params, :setup_future_usage),
+      shipping: Map.get(params, :shipping),
+      source: Map.get(params, :source),
+      statement_descriptor: Map.get(params, :statement_descriptor),
+      status: "requires_payment_method"
     }
   end
 

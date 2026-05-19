@@ -71,9 +71,12 @@ defmodule PaperTiger.Resources.Charge do
   end
 
   # Creates a balance transaction for successful charges
+  ## Private Functions
+
   defp create_balance_transaction_if_succeeded(%{status: "succeeded"} = charge) do
     {:ok, txn_id} = BalanceTransactionHelper.create_for_charge(charge)
     updated = Map.put(charge, :balance_transaction, txn_id)
+    # Additional fields
     Charges.update(updated)
   end
 
@@ -151,42 +154,34 @@ defmodule PaperTiger.Resources.Charge do
     json_response(conn, 200, result)
   end
 
-  ## Private Functions
-
   defp build_charge(params) do
     %{
-      id: generate_id("ch"),
-      object: "charge",
-      created: PaperTiger.now(),
       amount: get_integer(params, :amount),
-      currency: Map.get(params, :currency),
-      status: Map.get(params, :status, "succeeded"),
-      customer: Map.get(params, :customer),
-      payment_method: Map.get(params, :payment_method),
-      description: Map.get(params, :description),
-      metadata: Map.get(params, :metadata, %{}),
-      refunded: Map.get(params, :refunded, false),
       amount_refunded: get_integer(params, :amount_refunded),
-      # Additional fields
-      livemode: false,
-      receipt_email: Map.get(params, :receipt_email),
-      receipt_number: Map.get(params, :receipt_number),
-      receipt_url: nil,
-      statement_descriptor: Map.get(params, :statement_descriptor),
+      balance_transaction: nil,
+      billing_details: Map.get(params, :billing_details),
+      captured: true,
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency),
+      customer: Map.get(params, :customer),
+      description: Map.get(params, :description),
       failure_code: nil,
       failure_message: nil,
       fraud_details: nil,
-      outcome: %{
-        network_status: "approved_by_network",
-        reason: nil,
-        risk_level: "normal",
-        type: "authorized"
-      },
+      id: generate_id("ch"),
+      invoice: Map.get(params, :invoice),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "charge",
+      outcome: %{network_status: "approved_by_network", reason: nil, risk_level: "normal", type: "authorized"},
       paid: true,
-      captured: true,
-      balance_transaction: nil,
-      billing_details: Map.get(params, :billing_details),
-      invoice: Map.get(params, :invoice)
+      payment_method: Map.get(params, :payment_method),
+      receipt_email: Map.get(params, :receipt_email),
+      receipt_number: Map.get(params, :receipt_number),
+      receipt_url: nil,
+      refunded: Map.get(params, :refunded, false),
+      statement_descriptor: Map.get(params, :statement_descriptor),
+      status: Map.get(params, :status, "succeeded")
     }
   end
 

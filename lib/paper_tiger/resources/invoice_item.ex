@@ -153,26 +153,22 @@ defmodule PaperTiger.Resources.InvoiceItem do
   ## Private Functions
 
   defp build_invoice_item(params) do
+    # Additional fields
     now = PaperTiger.now()
     amount = get_integer(params, :amount)
 
     %{
-      id: generate_id("ii"),
-      object: "invoiceitem",
-      date: now,
-      customer: Map.get(params, :customer),
-      invoice: Map.get(params, :invoice),
       amount: amount,
       currency: Map.get(params, :currency),
+      customer: Map.get(params, :customer),
+      date: now,
       description: Map.get(params, :description),
-      quantity: get_integer(params, :quantity, 1),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
+      id: generate_id("ii"),
+      invoice: Map.get(params, :invoice),
       livemode: false,
-      period: %{
-        end: nil,
-        start: nil
-      },
+      metadata: Map.get(params, :metadata, %{}),
+      object: "invoiceitem",
+      period: %{end: nil, start: nil},
       price: %{
         billing_scheme: "per_unit",
         created: PaperTiger.now(),
@@ -193,9 +189,8 @@ defmodule PaperTiger.Resources.InvoiceItem do
         unit_amount_decimal: nil
       },
       proration: false,
-      proration_details: %{
-        credited_items: nil
-      },
+      proration_details: %{credited_items: nil},
+      quantity: get_integer(params, :quantity, 1),
       subscription: Map.get(params, :subscription),
       subscription_item: nil,
       type: "invoiceitem",

@@ -147,30 +147,30 @@ defmodule PaperTiger.Resources.Source do
 
   ## Private Functions
 
+  # Additional fields
   defp build_source(params) do
     %{
-      id: generate_id("src"),
-      object: "source",
-      created: PaperTiger.now(),
-      type: Map.get(params, :type),
-      customer: Map.get(params, :customer),
-      status: Map.get(params, :status, "pending"),
+      alipay: Map.get(params, :alipay),
       amount: get_integer(params, :amount),
-      currency: Map.get(params, :currency, "usd"),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      owner: Map.get(params, :owner),
-      statement_descriptor: Map.get(params, :statement_descriptor),
+      bank_account: Map.get(params, :bank_account),
       # Type-specific fields (will vary based on source type)
       card: Map.get(params, :card),
-      bank_account: Map.get(params, :bank_account),
-      sepa_debit: Map.get(params, :sepa_debit),
-      alipay: Map.get(params, :alipay),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency, "usd"),
+      customer: Map.get(params, :customer),
       # Single-use source fields
       flow: Map.get(params, :flow),
+      id: generate_id("src"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "source",
+      owner: Map.get(params, :owner),
+      receiver: Map.get(params, :receiver),
       redirect: Map.get(params, :redirect),
-      receiver: Map.get(params, :receiver)
+      sepa_debit: Map.get(params, :sepa_debit),
+      statement_descriptor: Map.get(params, :statement_descriptor),
+      status: Map.get(params, :status, "pending"),
+      type: Map.get(params, :type)
     }
   end
 

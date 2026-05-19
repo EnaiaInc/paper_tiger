@@ -131,24 +131,24 @@ defmodule PaperTiger.Resources.Topup do
 
   ## Private Functions
 
+  # Additional fields
   defp build_topup(params) do
     %{
-      id: generate_id("tu"),
-      object: "topup",
-      created: PaperTiger.now(),
       amount: get_integer(params, :amount),
+      created: PaperTiger.now(),
       currency: Map.get(params, :currency),
-      status: Map.get(params, :status, "pending"),
       description: Map.get(params, :description),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      source: Map.get(params, :source),
-      statement_descriptor: Map.get(params, :statement_descriptor),
-      transfer_group: Map.get(params, :transfer_group),
       expected_arrival_date: Map.get(params, :expected_arrival_date),
       failure_code: Map.get(params, :failure_code),
-      failure_message: Map.get(params, :failure_message)
+      failure_message: Map.get(params, :failure_message),
+      id: generate_id("tu"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "topup",
+      source: Map.get(params, :source),
+      statement_descriptor: Map.get(params, :statement_descriptor),
+      status: Map.get(params, :status, "pending"),
+      transfer_group: Map.get(params, :transfer_group)
     }
   end
 

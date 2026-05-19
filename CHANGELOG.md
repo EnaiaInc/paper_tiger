@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Hardened
 
 - Adapter invocation is wrapped: a raising, exiting, throwing, undefined, missing-`deliver/1`, or wrong-shape-returning adapter is normalized into `{:error, reason}` so PaperTiger's own backoff/retry runs and a delivery attempt is recorded — instead of the spawned delivery task crashing before the retry machinery (and, in sync mode, the linked `Task.async` taking down `PaperTiger.WebhookDelivery`). This is what actually enforces the "a missing or crashing host cannot silently drop webhooks" guarantee.
+- Updated direct and transitive dependencies to current compatible releases, including Bandit/Plug security fixes, Credo's Elixir `1.20.0-rc` compatibility fixes, and the Stripity Stripe/Hackney 4 line used by the sandbox HTTP adapter.
 
 ### Notes
 

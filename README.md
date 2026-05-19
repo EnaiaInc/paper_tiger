@@ -89,7 +89,7 @@ Add PaperTiger to your dependencies:
 def deps do
   [
     {:paper_tiger, "~> 1.0", only: [:dev, :test]},
-    {:stripity_stripe, "~> 3.0"}
+    {:stripity_stripe, "~> 3.3"}
   ]
 end
 ```

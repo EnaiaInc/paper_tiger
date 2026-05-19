@@ -21,14 +21,14 @@ defmodule PaperTiger.Store.WebhookDeliveries do
   """
   def record(event, webhook) do
     delivery = %{
-      id: PaperTiger.Resource.generate_id("whd"),
+      # Use `created` to match Stripe's convention (paginate expects this field)
+      created: System.system_time(:second),
+      event_data: event.data,
       event_id: event.id,
       event_type: event.type,
-      event_data: event.data,
+      id: PaperTiger.Resource.generate_id("whd"),
       webhook_id: webhook[:id] || webhook["id"],
-      webhook_url: webhook[:url] || webhook["url"],
-      # Use `created` to match Stripe's convention (paginate expects this field)
-      created: System.system_time(:second)
+      webhook_url: webhook[:url] || webhook["url"]
     }
 
     insert(delivery)

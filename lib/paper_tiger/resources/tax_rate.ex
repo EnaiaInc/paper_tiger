@@ -137,21 +137,21 @@ defmodule PaperTiger.Resources.TaxRate do
 
   defp build_tax_rate(params) do
     %{
-      id: generate_id("txr"),
-      object: "tax_rate",
-      created: PaperTiger.now(),
+      # Additional fields
       active: Map.get(params, :active, true),
+      country: Map.get(params, :country),
+      created: PaperTiger.now(),
+      description: Map.get(params, :description),
       display_name: Map.get(params, :display_name),
-      percentage: Map.get(params, :percentage),
+      id: generate_id("txr"),
       inclusive: Map.get(params, :inclusive),
       jurisdiction: Map.get(params, :jurisdiction),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
       livemode: false,
-      country: Map.get(params, :country),
+      metadata: Map.get(params, :metadata, %{}),
+      object: "tax_rate",
+      percentage: Map.get(params, :percentage),
       state: Map.get(params, :state),
-      tax_type: Map.get(params, :tax_type),
-      description: Map.get(params, :description)
+      tax_type: Map.get(params, :tax_type)
     }
   end
 

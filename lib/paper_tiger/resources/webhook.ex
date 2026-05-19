@@ -143,21 +143,21 @@ defmodule PaperTiger.Resources.Webhook do
 
   ## Private Functions
 
+  # Additional fields
   defp build_webhook(params) do
     %{
-      id: generate_id("we"),
-      object: "webhook_endpoint",
-      created: PaperTiger.now(),
-      url: Map.get(params, :url),
-      secret: generate_webhook_secret(),
-      enabled_events: Map.get(params, :enabled_events, []),
-      status: Map.get(params, :status, "enabled"),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      version: nil,
+      api_version: "2023-10-16",
       connect: false,
-      api_version: "2023-10-16"
+      created: PaperTiger.now(),
+      enabled_events: Map.get(params, :enabled_events, []),
+      id: generate_id("we"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "webhook_endpoint",
+      secret: generate_webhook_secret(),
+      status: Map.get(params, :status, "enabled"),
+      url: Map.get(params, :url),
+      version: nil
     }
   end
 

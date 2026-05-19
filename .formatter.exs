@@ -4,8 +4,8 @@
   quokka: [
     autosort: [:map, :defstruct],
     only: [
+      :autosort,
       :blocks,
-      :comment_directives,
       :configs,
       :defs,
       :deprecations,

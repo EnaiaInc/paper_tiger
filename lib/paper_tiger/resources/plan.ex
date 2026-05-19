@@ -167,26 +167,26 @@ defmodule PaperTiger.Resources.Plan do
 
   defp build_plan(params) do
     %{
-      id: Map.get(params, :id) || generate_id("plan"),
-      object: "plan",
-      created: PaperTiger.now(),
+      # Additional fields
       active: Map.get(params, :active, true),
+      aggregate_usage: Map.get(params, :aggregate_usage),
       amount: get_integer(params, :amount),
+      billing_scheme: Map.get(params, :billing_scheme, "per_unit"),
+      created: PaperTiger.now(),
       currency: Map.get(params, :currency),
+      id: Map.get(params, :id) || generate_id("plan"),
       interval: Map.get(params, :interval),
       interval_count: get_integer(params, :interval_count, 1),
-      product: Map.get(params, :product),
-      nickname: Map.get(params, :nickname),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
       livemode: false,
-      usage_type: Map.get(params, :usage_type, "licensed"),
-      trial_period_days: get_integer(params, :trial_period_days),
-      aggregate_usage: Map.get(params, :aggregate_usage),
-      billing_scheme: Map.get(params, :billing_scheme, "per_unit"),
+      metadata: Map.get(params, :metadata, %{}),
+      nickname: Map.get(params, :nickname),
+      object: "plan",
+      product: Map.get(params, :product),
       tiers: Map.get(params, :tiers),
       tiers_mode: Map.get(params, :tiers_mode),
-      transform_usage: Map.get(params, :transform_usage)
+      transform_usage: Map.get(params, :transform_usage),
+      trial_period_days: get_integer(params, :trial_period_days),
+      usage_type: Map.get(params, :usage_type, "licensed")
     }
   end
 

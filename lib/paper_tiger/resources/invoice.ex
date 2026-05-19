@@ -175,8 +175,19 @@ defmodule PaperTiger.Resources.Invoice do
     customer = Map.get(conn.params, :customer) |> to_string_or_nil()
     status = Map.get(conn.params, :status) |> to_string_or_nil()
     subscription = Map.get(conn.params, :subscription) |> to_string_or_nil()
-
     # Get invoices with filters applied
+    # No filters - return all
+    # Filter by both customer and status
+    # Filter by both customer and subscription
+    # Filter by both status and subscription
+    # Filter by all three
+    # Mark invoice as failed and return error
+    ## Private Functions
+    # Allow provided lines or use empty default
+    # Handle charge - empty string should be treated as nil
+    # Use get_optional_integer for created to handle string->integer conversion
+    # Build status_transitions - accept from params or generate defaults
+    # Build base invoice - charge is only included when present (not for draft invoices)
     invoices = get_filtered_invoices(customer, status, subscription)
 
     result = PaperTiger.List.paginate(invoices, Map.put(pagination_opts, :url, "/v1/invoices"))
@@ -189,10 +200,10 @@ defmodule PaperTiger.Resources.Invoice do
   defp to_string_or_nil(val) when is_atom(val), do: Atom.to_string(val)
 
   defp get_filtered_invoices(nil, nil, nil) do
-    # No filters - return all
     Invoices.all()
   end
 
+  # Additional fields
   defp get_filtered_invoices(customer_id, nil, nil) when is_binary(customer_id) do
     Invoices.find_by_customer(customer_id)
   end
@@ -206,27 +217,23 @@ defmodule PaperTiger.Resources.Invoice do
   end
 
   defp get_filtered_invoices(customer_id, status, nil) when is_binary(customer_id) and is_binary(status) do
-    # Filter by both customer and status
     Invoices.find_by_customer(customer_id)
     |> Enum.filter(fn inv -> inv.status == status end)
   end
 
   defp get_filtered_invoices(customer_id, nil, subscription_id)
        when is_binary(customer_id) and is_binary(subscription_id) do
-    # Filter by both customer and subscription
     Invoices.find_by_customer(customer_id)
     |> Enum.filter(fn inv -> inv.subscription == subscription_id end)
   end
 
   defp get_filtered_invoices(nil, status, subscription_id) when is_binary(status) and is_binary(subscription_id) do
-    # Filter by both status and subscription
     Invoices.find_by_subscription(subscription_id)
     |> Enum.filter(fn inv -> inv.status == status end)
   end
 
   defp get_filtered_invoices(customer_id, status, subscription_id)
        when is_binary(customer_id) and is_binary(status) and is_binary(subscription_id) do
-    # Filter by all three
     Invoices.find_by_customer(customer_id)
     |> Enum.filter(fn inv -> inv.status == status and inv.subscription == subscription_id end)
   end
@@ -355,7 +362,6 @@ defmodule PaperTiger.Resources.Invoice do
         error_response(conn, PaperTiger.Error.not_found("invoice", id))
 
       {:error, {:payment_failed, decline_code}} ->
-        # Mark invoice as failed and return error
         with {:ok, invoice} <- Invoices.get(id) do
           failed = mark_invoice_payment_failed(invoice, decline_code)
           {:ok, _failed} = Invoices.update(failed)
@@ -410,15 +416,12 @@ defmodule PaperTiger.Resources.Invoice do
     end
   end
 
-  ## Private Functions
-
   defp build_invoice(params) do
     now = PaperTiger.now()
     currency = Map.get(params, :currency, "usd")
     invoice_id = generate_id("in", Map.get(params, :id))
     total = get_integer(params, :total, 0)
 
-    # Allow provided lines or use empty default
     default_lines = %{
       data: [],
       has_more: false,
@@ -427,16 +430,10 @@ defmodule PaperTiger.Resources.Invoice do
     }
 
     lines = Map.get(params, :lines, default_lines)
-
-    # Handle charge - empty string should be treated as nil
     charge = normalize_optional_string(params, :charge)
-
-    # Use get_optional_integer for created to handle string->integer conversion
     created = get_optional_integer(params, :created) || now
     period_start = get_optional_integer(params, :period_start) || now
     period_end = get_optional_integer(params, :period_end) || now
-
-    # Build status_transitions - accept from params or generate defaults
     status = Map.get(params, :status, "draft")
     default_status_transitions = build_default_status_transitions(status, now)
 
@@ -446,41 +443,39 @@ defmodule PaperTiger.Resources.Invoice do
         transitions -> normalize_status_transitions(transitions)
       end
 
-    # Build base invoice - charge is only included when present (not for draft invoices)
     base_invoice = %{
-      id: invoice_id,
-      object: "invoice",
-      created: created,
-      status: status,
-      status_transitions: status_transitions,
-      customer: Map.get(params, :customer),
+      account_country: "US",
+      account_name: "PaperTiger Test",
       amount_due: get_integer(params, :amount_due, total),
       amount_paid: get_integer(params, :amount_paid, 0),
       amount_remaining: get_integer(params, :amount_remaining, total),
-      currency: currency,
-      description: Map.get(params, :description),
-      metadata: Map.get(params, :metadata, %{}),
-      subscription: Map.get(params, :subscription),
-      lines: lines,
-      # Additional fields
-      livemode: false,
-      account_country: "US",
-      account_name: "PaperTiger Test",
       auto_advance: Map.get(params, :auto_advance, true),
       collection_method: Map.get(params, :collection_method, "charge_automatically"),
+      created: created,
+      currency: currency,
+      customer: Map.get(params, :customer),
+      description: Map.get(params, :description),
       due_date: Map.get(params, :due_date),
       ending_balance: nil,
       footer: Map.get(params, :footer),
       hosted_invoice_url: nil,
+      id: invoice_id,
       invoice_pdf: Map.get(params, :invoice_pdf),
+      lines: lines,
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
       next_payment_attempt: nil,
       number: nil,
+      object: "invoice",
       paid: Map.get(params, :paid, false),
       period_end: period_end,
       period_start: period_start,
       receipt_number: nil,
       starting_balance: 0,
       statement_descriptor: Map.get(params, :statement_descriptor),
+      status: status,
+      status_transitions: status_transitions,
+      subscription: Map.get(params, :subscription),
       subtotal: get_integer(params, :subtotal, total),
       tax: nil,
       total: total,

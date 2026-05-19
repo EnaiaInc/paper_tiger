@@ -151,26 +151,26 @@ defmodule PaperTiger.Resources.Product do
   ## Private Functions
 
   defp build_product(params) do
+    # Additional fields
     %{
-      id: generate_id("prod", Map.get(params, :id)),
-      object: "product",
-      created: PaperTiger.now(),
       active: Map.get(params, :active, true),
-      name: Map.get(params, :name),
+      attributes: Map.get(params, :attributes, []),
+      caption: Map.get(params, :caption),
+      created: PaperTiger.now(),
       description: Map.get(params, :description),
-      metadata: Map.get(params, :metadata, %{}),
+      id: generate_id("prod", Map.get(params, :id)),
       images: Map.get(params, :images, []),
-      statement_descriptor: Map.get(params, :statement_descriptor),
-      # Additional fields
       livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      name: Map.get(params, :name),
+      object: "product",
+      package_dimensions: Map.get(params, :package_dimensions),
+      shippable: Map.get(params, :shippable),
+      statement_descriptor: Map.get(params, :statement_descriptor),
       type: "service",
       unit_label: Map.get(params, :unit_label),
       updated: PaperTiger.now(),
-      url: Map.get(params, :url),
-      shippable: Map.get(params, :shippable),
-      package_dimensions: Map.get(params, :package_dimensions),
-      attributes: Map.get(params, :attributes, []),
-      caption: Map.get(params, :caption)
+      url: Map.get(params, :url)
     }
   end
 

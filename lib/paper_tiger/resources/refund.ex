@@ -67,10 +67,12 @@ defmodule PaperTiger.Resources.Refund do
   end
 
   # Creates a balance transaction for a refund
+  # Get the original charge for fee calculation
+  ## Private Functions
+
   defp create_balance_transaction(refund) do
     charge_id = refund[:charge] || refund["charge"]
-
-    # Get the original charge for fee calculation
+    # Additional fields
     original_charge =
       case Charges.get(charge_id) do
         {:ok, charge} -> charge
@@ -151,25 +153,22 @@ defmodule PaperTiger.Resources.Refund do
     json_response(conn, 200, result)
   end
 
-  ## Private Functions
-
   defp build_refund(params) do
     %{
-      id: generate_id("re"),
-      object: "refund",
-      created: PaperTiger.now(),
       amount: get_integer(params, :amount),
-      charge: Map.get(params, :charge),
-      currency: Map.get(params, :currency, "usd"),
-      status: Map.get(params, :status, "succeeded"),
-      reason: Map.get(params, :reason),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      receipt_number: Map.get(params, :receipt_number),
       balance_transaction: nil,
+      charge: Map.get(params, :charge),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency, "usd"),
       failure_code: nil,
-      failure_reason: nil
+      failure_reason: nil,
+      id: generate_id("re"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "refund",
+      reason: Map.get(params, :reason),
+      receipt_number: Map.get(params, :receipt_number),
+      status: Map.get(params, :status, "succeeded")
     }
   end
 

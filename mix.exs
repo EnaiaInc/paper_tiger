@@ -73,12 +73,12 @@ defmodule PaperTiger.MixProject do
 
       # Optional: hackney for stripity_stripe sandbox integration
       # Users of PaperTiger.StripityStripeHackney must have hackney available
-      {:hackney, "~> 1.20", optional: true},
+      {:hackney, "~> 4.0", optional: true},
 
       # Testing/dev
       {:bypass, "~> 2.1", only: :test},
       {:mox, "~> 1.2", only: :test},
-      {:stripity_stripe, "~> 3.2", only: :test},
+      {:stripity_stripe, "~> 3.3", only: :test},
 
       # Quality tooling
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

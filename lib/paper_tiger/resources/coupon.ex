@@ -184,22 +184,22 @@ defmodule PaperTiger.Resources.Coupon do
 
   ## Private Functions
 
+  # Additional fields
   defp build_coupon(params) do
     %{
-      id: Map.get(params, :id),
-      object: "coupon",
-      name: Map.get(params, :name),
-      created: PaperTiger.now(),
-      percent_off: get_integer_or_nil(params, :percent_off),
       amount_off: get_integer_or_nil(params, :amount_off),
+      created: PaperTiger.now(),
       currency: Map.get(params, :currency),
       duration: Map.get(params, :duration),
       duration_in_months: get_integer_or_nil(params, :duration_in_months),
-      metadata: Map.get(params, :metadata, %{}),
-      max_redemptions: get_integer_or_nil(params, :max_redemptions),
-      redeem_by: get_integer_or_nil(params, :redeem_by),
-      # Additional fields
+      id: Map.get(params, :id),
       livemode: false,
+      max_redemptions: get_integer_or_nil(params, :max_redemptions),
+      metadata: Map.get(params, :metadata, %{}),
+      name: Map.get(params, :name),
+      object: "coupon",
+      percent_off: get_integer_or_nil(params, :percent_off),
+      redeem_by: get_integer_or_nil(params, :redeem_by),
       valid: true
     }
   end

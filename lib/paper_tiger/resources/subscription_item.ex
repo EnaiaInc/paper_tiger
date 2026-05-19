@@ -160,21 +160,21 @@ defmodule PaperTiger.Resources.SubscriptionItem do
 
   ## Private Functions
 
+  # Additional fields
   defp build_subscription_item(params) do
     price_id = Map.get(params, :price)
     price_object = fetch_price_object(price_id)
 
     %{
-      id: generate_id("si"),
-      object: "subscription_item",
+      billing_thresholds: Map.get(params, :billing_thresholds),
       created: PaperTiger.now(),
-      subscription: Map.get(params, :subscription),
+      id: generate_id("si"),
+      livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      object: "subscription_item",
       price: price_object,
       quantity: get_integer(params, :quantity, 1),
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
-      livemode: false,
-      billing_thresholds: Map.get(params, :billing_thresholds),
+      subscription: Map.get(params, :subscription),
       tax_rates: Map.get(params, :tax_rates, [])
     }
   end

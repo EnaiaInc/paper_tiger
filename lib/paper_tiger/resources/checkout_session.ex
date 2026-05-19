@@ -113,8 +113,31 @@ defmodule PaperTiger.Resources.CheckoutSession do
   @spec list(Plug.Conn.t()) :: Plug.Conn.t()
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
-
     # Apply customer filter if provided
+    # Redirect browser to success URL
+    # Already completed, just redirect
+    ## Private Functions
+    # Create a payment method and attach to customer (fires payment_method.attached event)
+    # Create side effects based on mode
+    # For setup mode, check if customer has incomplete subscription and pay first invoice
+    # Fire payment_method.attached event - this is critical for downstream processing
+    # Create subscription items from line items
+    # Calculate amount from line items
+    # Create charge + balance transaction chain
+    # Re-fetch to get updated latest_charge
+    # Ensure both values are integers for arithmetic
+    # When a setup session completes (customer adds payment method), check if they have
+    # an incomplete subscription and automatically pay its first invoice.
+    # This simulates Stripe's behavior of automatically charging the invoice when
+    # a payment method is added to a subscription with status "incomplete".
+    # Find incomplete subscriptions for this customer
+    # Get subscription items to build invoice line items
+    # Calculate total from subscription items
+    # Create invoice
+    # Fire invoice events
+    # Update subscription to active
+    # Get price ID from item (handles both :price as string and as map)
+    # Fetch full price object from store to ensure all fields are present
     result =
       if customer_id = Map.get(conn.params, :customer) do
         CheckoutSessions.find_by_customer(customer_id)
@@ -141,6 +164,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
         expired_session = %{session | status: "expired"}
         {:ok, expired_session} = CheckoutSessions.update(expired_session)
 
+        # Additional fields
         :telemetry.execute(
           [:paper_tiger, :checkout, :session, :expired],
           %{},
@@ -161,6 +185,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
         )
 
       {:error, :not_found} ->
+        # URL field - matches Stripe's hosted checkout URL format
         error_response(conn, PaperTiger.Error.not_found("checkout.session", id))
     end
   end
@@ -250,13 +275,11 @@ defmodule PaperTiger.Resources.CheckoutSession do
           %{object: completed_session}
         )
 
-        # Redirect browser to success URL
         conn
         |> Plug.Conn.put_resp_header("location", success_url)
         |> Plug.Conn.send_resp(302, "")
 
       {:ok, %{status: "complete", success_url: success_url}} ->
-        # Already completed, just redirect
         conn
         |> Plug.Conn.put_resp_header("location", success_url)
         |> Plug.Conn.send_resp(302, "")
@@ -275,19 +298,14 @@ defmodule PaperTiger.Resources.CheckoutSession do
     end
   end
 
-  ## Private Functions
-
   defp complete_session(session) do
     Logger.info(
       "complete_session called for #{session.id}, mode: #{session.mode}, customer: #{inspect(session.customer)}"
     )
 
     now = PaperTiger.now()
-
-    # Create a payment method and attach to customer (fires payment_method.attached event)
     payment_method = create_payment_method_for_session(session)
 
-    # Create side effects based on mode
     {subscription_id, payment_intent_id, setup_intent_id} =
       case session.mode do
         "subscription" ->
@@ -301,7 +319,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
         "setup" ->
           Logger.info("Setup mode detected, creating setup intent and checking for incomplete subscriptions")
           setup_intent = create_setup_intent_from_session(session, payment_method)
-          # For setup mode, check if customer has incomplete subscription and pay first invoice
           Logger.info("Checking incomplete subscriptions for customer: #{session.customer}")
           maybe_pay_incomplete_subscription_invoice(session.customer, payment_method)
           {nil, nil, setup_intent.id}
@@ -368,7 +385,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
     {:ok, payment_method} = PaymentMethods.insert(payment_method)
 
-    # Fire payment_method.attached event - this is critical for downstream processing
     :telemetry.execute(
       [:paper_tiger, :payment_method, :attached],
       %{},
@@ -415,8 +431,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
 
     {:ok, subscription} = Subscriptions.insert(subscription)
-
-    # Create subscription items from line items
     create_subscription_items_from_line_items(subscription.id, session.line_items)
 
     subscription
@@ -472,8 +486,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp create_payment_intent_from_session(session, payment_method) do
     now = PaperTiger.now()
-
-    # Calculate amount from line items
     amount = calculate_amount_from_line_items(session.line_items)
 
     payment_intent = %{
@@ -512,10 +524,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
 
     {:ok, payment_intent} = PaymentIntents.insert(payment_intent)
-
-    # Create charge + balance transaction chain
     {:ok, _charge} = PaperTiger.ChargeHelper.create_for_payment_intent(payment_intent)
-    # Re-fetch to get updated latest_charge
     {:ok, payment_intent} = PaymentIntents.get(payment_intent.id)
 
     payment_intent
@@ -525,7 +534,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
     Enum.reduce(line_items, 0, fn item, acc ->
       amount = Map.get(item, :amount) || Map.get(item, "amount") || 0
       quantity = Map.get(item, :quantity) || Map.get(item, "quantity") || 1
-      # Ensure both values are integers for arithmetic
       amount_int = if is_binary(amount), do: String.to_integer(amount), else: amount
       quantity_int = if is_binary(quantity), do: String.to_integer(quantity), else: quantity
       acc + amount_int * quantity_int
@@ -571,16 +579,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
     "secret_#{random_part}"
   end
 
-  # When a setup session completes (customer adds payment method), check if they have
-  # an incomplete subscription and automatically pay its first invoice.
-  # This simulates Stripe's behavior of automatically charging the invoice when
-  # a payment method is added to a subscription with status "incomplete".
   defp maybe_pay_incomplete_subscription_invoice(nil, _payment_method), do: :ok
 
   defp maybe_pay_incomplete_subscription_invoice(customer_id, payment_method) do
     Logger.debug("Checking for incomplete subscriptions for customer: #{customer_id}")
-
-    # Find incomplete subscriptions for this customer
     subscriptions = Subscriptions.find_by_customer(customer_id)
     Logger.debug("Found #{length(subscriptions)} subscriptions for customer #{customer_id}")
 
@@ -601,15 +603,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp create_and_pay_subscription_invoice(subscription, customer_id, payment_method) do
     now = PaperTiger.now()
-
-    # Get subscription items to build invoice line items
     {:ok, subscription_with_items} = Subscriptions.get(subscription.id)
     items = Map.get(subscription_with_items, :items, %{}) |> Map.get(:data, [])
-
-    # Calculate total from subscription items
     {total, lines} = build_invoice_lines_from_subscription_items(items, now)
 
-    # Create invoice
     invoice = %{
       amount_due: total,
       amount_paid: total,
@@ -647,14 +644,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
     }
 
     {:ok, paid_invoice} = Invoices.insert(invoice)
-
-    # Fire invoice events
     :telemetry.execute([:paper_tiger, :invoice, :created], %{}, %{object: paid_invoice})
     :telemetry.execute([:paper_tiger, :invoice, :finalized], %{}, %{object: paid_invoice})
     :telemetry.execute([:paper_tiger, :invoice, :paid], %{}, %{object: paid_invoice})
     :telemetry.execute([:paper_tiger, :invoice, :payment_succeeded], %{}, %{object: paid_invoice})
-
-    # Update subscription to active
     active_subscription = %{subscription | latest_invoice: paid_invoice.id, status: "active"}
     {:ok, _updated} = Subscriptions.update(active_subscription)
 
@@ -668,7 +661,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
       items
       |> Enum.with_index()
       |> Enum.map(fn {item, _index} ->
-        # Get price ID from item (handles both :price as string and as map)
         price_id =
           case Map.get(item, :price) do
             price_id when is_binary(price_id) -> price_id
@@ -676,7 +668,6 @@ defmodule PaperTiger.Resources.CheckoutSession do
             _ -> nil
           end
 
-        # Fetch full price object from store to ensure all fields are present
         {:ok, full_price} = Prices.get(price_id)
 
         amount = Map.get(full_price, :unit_amount, 0)
@@ -711,41 +702,37 @@ defmodule PaperTiger.Resources.CheckoutSession do
     session_id = generate_id("cs")
 
     %{
-      id: session_id,
-      object: "checkout.session",
-      created: PaperTiger.now(),
-      customer: Map.get(params, :customer),
-      mode: Map.get(params, :mode),
-      payment_status: Map.get(params, :payment_status, "unpaid"),
-      status: Map.get(params, :status, "open"),
-      success_url: Map.get(params, :success_url),
-      cancel_url: Map.get(params, :cancel_url),
-      line_items: Map.get(params, :line_items, []),
-      metadata: Map.get(params, :metadata, %{}),
-      # URL field - matches Stripe's hosted checkout URL format
-      url: generate_checkout_url(session_id),
-      # Additional fields
-      livemode: false,
       billing_address_collection: Map.get(params, :billing_address_collection),
-      shipping_address_collection: Map.get(params, :shipping_address_collection),
+      cancel_url: Map.get(params, :cancel_url),
+      completed_at: nil,
       consent_collection: Map.get(params, :consent_collection),
-      currency:
-        Map.get(params, :currency) ||
-          derive_currency_from_line_items(Map.get(params, :line_items, [])),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency) || derive_currency_from_line_items(Map.get(params, :line_items, [])),
+      customer: Map.get(params, :customer),
       customer_creation: Map.get(params, :customer_creation),
       expires_at: PaperTiger.now() + 86_400,
+      id: session_id,
+      line_items: Map.get(params, :line_items, []),
+      livemode: false,
       locale: Map.get(params, :locale),
+      metadata: Map.get(params, :metadata, %{}),
+      mode: Map.get(params, :mode),
+      object: "checkout.session",
+      payment_intent: Map.get(params, :payment_intent),
       payment_method_collection: Map.get(params, :payment_method_collection),
       payment_method_types: Map.get(params, :payment_method_types, ["card"]),
+      payment_status: Map.get(params, :payment_status, "unpaid"),
       phone_number_collection: Map.get(params, :phone_number_collection),
       recovered_from: Map.get(params, :recovered_from),
+      setup_intent: Map.get(params, :setup_intent),
+      shipping_address_collection: Map.get(params, :shipping_address_collection),
+      status: Map.get(params, :status, "open"),
       submit_type: Map.get(params, :submit_type),
       subscription: Map.get(params, :subscription),
-      payment_intent: Map.get(params, :payment_intent),
-      setup_intent: Map.get(params, :setup_intent),
-      completed_at: nil,
+      success_url: Map.get(params, :success_url),
       total_details: Map.get(params, :total_details),
-      ui_mode: Map.get(params, :ui_mode, "hosted")
+      ui_mode: Map.get(params, :ui_mode, "hosted"),
+      url: generate_checkout_url(session_id)
     }
   end
 

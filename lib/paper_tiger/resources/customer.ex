@@ -159,38 +159,33 @@ defmodule PaperTiger.Resources.Customer do
   end
 
   ## Private Functions
-
+  # Use provided created timestamp or default to now
   defp build_customer(params) do
-    # Use provided created timestamp or default to now
     created = get_optional_integer(params, :created) || PaperTiger.now()
 
     %{
-      id: generate_id("cus", Map.get(params, :id)),
-      object: "customer",
-      created: created,
-      email: Map.get(params, :email),
-      name: Map.get(params, :name),
-      description: Map.get(params, :description),
-      metadata: Map.get(params, :metadata, %{}),
-      default_source: Map.get(params, :default_source),
-      default_payment_method: Map.get(params, :default_payment_method),
+      address: Map.get(params, :address),
       # Additional fields
       balance: 0,
+      created: created,
       currency: nil,
+      default_payment_method: Map.get(params, :default_payment_method),
+      default_source: Map.get(params, :default_source),
       delinquent: false,
+      description: Map.get(params, :description),
       discount: nil,
+      email: Map.get(params, :email),
+      id: generate_id("cus", Map.get(params, :id)),
       invoice_prefix: nil,
-      invoice_settings: %{
-        custom_fields: nil,
-        default_payment_method: nil,
-        footer: nil
-      },
+      invoice_settings: %{custom_fields: nil, default_payment_method: nil, footer: nil},
       livemode: false,
+      metadata: Map.get(params, :metadata, %{}),
+      name: Map.get(params, :name),
+      object: "customer",
       phone: Map.get(params, :phone),
       preferred_locales: [],
       shipping: Map.get(params, :shipping),
-      tax_exempt: "none",
-      address: Map.get(params, :address)
+      tax_exempt: "none"
     }
   end
 

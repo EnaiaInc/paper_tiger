@@ -169,6 +169,7 @@ defmodule PaperTiger.Resources.BankAccount do
   ## Private Functions
 
   defp build_bank_account(params) do
+    # Additional fields
     account_number = Map.get(params, :account_number, "")
     last4_digits = String.slice(account_number, -4..-1)
 
@@ -178,23 +179,22 @@ defmodule PaperTiger.Resources.BankAccount do
       |> binary_part(0, 16)
 
     %{
-      id: generate_id("ba"),
-      object: "bank_account",
-      created: PaperTiger.now(),
-      customer: Map.get(params, :customer),
       account_holder_name: Map.get(params, :account_holder_name),
       account_holder_type: Map.get(params, :account_holder_type, "individual"),
+      account_number: Map.get(params, :account_number),
       bank_name: Map.get(params, :bank_name),
       country: Map.get(params, :country, "US"),
+      created: PaperTiger.now(),
       currency: Map.get(params, :currency, "usd"),
+      customer: Map.get(params, :customer),
       fingerprint: fingerprint,
+      id: generate_id("ba"),
       last4: last4_digits,
-      routing_number: Map.get(params, :routing_number),
-      status: "new",
-      metadata: Map.get(params, :metadata, %{}),
-      # Additional fields
       livemode: false,
-      account_number: Map.get(params, :account_number)
+      metadata: Map.get(params, :metadata, %{}),
+      object: "bank_account",
+      routing_number: Map.get(params, :routing_number),
+      status: "new"
     }
   end
 

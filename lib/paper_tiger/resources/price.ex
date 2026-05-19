@@ -62,11 +62,13 @@ defmodule PaperTiger.Resources.Price do
          price = build_price(conn.params),
          {:ok, price} <- Prices.insert(price) do
       maybe_store_idempotency(conn, price)
-
       # Stripe auto-creates a Plan for recurring prices (legacy compatibility)
       # The Plan ID matches the Price ID
+      ## Private Functions
+
       maybe_create_plan_for_recurring_price(price)
 
+      # Additional fields
       :telemetry.execute([:paper_tiger, :price, :created], %{}, %{object: price})
 
       price
@@ -153,8 +155,6 @@ defmodule PaperTiger.Resources.Price do
     json_response(conn, 200, result)
   end
 
-  ## Private Functions
-
   defp build_price(params) do
     unit_amount =
       case Map.get(params, :unit_amount) do
@@ -165,26 +165,25 @@ defmodule PaperTiger.Resources.Price do
     recurring = build_recurring(Map.get(params, :recurring))
 
     %{
-      id: generate_id("price", Map.get(params, :id)),
-      object: "price",
-      created: PaperTiger.now(),
       active: Map.get(params, :active, true),
-      currency: Map.get(params, :currency),
-      unit_amount: unit_amount,
-      unit_amount_decimal: Map.get(params, :unit_amount_decimal),
-      product: Map.get(params, :product),
-      metadata: Map.get(params, :metadata, %{}),
-      recurring: recurring,
-      # Additional fields
-      livemode: false,
-      type: if(Map.get(params, :recurring), do: "recurring", else: "one_time"),
       billing_scheme: Map.get(params, :billing_scheme, "per_unit"),
+      created: PaperTiger.now(),
+      currency: Map.get(params, :currency),
+      id: generate_id("price", Map.get(params, :id)),
+      livemode: false,
+      lookup_key: Map.get(params, :lookup_key),
+      metadata: Map.get(params, :metadata, %{}),
+      nickname: Map.get(params, :nickname),
+      object: "price",
+      product: Map.get(params, :product),
+      recurring: recurring,
+      tax_behavior: Map.get(params, :tax_behavior, "unspecified"),
       tiers: Map.get(params, :tiers),
       tiers_mode: Map.get(params, :tiers_mode),
-      nickname: Map.get(params, :nickname),
-      lookup_key: Map.get(params, :lookup_key),
-      tax_behavior: Map.get(params, :tax_behavior, "unspecified"),
-      transform_quantity: Map.get(params, :transform_quantity)
+      transform_quantity: Map.get(params, :transform_quantity),
+      type: if(Map.get(params, :recurring), do: "recurring", else: "one_time"),
+      unit_amount: unit_amount,
+      unit_amount_decimal: Map.get(params, :unit_amount_decimal)
     }
   end
 
