@@ -826,6 +826,10 @@ defmodule PaperTiger.Resources.Subscription do
 
       pi = %{
         amount: total,
+        amount_capturable: 0,
+        amount_received: amount_paid,
+        canceled_at: nil,
+        cancellation_reason: nil,
         capture_method: "automatic",
         client_secret: client_secret,
         confirmation_method: "automatic",

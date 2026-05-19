@@ -373,6 +373,10 @@ defmodule PaperTiger.BillingEngine do
     # Create payment intent
     payment_intent = %{
       amount: amount,
+      amount_capturable: 0,
+      amount_received: amount,
+      canceled_at: nil,
+      cancellation_reason: nil,
       created: now,
       currency: invoice.currency,
       customer: invoice.customer,
@@ -415,6 +419,10 @@ defmodule PaperTiger.BillingEngine do
     # Create failed payment intent
     payment_intent = %{
       amount: invoice.amount_due,
+      amount_capturable: 0,
+      amount_received: 0,
+      canceled_at: nil,
+      cancellation_reason: nil,
       created: now,
       currency: invoice.currency,
       customer: invoice.customer,
@@ -439,6 +447,7 @@ defmodule PaperTiger.BillingEngine do
     # Create failed charge
     charge = %{
       amount: invoice.amount_due,
+      amount_captured: 0,
       captured: false,
       created: now,
       currency: invoice.currency,

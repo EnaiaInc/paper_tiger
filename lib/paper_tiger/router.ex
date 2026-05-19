@@ -207,9 +207,17 @@ defmodule PaperTiger.Router do
 
   stripe_resource("invoices", Invoice, [])
   stripe_resource("payment_methods", PaymentMethod, [])
-  # Custom payment intent endpoint — must come BEFORE stripe_resource
+  # Custom payment intent endpoints — must come BEFORE stripe_resource
   post "/v1/payment_intents/:id/confirm" do
     PaymentIntent.confirm(conn, id)
+  end
+
+  post "/v1/payment_intents/:id/cancel" do
+    PaymentIntent.cancel(conn, id)
+  end
+
+  post "/v1/payment_intents/:id/capture" do
+    PaymentIntent.capture(conn, id)
   end
 
   stripe_resource("payment_intents", PaymentIntent, except: [:delete])

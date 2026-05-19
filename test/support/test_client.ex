@@ -607,6 +607,32 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Cancels a payment intent.
+  """
+  def cancel_payment_intent(payment_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        cancel_payment_intent_real(payment_intent_id, params)
+
+      :paper_tiger ->
+        cancel_payment_intent_mock(payment_intent_id, params)
+    end
+  end
+
+  @doc """
+  Captures a manual-capture payment intent.
+  """
+  def capture_payment_intent(payment_intent_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        capture_payment_intent_real(payment_intent_id, params)
+
+      :paper_tiger ->
+        capture_payment_intent_mock(payment_intent_id, params)
+    end
+  end
+
   ## Refund Operations
 
   @doc """
@@ -792,6 +818,47 @@ defmodule PaperTiger.TestClient do
 
   defp stripe_opts do
     [api_key: System.get_env("STRIPE_API_KEY")]
+  end
+
+  defp stripe_request(method, path, params \\ %{}) do
+    url = "https://api.stripe.com#{path}"
+
+    headers = [
+      {"authorization", "Bearer #{System.get_env("STRIPE_API_KEY")}"},
+      {"content-type", "application/x-www-form-urlencoded"}
+    ]
+
+    req_opts =
+      case method do
+        :get ->
+          [
+            headers: headers,
+            params: params
+          ]
+
+        :post ->
+          [
+            body: params_to_form_data(params),
+            headers: headers
+          ]
+      end
+
+    case apply(Req, method, [url, req_opts]) do
+      {:ok, %{body: body, status: status}} when status in 200..299 ->
+        {:ok, body}
+
+      {:ok, %{body: body}} ->
+        {:error, body}
+
+      {:error, reason} ->
+        {:error,
+         %{
+           "error" => %{
+             "message" => "An error occurred while making the network request. Reason: #{inspect(reason)}",
+             "type" => "network_error"
+           }
+         }}
+    end
   end
 
   defp create_customer_real(params) do
@@ -1002,38 +1069,31 @@ defmodule PaperTiger.TestClient do
   end
 
   defp get_charge_real(charge_id) do
-    case Stripe.Charge.retrieve(charge_id, %{}, stripe_opts()) do
-      {:ok, charge} -> {:ok, stripe_to_map(charge)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/charges/#{charge_id}")
   end
 
   defp create_payment_intent_real(params) do
-    case Stripe.PaymentIntent.create(normalize_params(params), stripe_opts()) do
-      {:ok, payment_intent} -> {:ok, stripe_to_map(payment_intent)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/payment_intents", params)
   end
 
   defp get_payment_intent_real(payment_intent_id) do
-    case Stripe.PaymentIntent.retrieve(payment_intent_id, %{}, stripe_opts()) do
-      {:ok, payment_intent} -> {:ok, stripe_to_map(payment_intent)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/payment_intents/#{payment_intent_id}")
   end
 
   defp confirm_payment_intent_real(payment_intent_id, params) do
-    case Stripe.PaymentIntent.confirm(payment_intent_id, normalize_params(params), stripe_opts()) do
-      {:ok, pi} -> {:ok, stripe_to_map(pi)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/payment_intents/#{payment_intent_id}/confirm", params)
+  end
+
+  defp cancel_payment_intent_real(payment_intent_id, params) do
+    stripe_request(:post, "/v1/payment_intents/#{payment_intent_id}/cancel", params)
+  end
+
+  defp capture_payment_intent_real(payment_intent_id, params) do
+    stripe_request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
   end
 
   defp get_balance_transaction_real(txn_id) do
-    case Stripe.BalanceTransaction.retrieve(txn_id, %{}, stripe_opts()) do
-      {:ok, txn} -> {:ok, stripe_to_map(txn)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/balance_transactions/#{txn_id}")
   end
 
   defp create_refund_real(params) do
@@ -1225,6 +1285,16 @@ defmodule PaperTiger.TestClient do
 
   defp confirm_payment_intent_mock(payment_intent_id, params) do
     conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/confirm", params)
+    handle_response(conn)
+  end
+
+  defp cancel_payment_intent_mock(payment_intent_id, params) do
+    conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/cancel", params)
+    handle_response(conn)
+  end
+
+  defp capture_payment_intent_mock(payment_intent_id, params) do
+    conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
     handle_response(conn)
   end
 

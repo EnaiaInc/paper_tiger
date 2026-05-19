@@ -12,9 +12,12 @@ defmodule PaperTiger.ChargeHelperTest do
     Map.merge(
       %{
         amount: 2000,
+        amount_capturable: 0,
         amount_details: nil,
+        amount_received: 2000,
         application: nil,
         application_fee_amount: nil,
+        canceled_at: nil,
         cancellation_reason: nil,
         capture_method: "automatic",
         client_secret: "pi_secret_test",
@@ -59,6 +62,7 @@ defmodule PaperTiger.ChargeHelperTest do
       assert String.starts_with?(charge.id, "ch_")
       assert charge.object == "charge"
       assert charge.amount == 2000
+      assert charge.amount_captured == 2000
       assert charge.currency == "usd"
       assert charge.customer == "cus_test123"
       assert charge.payment_method == "pm_test456"
@@ -94,6 +98,54 @@ defmodule PaperTiger.ChargeHelperTest do
 
       {:ok, updated_pi} = PaymentIntents.get(pi.id)
       assert updated_pi.latest_charge == charge.id
+    end
+
+    test "creates uncaptured charge for manual capture payment intent" do
+      pi =
+        build_payment_intent(%{
+          amount_capturable: 2000,
+          amount_received: 0,
+          capture_method: "manual",
+          status: "requires_capture"
+        })
+
+      {:ok, pi} = PaymentIntents.insert(pi)
+
+      {:ok, charge} = ChargeHelper.create_for_payment_intent(pi, captured: false)
+
+      assert charge.amount == 2000
+      assert charge.amount_captured == 0
+      assert charge.captured == false
+      assert charge.balance_transaction == nil
+
+      {:ok, updated_pi} = PaymentIntents.get(pi.id)
+      assert updated_pi.latest_charge == charge.id
+    end
+
+    test "captures an authorized payment intent charge" do
+      pi =
+        build_payment_intent(%{
+          amount_capturable: 2000,
+          amount_received: 0,
+          capture_method: "manual",
+          status: "requires_capture"
+        })
+
+      {:ok, pi} = PaymentIntents.insert(pi)
+      {:ok, charge} = ChargeHelper.create_for_payment_intent(pi, captured: false)
+      {:ok, pi} = PaymentIntents.get(pi.id)
+
+      {:ok, captured_charge} = ChargeHelper.capture_payment_intent_charge(pi, 1500, true)
+
+      assert captured_charge.id == charge.id
+      assert captured_charge.amount == 2000
+      assert captured_charge.amount_captured == 1500
+      assert captured_charge.captured == true
+      assert captured_charge.balance_transaction != nil
+
+      {:ok, txn} = BalanceTransactions.get(captured_charge.balance_transaction)
+      assert txn.amount == 1500
+      assert txn.source == charge.id
     end
 
     test "charge inherits invoice field from PI when present" do

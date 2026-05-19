@@ -10,7 +10,7 @@ defmodule PaperTiger.Contract.PaymentIntentChainTest do
       VALIDATE_AGAINST_STRIPE=true STRIPE_API_KEY=sk_test_xxx mix test test/paper_tiger/contract/payment_intent_chain_test.exs
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import PaperTiger.Test
 
@@ -26,40 +26,14 @@ defmodule PaperTiger.Contract.PaymentIntentChainTest do
 
   describe "PaymentIntent confirm creates full chain" do
     test "confirm produces Charge with BalanceTransaction" do
-      # Create customer
-      {:ok, customer} = TestClient.create_customer(%{"email" => "chain-test@example.com"})
+      pm_id = "pm_card_visa"
 
-      # Create PI with payment method
-      # Real Stripe: use pm_card_visa token (avoids raw card number restrictions)
-      # PaperTiger: create a PM and attach it
-      {pm_id, pi_params} =
-        if TestClient.real_stripe?() do
-          {"pm_card_visa",
-           %{
-             "amount" => 2500,
-             "currency" => "usd",
-             "customer" => customer["id"],
-             "payment_method" => "pm_card_visa",
-             "payment_method_types" => ["card"]
-           }}
-        else
-          {:ok, pm} =
-            TestClient.create_payment_method(%{
-              "card" => TestClient.test_card_simple(),
-              "type" => "card"
-            })
-
-          {:ok, _} =
-            TestClient.attach_payment_method(pm["id"], %{"customer" => customer["id"]})
-
-          {pm["id"],
-           %{
-             "amount" => 2500,
-             "currency" => "usd",
-             "customer" => customer["id"],
-             "payment_method" => pm["id"]
-           }}
-        end
+      pi_params = %{
+        "amount" => 2500,
+        "currency" => "usd",
+        "payment_method" => pm_id,
+        "payment_method_types" => ["card"]
+      }
 
       {:ok, pi} = TestClient.create_payment_intent(pi_params)
 
@@ -85,6 +59,61 @@ defmodule PaperTiger.Contract.PaymentIntentChainTest do
       assert bt["amount"] == 2500
       assert bt["type"] == "charge"
       assert bt["source"] == charge["id"]
+    end
+  end
+
+  describe "PaymentIntent lifecycle endpoints" do
+    test "cancel transitions a pre-confirmation intent to canceled" do
+      {:ok, pi} =
+        TestClient.create_payment_intent(%{
+          "amount" => 1300,
+          "currency" => "usd"
+        })
+
+      {:ok, canceled} =
+        TestClient.cancel_payment_intent(pi["id"], %{
+          "cancellation_reason" => "requested_by_customer"
+        })
+
+      assert canceled["id"] == pi["id"]
+      assert canceled["status"] == "canceled"
+      assert canceled["cancellation_reason"] == "requested_by_customer"
+      assert canceled["amount_capturable"] == 0
+      assert is_integer(canceled["canceled_at"])
+    end
+
+    test "manual capture supports final partial capture and captured charge state" do
+      {:ok, pi} =
+        TestClient.create_payment_intent(%{
+          "amount" => 2500,
+          "capture_method" => "manual",
+          "currency" => "usd",
+          "payment_method" => "pm_card_visa",
+          "payment_method_types" => ["card"]
+        })
+
+      {:ok, authorized} =
+        TestClient.confirm_payment_intent(pi["id"], %{
+          "payment_method" => "pm_card_visa"
+        })
+
+      assert authorized["status"] == "requires_capture"
+      assert authorized["amount_capturable"] == 2500
+      assert authorized["amount_received"] == 0
+      assert authorized["latest_charge"] != nil
+
+      {:ok, captured} =
+        TestClient.capture_payment_intent(pi["id"], %{
+          "amount_to_capture" => 1800
+        })
+
+      assert captured["status"] == "succeeded"
+      assert captured["amount_capturable"] == 0
+      assert captured["amount_received"] == 1800
+
+      {:ok, charge} = TestClient.get_charge(captured["latest_charge"])
+      assert charge["captured"] == true
+      assert charge["amount_captured"] == 1800
     end
   end
 end
