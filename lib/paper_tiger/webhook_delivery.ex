@@ -47,7 +47,7 @@ defmodule PaperTiger.WebhookDelivery do
   - measurements: `%{system_time: System.system_time()}`
   - metadata: `%{event: map, webhook: map, url: String.t(), payload: String.t(),
     headers: [{String.t(), String.t()}], signature_header: String.t(),
-    timestamp: integer()}`
+    timestamp: integer(), namespace: term()}`
 
   This event is **observability only** — it is not the delivery mechanism.
   Delivery handoff is the `Adapter` behaviour. Use this event for metrics and
@@ -97,6 +97,7 @@ defmodule PaperTiger.WebhookDelivery do
 
   @max_retries 5
   @base_backoff_ms 1000
+  @namespace_key :paper_tiger_namespace
 
   ## Client API
 
@@ -130,7 +131,14 @@ defmodule PaperTiger.WebhookDelivery do
   """
   @spec deliver_event(String.t(), String.t()) :: {:ok, reference()} | {:error, term()}
   def deliver_event(event_id, webhook_endpoint_id) when is_binary(event_id) and is_binary(webhook_endpoint_id) do
-    GenServer.call(__MODULE__, {:deliver_event, event_id, webhook_endpoint_id})
+    deliver_event(event_id, webhook_endpoint_id, PaperTiger.Test.current_namespace())
+  end
+
+  @doc false
+  @spec deliver_event(String.t(), String.t(), term()) :: {:ok, reference()} | {:error, term()}
+  def deliver_event(event_id, webhook_endpoint_id, namespace)
+      when is_binary(event_id) and is_binary(webhook_endpoint_id) do
+    GenServer.call(__MODULE__, {:deliver_event, namespace, event_id, webhook_endpoint_id})
   end
 
   @doc """
@@ -157,7 +165,14 @@ defmodule PaperTiger.WebhookDelivery do
   """
   @spec deliver_event_sync(String.t(), String.t()) :: {:ok, :delivered | :failed} | {:error, term()}
   def deliver_event_sync(event_id, webhook_endpoint_id) when is_binary(event_id) and is_binary(webhook_endpoint_id) do
-    GenServer.call(__MODULE__, {:deliver_event_sync, event_id, webhook_endpoint_id}, :infinity)
+    deliver_event_sync(event_id, webhook_endpoint_id, PaperTiger.Test.current_namespace())
+  end
+
+  @doc false
+  @spec deliver_event_sync(String.t(), String.t(), term()) :: {:ok, :delivered | :failed} | {:error, term()}
+  def deliver_event_sync(event_id, webhook_endpoint_id, namespace)
+      when is_binary(event_id) and is_binary(webhook_endpoint_id) do
+    GenServer.call(__MODULE__, {:deliver_event_sync, namespace, event_id, webhook_endpoint_id}, :infinity)
   end
 
   @doc """
@@ -195,17 +210,17 @@ defmodule PaperTiger.WebhookDelivery do
   end
 
   @impl true
-  def handle_call({:deliver_event, event_id, webhook_endpoint_id}, _from, state) do
-    result = dispatch_delivery(event_id, webhook_endpoint_id)
+  def handle_call({:deliver_event, namespace, event_id, webhook_endpoint_id}, _from, state) do
+    result = dispatch_delivery(namespace, event_id, webhook_endpoint_id)
     {:reply, result, state}
   end
 
   @impl true
-  def handle_call({:deliver_event_sync, event_id, webhook_endpoint_id}, _from, state) do
+  def handle_call({:deliver_event_sync, namespace, event_id, webhook_endpoint_id}, _from, state) do
     # Spawn a task so we don't block the GenServer during retries/backoff
     task =
       Task.async(fn ->
-        dispatch_delivery_sync(event_id, webhook_endpoint_id)
+        dispatch_delivery_sync(namespace, event_id, webhook_endpoint_id)
       end)
 
     # Wait indefinitely for the task to complete
@@ -216,34 +231,36 @@ defmodule PaperTiger.WebhookDelivery do
   ## Private Functions
 
   # Dispatches a delivery by spawning an async task
-  defp dispatch_delivery(event_id, webhook_endpoint_id) do
-    # Fetch the event and webhook endpoint
-    case {Events.get(event_id), Webhooks.get(webhook_endpoint_id)} do
-      {{:ok, event}, {:ok, webhook}} ->
-        # Spawn task under supervisor to isolate failures from WebhookDelivery GenServer
-        ref = make_ref()
-
-        Task.Supervisor.start_child(PaperTiger.TaskSupervisor, fn ->
-          deliver_with_retries(event, webhook, 0, ref)
-        end)
-
-        {:ok, ref}
-
-      {{:error, :not_found}, _} ->
-        Logger.warning("WebhookDelivery: Event not found: #{event_id}")
-        {:error, :event_not_found}
-
-      {_, {:error, :not_found}} ->
-        Logger.warning("WebhookDelivery: Webhook endpoint not found: #{webhook_endpoint_id}")
-        {:error, :webhook_not_found}
+  defp dispatch_delivery(namespace, event_id, webhook_endpoint_id) do
+    case fetch_delivery_resources(namespace, event_id, webhook_endpoint_id) do
+      {:ok, event, webhook} -> start_delivery_task(namespace, event, webhook)
+      {:error, reason} -> {:error, reason}
     end
   end
 
   # Dispatches a delivery synchronously, waiting for completion
-  defp dispatch_delivery_sync(event_id, webhook_endpoint_id) do
+  defp dispatch_delivery_sync(namespace, event_id, webhook_endpoint_id) do
+    case fetch_delivery_resources(namespace, event_id, webhook_endpoint_id) do
+      {:ok, event, webhook} ->
+        with_namespace(namespace, fn ->
+          deliver_with_retries_sync(event, webhook, namespace, 0)
+        end)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_delivery_resources(namespace, event_id, webhook_endpoint_id) do
+    with_namespace(namespace, fn ->
+      do_fetch_delivery_resources(event_id, webhook_endpoint_id)
+    end)
+  end
+
+  defp do_fetch_delivery_resources(event_id, webhook_endpoint_id) do
     case {Events.get(event_id), Webhooks.get(webhook_endpoint_id)} do
       {{:ok, event}, {:ok, webhook}} ->
-        deliver_with_retries_sync(event, webhook, 0)
+        {:ok, event, webhook}
 
       {{:error, :not_found}, _} ->
         Logger.warning("WebhookDelivery: Event not found: #{event_id}")
@@ -255,15 +272,27 @@ defmodule PaperTiger.WebhookDelivery do
     end
   end
 
+  defp start_delivery_task(namespace, event, webhook) do
+    ref = make_ref()
+
+    Task.Supervisor.start_child(PaperTiger.TaskSupervisor, fn ->
+      with_namespace(namespace, fn ->
+        deliver_with_retries(event, webhook, namespace, 0, ref)
+      end)
+    end)
+
+    {:ok, ref}
+  end
+
   # Synchronous version of deliver_with_retries - blocks until complete
-  defp deliver_with_retries_sync(event, webhook, attempt) when attempt >= @max_retries do
+  defp deliver_with_retries_sync(event, webhook, _namespace, attempt) when attempt >= @max_retries do
     Logger.error("WebhookDelivery: Max retries (#{@max_retries}) exceeded for event #{event.id} to #{webhook.url}")
     update_event_delivery_attempts(event, webhook, attempt, :failed, nil)
     {:ok, :failed}
   end
 
-  defp deliver_with_retries_sync(event, webhook, attempt) do
-    case perform_delivery(event, webhook) do
+  defp deliver_with_retries_sync(event, webhook, namespace, attempt) do
+    case perform_delivery(event, webhook, namespace) do
       {:ok, %Response{} = response} ->
         # Terminal success: the adapter delivered, or durably accepted
         # ownership. No retry.
@@ -279,20 +308,20 @@ defmodule PaperTiger.WebhookDelivery do
         # Wait for backoff, then retry synchronously
         delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
         Process.sleep(delay_ms)
-        deliver_with_retries_sync(event, webhook, attempt + 1)
+        deliver_with_retries_sync(event, webhook, namespace, attempt + 1)
     end
   end
 
   # Delivers with exponential backoff retry logic
-  defp deliver_with_retries(event, webhook, attempt, _ref) when attempt >= @max_retries do
+  defp deliver_with_retries(event, webhook, _namespace, attempt, _ref) when attempt >= @max_retries do
     Logger.error("WebhookDelivery: Max retries (#{@max_retries}) exceeded for event #{event.id} to #{webhook.url}")
 
     # Update event with final failed delivery attempt
     update_event_delivery_attempts(event, webhook, attempt, :failed, nil)
   end
 
-  defp deliver_with_retries(event, webhook, attempt, _ref) do
-    case perform_delivery(event, webhook) do
+  defp deliver_with_retries(event, webhook, namespace, attempt, _ref) do
+    case perform_delivery(event, webhook, namespace) do
       {:ok, %Response{} = response} ->
         # Terminal success: the adapter delivered, or durably accepted
         # ownership. No retry.
@@ -305,7 +334,7 @@ defmodule PaperTiger.WebhookDelivery do
         )
 
         # Schedule retry with exponential backoff
-        schedule_retry(event, webhook, attempt)
+        schedule_retry(event, webhook, namespace, attempt)
     end
   end
 
@@ -313,7 +342,7 @@ defmodule PaperTiger.WebhookDelivery do
   # fully-prepared Request to the configured delivery adapter. The adapter's
   # `{:ok, %Response{}} | {:error, reason}` return is interpreted by the
   # retry machinery (success is terminal; error retries with backoff).
-  defp perform_delivery(event, webhook) do
+  defp perform_delivery(event, webhook, namespace) do
     timestamp = PaperTiger.Clock.now()
     payload = Jason.encode!(event)
 
@@ -333,6 +362,7 @@ defmodule PaperTiger.WebhookDelivery do
     request = %Request{
       event: event,
       headers: headers,
+      namespace: namespace,
       payload: payload,
       signature_header: stripe_signature,
       timestamp: timestamp,
@@ -350,6 +380,7 @@ defmodule PaperTiger.WebhookDelivery do
       %{
         event: event,
         headers: headers,
+        namespace: namespace,
         payload: payload,
         signature_header: stripe_signature,
         timestamp: timestamp,
@@ -417,7 +448,7 @@ defmodule PaperTiger.WebhookDelivery do
   end
 
   # Schedules a retry after exponential backoff delay
-  defp schedule_retry(event, webhook, attempt) do
+  defp schedule_retry(event, webhook, namespace, attempt) do
     # Calculate backoff: 1s, 2s, 4s, 8s, 16s
     delay_ms = @base_backoff_ms * Integer.pow(2, attempt)
 
@@ -428,7 +459,7 @@ defmodule PaperTiger.WebhookDelivery do
     # Send to GenServer, not to spawned process (which exits immediately)
     Process.send_after(
       __MODULE__,
-      {:retry_delivery, event, webhook, attempt + 1},
+      {:retry_delivery, namespace, event, webhook, attempt + 1},
       delay_ms
     )
   end
@@ -462,12 +493,35 @@ defmodule PaperTiger.WebhookDelivery do
 
   # Handle info messages for retries (if using handle_info pattern)
   @impl true
-  def handle_info({:retry_delivery, event, webhook, attempt}, state) do
-    deliver_with_retries(event, webhook, attempt, make_ref())
+  def handle_info({:retry_delivery, namespace, event, webhook, attempt}, state) do
+    with_namespace(namespace, fn ->
+      deliver_with_retries(event, webhook, namespace, attempt, make_ref())
+    end)
+
     {:noreply, state}
   end
 
   def handle_info(_msg, state) do
     {:noreply, state}
+  end
+
+  defp with_namespace(namespace, fun) do
+    unset = make_ref()
+    previous = Process.get(@namespace_key, unset)
+    Process.put(@namespace_key, namespace)
+
+    try do
+      fun.()
+    after
+      restore_namespace(previous, unset)
+    end
+  end
+
+  defp restore_namespace(previous, unset) when previous == unset do
+    Process.delete(@namespace_key)
+  end
+
+  defp restore_namespace(previous, _unset) do
+    Process.put(@namespace_key, previous)
   end
 end

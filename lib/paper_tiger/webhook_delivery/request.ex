@@ -21,14 +21,18 @@ defmodule PaperTiger.WebhookDelivery.Request do
   - `:event` — the source PaperTiger event map.
   - `:webhook` — the source webhook-endpoint map (`:id`, `:url`,
     `:secret`, ...).
+  - `:namespace` — the PaperTiger sandbox/tenant namespace captured when
+    delivery was queued. Adapters that persist work can use this to retain
+    tenant context outside the delivery task.
   """
 
-  @enforce_keys [:url, :payload, :headers, :signature_header, :timestamp, :event, :webhook]
-  defstruct [:event, :headers, :payload, :signature_header, :timestamp, :url, :webhook]
+  @enforce_keys [:url, :payload, :headers, :signature_header, :timestamp, :event, :webhook, :namespace]
+  defstruct [:event, :headers, :namespace, :payload, :signature_header, :timestamp, :url, :webhook]
 
   @type t :: %__MODULE__{
           event: map(),
           headers: [{String.t(), String.t()}],
+          namespace: term(),
           payload: String.t(),
           signature_header: String.t(),
           timestamp: integer(),

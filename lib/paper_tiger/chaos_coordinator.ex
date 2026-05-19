@@ -421,7 +421,7 @@ defmodule PaperTiger.ChaosCoordinator do
   # Event chaos handlers
   def handle_call({:flush_events, namespace}, _from, genserver_state) do
     state = get_namespace_state(namespace)
-    new_state = flush_event_buffer(state)
+    new_state = flush_event_buffer(namespace, state)
     put_namespace_state(namespace, new_state)
     {:reply, :ok, genserver_state}
   end
@@ -442,7 +442,7 @@ defmodule PaperTiger.ChaosCoordinator do
 
     if buffer_window > 0 do
       # Buffer the event with its delivery function
-      new_buffer = [{event, deliver_fn} | state.event_buffer]
+      new_buffer = [{namespace, event, deliver_fn} | state.event_buffer]
       put_namespace_state(namespace, %{state | event_buffer: new_buffer})
 
       # Schedule flush if not already scheduled for this namespace
@@ -457,7 +457,7 @@ defmodule PaperTiger.ChaosCoordinator do
       {:noreply, %{genserver_state | timers: new_timers}}
     else
       # No buffering - deliver immediately with possible duplication
-      new_state = deliver_event_with_chaos(event, deliver_fn, state)
+      new_state = deliver_event_with_chaos(namespace, event, deliver_fn, state)
       put_namespace_state(namespace, new_state)
       {:noreply, genserver_state}
     end
@@ -468,7 +468,7 @@ defmodule PaperTiger.ChaosCoordinator do
     # Flush the buffer for the specific namespace
     case :ets.lookup(@table, {namespace, :state}) do
       [{{^namespace, :state}, state}] ->
-        new_state = flush_event_buffer(state)
+        new_state = flush_event_buffer(namespace, state)
         :ets.insert(@table, {{namespace, :state}, new_state})
 
       [] ->
@@ -622,7 +622,7 @@ defmodule PaperTiger.ChaosCoordinator do
 
   ## Private - Event Chaos
 
-  defp flush_event_buffer(state) do
+  defp flush_event_buffer(namespace, state) do
     buffer = state.event_buffer
 
     if Enum.empty?(buffer) do
@@ -644,8 +644,12 @@ defmodule PaperTiger.ChaosCoordinator do
 
       # Deliver each event with possible duplication
       new_state =
-        Enum.reduce(events_to_deliver, state, fn {event, deliver_fn}, acc ->
-          deliver_event_with_chaos(event, deliver_fn, acc)
+        Enum.reduce(events_to_deliver, state, fn
+          {entry_namespace, event, deliver_fn}, acc ->
+            deliver_event_with_chaos(entry_namespace, event, deliver_fn, acc)
+
+          {event, deliver_fn}, acc ->
+            deliver_event_with_chaos(namespace, event, deliver_fn, acc)
         end)
 
       # Update reorder stats and clear buffer
@@ -654,21 +658,29 @@ defmodule PaperTiger.ChaosCoordinator do
     end
   end
 
-  defp deliver_event_with_chaos(event, deliver_fn, state) do
+  defp deliver_event_with_chaos(namespace, event, deliver_fn, state) do
     events_config = state.config.events
     duplicate_rate = events_config[:duplicate_rate] || 0.0
 
     # Always deliver once
-    deliver_fn.(event)
+    deliver_event(namespace, event, deliver_fn)
 
     # Maybe duplicate
     if duplicate_rate > 0.0 and :rand.uniform() < duplicate_rate do
-      deliver_fn.(event)
+      deliver_event(namespace, event, deliver_fn)
       stats = Map.update!(state.stats, :events_duplicated, &(&1 + 1))
       %{state | stats: stats}
     else
       state
     end
+  end
+
+  defp deliver_event(namespace, event, deliver_fn) when is_function(deliver_fn, 2) do
+    deliver_fn.(event, namespace)
+  end
+
+  defp deliver_event(_namespace, event, deliver_fn) when is_function(deliver_fn, 1) do
+    deliver_fn.(event)
   end
 
   ## Private - Helpers

@@ -273,9 +273,12 @@ defmodule PaperTiger.WebhookCollectionTest do
     test "raises when no matching webhook found" do
       {:ok, _} = TestClient.create_customer(%{"email" => "test@example.com"})
 
-      assert_raise ExUnit.AssertionError, ~r/Expected webhook delivery/, fn ->
-        assert_webhook_delivered("invoice.paid")
-      end
+      error =
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_webhook_delivered("invoice.paid")
+        end
+
+      assert String.contains?(error.message, "Expected webhook delivery")
     end
 
     test "error message includes delivered webhook types" do
@@ -305,9 +308,12 @@ defmodule PaperTiger.WebhookCollectionTest do
     test "raises when matching webhook is found" do
       {:ok, _} = TestClient.create_customer(%{"email" => "test@example.com"})
 
-      assert_raise ExUnit.AssertionError, ~r/Expected no webhook delivery/, fn ->
-        refute_webhook_delivered("customer.created")
-      end
+      error =
+        assert_raise ExUnit.AssertionError, fn ->
+          refute_webhook_delivered("customer.created")
+        end
+
+      assert String.contains?(error.message, "Expected no webhook delivery")
     end
   end
 end

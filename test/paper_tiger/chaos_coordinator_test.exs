@@ -22,6 +22,20 @@ defmodule PaperTiger.ChaosCoordinatorTest do
     Jason.decode!(conn.resp_body)
   end
 
+  defp with_process_namespace(namespace, fun) do
+    previous = Process.get(:paper_tiger_namespace, :__paper_tiger_unset__)
+    Process.put(:paper_tiger_namespace, namespace)
+
+    try do
+      fun.()
+    after
+      case previous do
+        :__paper_tiger_unset__ -> Process.delete(:paper_tiger_namespace)
+        value -> Process.put(:paper_tiger_namespace, value)
+      end
+    end
+  end
+
   describe "configuration" do
     test "starts with default config (no chaos)" do
       config = ChaosCoordinator.get_config()
@@ -194,6 +208,28 @@ defmodule PaperTiger.ChaosCoordinatorTest do
       # Now wait for the buffer to actually flush (50ms + some margin)
       # Use assert_receive with a timeout that's long enough
       assert_receive {:delivered, ^event}, 200
+    end
+
+    test "queue_event/2 passes captured namespace to arity-2 delivery functions" do
+      test_pid = self()
+      namespace = :"queue_namespace_#{System.unique_integer([:positive])}"
+
+      with_process_namespace(namespace, fn ->
+        ChaosCoordinator.reset()
+        ChaosCoordinator.configure(%{events: %{buffer_window_ms: 10_000}})
+
+        event = %{id: "evt_namespaced", type: "test.event"}
+
+        ChaosCoordinator.queue_event(event, fn evt, delivered_namespace ->
+          send(test_pid, {:delivered, evt, delivered_namespace})
+        end)
+
+        _ = ChaosCoordinator.get_config()
+        refute_receive {:delivered, _, _}, 10
+
+        ChaosCoordinator.flush_events()
+        assert_receive {:delivered, ^event, ^namespace}, 100
+      end)
     end
 
     test "flush_events/0 delivers buffered events immediately" do
@@ -388,9 +424,12 @@ defmodule PaperTiger.ChaosCoordinatorTest do
     end
 
     test "simulate_failure/2 rejects invalid decline codes" do
-      assert_raise ArgumentError, ~r/Invalid decline code/, fn ->
-        ChaosCoordinator.simulate_failure("cus_123", :not_a_real_code)
-      end
+      error =
+        assert_raise ArgumentError, fn ->
+          ChaosCoordinator.simulate_failure("cus_123", :not_a_real_code)
+        end
+
+      assert String.contains?(error.message, "Invalid decline code")
     end
   end
 end
