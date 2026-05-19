@@ -148,17 +148,6 @@ defmodule PaperTiger.Resources.Subscription do
          updated = maybe_update_discount(updated, conn.params),
          updated = maybe_activate_subscription_after_trial(updated),
          {:ok, updated} <- Subscriptions.update(updated) do
-      # Handle items update if provided
-      # Create proration invoice when proration_behavior requests it
-      # Get all subscriptions in current namespace
-      # Filter by customer and/or status if provided
-      # Load subscription items and latest invoice for each subscription in the list
-      # Paginate the filtered results
-      ## Private Functions
-      # Convert subscription from "trialing" to "active" when trial_end is set to now or past
-      # If subscription is trialing and trial_end is now or in the past, activate it
-      # Otherwise, leave subscription as is
-      # Helper to get field from item map (supports both atom and string keys)
       if Map.has_key?(conn.params, :items) do
         update_subscription_items(id, conn.params.items)
       end
@@ -168,11 +157,10 @@ defmodule PaperTiger.Resources.Subscription do
       updated = maybe_create_proration_invoice(updated, conn.params, billable_items_changed)
 
       updated_with_items = load_subscription_items(updated)
-      # items will be loaded separately
       previous_attributes = diff_attributes(existing, updated_with_items)
       items_changed = Map.has_key?(conn.params, :items)
       maybe_emit_subscription_updated_telemetry(previous_attributes, items_changed, updated_with_items)
-      # Additional fields
+
       updated_with_items
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))
@@ -355,8 +343,8 @@ defmodule PaperTiger.Resources.Subscription do
     status = determine_subscription_status(params, trial_end)
 
     %{
-      billing_cycle_anchor: Map.get(params, :billing_cycle_anchor, current_period_start),
       automatic_tax: Tax.automatic_tax(params),
+      billing_cycle_anchor: Map.get(params, :billing_cycle_anchor, current_period_start),
       cancel_at: nil,
       cancel_at_period_end: false,
       canceled_at: nil,

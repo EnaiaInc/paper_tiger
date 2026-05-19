@@ -7,10 +7,10 @@ defmodule PaperTiger.Tax do
   """
 
   @default_fixture_rates %{
-    "US" => 750,
     "CA" => 1300,
+    "EU" => 2100,
     "GB" => 2000,
-    "EU" => 2100
+    "US" => 750
   }
 
   @doc """
@@ -68,14 +68,10 @@ defmodule PaperTiger.Tax do
       {taxed_lines,
        %{
          amount_tax: amount_tax,
+         automatic_tax: automatic_tax(source),
          subtotal: subtotal,
          total: subtotal + amount_tax,
-         total_details: %{
-           amount_discount: 0,
-           amount_shipping: 0,
-           amount_tax: amount_tax
-         },
-         automatic_tax: automatic_tax(source)
+         total_details: %{amount_discount: 0, amount_shipping: 0, amount_tax: amount_tax}
        }}
     else
       subtotal = Enum.reduce(line_items, 0, &(&2 + line_amount(&1)))
@@ -83,10 +79,10 @@ defmodule PaperTiger.Tax do
       {line_items,
        %{
          amount_tax: 0,
+         automatic_tax: automatic_tax(source),
          subtotal: subtotal,
          total: subtotal,
-         total_details: %{amount_discount: 0, amount_shipping: 0, amount_tax: 0},
-         automatic_tax: automatic_tax(source)
+         total_details: %{amount_discount: 0, amount_shipping: 0, amount_tax: 0}
        }}
     end
   end

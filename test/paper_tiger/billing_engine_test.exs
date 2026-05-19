@@ -3,7 +3,18 @@ defmodule PaperTiger.BillingEngineTest do
 
   alias PaperTiger.BillingEngine
   alias PaperTiger.ChaosCoordinator
-  alias PaperTiger.Store.{Charges, Customers, Invoices, Plans, Prices, Products, Subscriptions}
+
+  alias PaperTiger.Store.{
+    Charges,
+    Customers,
+    InvoiceItems,
+    Invoices,
+    PaymentIntents,
+    Plans,
+    Prices,
+    Products,
+    Subscriptions
+  }
 
   setup do
     PaperTiger.flush()
@@ -110,6 +121,54 @@ defmodule PaperTiger.BillingEngineTest do
       {:ok, updated_sub} = Subscriptions.get("sub_due")
       assert updated_sub.current_period_start == past
       assert updated_sub.current_period_end > past
+    end
+
+    test "applies automatic tax to renewal invoices", %{customer: customer} do
+      now = PaperTiger.now()
+      past = now - 86_400
+
+      {:ok, _sub} =
+        Subscriptions.insert(%{
+          automatic_tax: %{enabled: true, liability: nil, status: "complete"},
+          created: past - 2_592_000,
+          current_period_end: past,
+          current_period_start: past - 2_592_000,
+          customer: customer.id,
+          id: "sub_tax_due",
+          items: %{
+            data: [%{price: "price_test"}]
+          },
+          metadata: %{tax_country: "US"},
+          object: "subscription",
+          plan: %{interval: "month", interval_count: 1},
+          status: "active"
+        })
+
+      start_supervised!({BillingEngine, []})
+      BillingEngine.set_mode(:happy_path)
+
+      {:ok, stats} = BillingEngine.process_billing()
+
+      assert stats.processed == 1
+      assert stats.succeeded == 1
+
+      %{data: [invoice]} = Invoices.list(%{})
+      assert invoice.subtotal == 2000
+      assert invoice.tax == 150
+      assert invoice.total_details.amount_tax == 150
+      assert invoice.amount_due == 2150
+      assert invoice.amount_paid == 2150
+      assert invoice.amount_remaining == 0
+
+      [line] = InvoiceItems.find_by_invoice(invoice.id)
+      assert line.amount == 2000
+      assert [%{amount: 150, taxable_amount: 2000}] = line.tax_amounts
+
+      %{data: [payment_intent]} = PaymentIntents.list(%{})
+      assert payment_intent.amount == 2150
+
+      %{data: [charge]} = Charges.list(%{})
+      assert charge.amount == 2150
     end
 
     test "does not process subscription that is not due", %{customer: customer} do
