@@ -656,6 +656,19 @@ defmodule PaperTiger.TestClient do
   end
 
   @doc """
+  Detaches a payment method from its customer.
+  """
+  def detach_payment_method(payment_method_id) do
+    case mode() do
+      :real_stripe ->
+        detach_payment_method_real(payment_method_id)
+
+      :paper_tiger ->
+        detach_payment_method_mock(payment_method_id)
+    end
+  end
+
+  @doc """
   Creates a test ConfirmationToken.
   """
   def create_confirmation_token(params \\ %{}) do
@@ -1866,6 +1879,10 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp detach_payment_method_real(payment_method_id) do
+    stripe_request(:post, "/v1/payment_methods/#{payment_method_id}/detach")
+  end
+
   defp create_confirmation_token_real(params) do
     stripe_request(:post, "/v1/test_helpers/confirmation_tokens", params)
   end
@@ -2348,6 +2365,11 @@ defmodule PaperTiger.TestClient do
 
   defp attach_payment_method_mock(payment_method_id, params) do
     conn = request(:post, "/v1/payment_methods/#{payment_method_id}/attach", params)
+    handle_response(conn)
+  end
+
+  defp detach_payment_method_mock(payment_method_id) do
+    conn = request(:post, "/v1/payment_methods/#{payment_method_id}/detach", %{})
     handle_response(conn)
   end
 

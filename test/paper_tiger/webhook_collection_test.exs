@@ -226,6 +226,31 @@ defmodule PaperTiger.WebhookCollectionTest do
       assert delivery.event_data.object.status == "uncollectible"
       assert is_integer(delivery.event_data.object.status_transitions.marked_uncollectible_at)
     end
+
+    test "attaching a payment method triggers payment_method.attached webhook" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "pm-attached@example.com"})
+      {:ok, payment_method} = TestClient.create_payment_method(%{"type" => "card"})
+      clear_delivered_webhooks()
+
+      {:ok, attached} = TestClient.attach_payment_method(payment_method["id"], %{"customer" => customer["id"]})
+
+      [delivery] = assert_webhook_delivered("payment_method.attached")
+      assert delivery.event_data.object.id == attached["id"]
+      assert delivery.event_data.object.customer == customer["id"]
+    end
+
+    test "detaching a payment method triggers payment_method.detached webhook" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "pm-detached@example.com"})
+      {:ok, payment_method} = TestClient.create_payment_method(%{"type" => "card"})
+      {:ok, attached} = TestClient.attach_payment_method(payment_method["id"], %{"customer" => customer["id"]})
+      clear_delivered_webhooks()
+
+      {:ok, detached} = TestClient.detach_payment_method(attached["id"])
+
+      [delivery] = assert_webhook_delivered("payment_method.detached")
+      assert delivery.event_data.object.id == detached["id"]
+      assert delivery.event_data.object.customer == nil
+    end
   end
 
   describe "get_delivered_webhooks/0" do
