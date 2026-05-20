@@ -50,6 +50,8 @@ defmodule PaperTiger do
     CheckoutSessions,
     ConfirmationTokens,
     Coupons,
+    CreditNotes,
+    CustomerBalanceTransactions,
     Customers,
     Disputes,
     Events,
@@ -65,6 +67,7 @@ defmodule PaperTiger do
     Plans,
     Prices,
     Products,
+    PromotionCodes,
     Refunds,
     Reviews,
     SetupAttempts,
@@ -226,6 +229,7 @@ defmodule PaperTiger do
   def flush(:subscription_items), do: SubscriptionItems.clear()
   def flush(:invoices), do: Invoices.clear()
   def flush(:invoice_items), do: InvoiceItems.clear()
+  def flush(:credit_notes), do: CreditNotes.clear()
   def flush(:products), do: Products.clear()
   def flush(:prices), do: Prices.clear()
   def flush(:payment_links), do: PaymentLinks.clear()
@@ -242,6 +246,8 @@ defmodule PaperTiger do
   def flush(:refunds), do: Refunds.clear()
   def flush(:disputes), do: Disputes.clear()
   def flush(:coupons), do: Coupons.clear()
+  def flush(:promotion_codes), do: PromotionCodes.clear()
+  def flush(:customer_balance_transactions), do: CustomerBalanceTransactions.clear()
   def flush(:tax_rates), do: TaxRates.clear()
   def flush(:cards), do: Cards.clear()
   def flush(:bank_accounts), do: BankAccounts.clear()

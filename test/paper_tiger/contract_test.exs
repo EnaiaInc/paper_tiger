@@ -1185,6 +1185,83 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Billing Discount and Credit APIs" do
+    @tag :contract
+    test "creates promotion codes for coupons" do
+      coupon_id = "pt_coupon_#{System.unique_integer([:positive])}"
+      code = "PT-#{System.unique_integer([:positive])}"
+
+      {:ok, coupon} =
+        TestClient.create_coupon(%{
+          "duration" => "forever",
+          "id" => coupon_id,
+          "percent_off" => 25
+        })
+
+      {:ok, promotion_code} =
+        TestClient.create_promotion_code(%{
+          "code" => code,
+          "promotion" => %{"coupon" => coupon["id"], "type" => "coupon"}
+        })
+
+      assert promotion_code["object"] == "promotion_code"
+      assert String.starts_with?(promotion_code["id"], "promo_")
+      assert promotion_code["active"] == true
+      assert promotion_code["code"] == code
+      assert promotion_code["coupon"]["id"] == coupon["id"]
+
+      {:ok, retrieved} = TestClient.get_promotion_code(promotion_code["id"])
+      assert retrieved["id"] == promotion_code["id"]
+
+      {:ok, updated} =
+        TestClient.update_promotion_code(promotion_code["id"], %{
+          "metadata" => %{"contract" => "promotion_code"}
+        })
+
+      assert updated["metadata"]["contract"] == "promotion_code"
+
+      {:ok, list} = TestClient.list_promotion_codes(%{"code" => code, "limit" => 1})
+      assert Enum.any?(list["data"], fn item -> item["id"] == promotion_code["id"] end)
+    end
+
+    @tag :contract
+    test "creates customer balance transactions and retrieves cash balance" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "balance-contract@example.com"})
+
+      {:ok, transaction} =
+        TestClient.create_customer_balance_transaction(customer["id"], %{
+          "amount" => -500,
+          "currency" => "usd",
+          "description" => "Contract credit"
+        })
+
+      assert transaction["object"] == "customer_balance_transaction"
+      assert String.starts_with?(transaction["id"], "cbtxn_")
+      assert transaction["amount"] == -500
+      assert transaction["currency"] == "usd"
+      assert transaction["customer"] == customer["id"]
+
+      {:ok, retrieved} = TestClient.get_customer_balance_transaction(customer["id"], transaction["id"])
+      assert retrieved["id"] == transaction["id"]
+
+      {:ok, list} = TestClient.list_customer_balance_transactions(customer["id"], %{"limit" => 1})
+      assert Enum.any?(list["data"], fn item -> item["id"] == transaction["id"] end)
+
+      cash_balance_result = TestClient.get_cash_balance(customer["id"])
+
+      case cash_balance_result do
+        {:ok, cash_balance} ->
+          assert cash_balance["object"] == "cash_balance"
+          assert cash_balance["customer"] == customer["id"]
+
+        {:error, error} ->
+          assert error["error"]["type"] == "invalid_request_error"
+      end
+
+      cleanup_customer(customer["id"])
+    end
+  end
+
   describe "Error Response Format Validation" do
     @tag :contract
     test "non-existent customer returns resource_missing error" do

@@ -1082,6 +1082,73 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Coupon and Promotion Code Operations
+
+  @doc """
+  Creates a coupon.
+  """
+  def create_coupon(params) do
+    case mode() do
+      :real_stripe ->
+        create_coupon_real(params)
+
+      :paper_tiger ->
+        create_coupon_mock(params)
+    end
+  end
+
+  @doc """
+  Creates a Promotion Code.
+  """
+  def create_promotion_code(params) do
+    case mode() do
+      :real_stripe ->
+        create_promotion_code_real(params)
+
+      :paper_tiger ->
+        create_promotion_code_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a Promotion Code.
+  """
+  def get_promotion_code(promotion_code_id) do
+    case mode() do
+      :real_stripe ->
+        get_promotion_code_real(promotion_code_id)
+
+      :paper_tiger ->
+        get_promotion_code_mock(promotion_code_id)
+    end
+  end
+
+  @doc """
+  Updates a Promotion Code.
+  """
+  def update_promotion_code(promotion_code_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_promotion_code_real(promotion_code_id, params)
+
+      :paper_tiger ->
+        update_promotion_code_mock(promotion_code_id, params)
+    end
+  end
+
+  @doc """
+  Lists Promotion Codes.
+  """
+  def list_promotion_codes(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_promotion_codes_real(params)
+
+      :paper_tiger ->
+        list_promotion_codes_mock(params)
+    end
+  end
+
   ## Billing Portal Operations
 
   @doc """
@@ -1146,6 +1213,86 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         create_billing_portal_session_mock(params)
+    end
+  end
+
+  ## Customer Balance and Credit Operations
+
+  @doc """
+  Creates a customer balance transaction.
+  """
+  def create_customer_balance_transaction(customer_id, params) do
+    case mode() do
+      :real_stripe ->
+        create_customer_balance_transaction_real(customer_id, params)
+
+      :paper_tiger ->
+        create_customer_balance_transaction_mock(customer_id, params)
+    end
+  end
+
+  @doc """
+  Retrieves a customer balance transaction.
+  """
+  def get_customer_balance_transaction(customer_id, transaction_id) do
+    case mode() do
+      :real_stripe ->
+        get_customer_balance_transaction_real(customer_id, transaction_id)
+
+      :paper_tiger ->
+        get_customer_balance_transaction_mock(customer_id, transaction_id)
+    end
+  end
+
+  @doc """
+  Lists customer balance transactions.
+  """
+  def list_customer_balance_transactions(customer_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_customer_balance_transactions_real(customer_id, params)
+
+      :paper_tiger ->
+        list_customer_balance_transactions_mock(customer_id, params)
+    end
+  end
+
+  @doc """
+  Retrieves a customer's cash balance.
+  """
+  def get_cash_balance(customer_id) do
+    case mode() do
+      :real_stripe ->
+        get_cash_balance_real(customer_id)
+
+      :paper_tiger ->
+        get_cash_balance_mock(customer_id)
+    end
+  end
+
+  @doc """
+  Updates a customer's cash balance settings.
+  """
+  def update_cash_balance(customer_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_cash_balance_real(customer_id, params)
+
+      :paper_tiger ->
+        update_cash_balance_mock(customer_id, params)
+    end
+  end
+
+  @doc """
+  Creates a credit note.
+  """
+  def create_credit_note(params) do
+    case mode() do
+      :real_stripe ->
+        create_credit_note_real(params)
+
+      :paper_tiger ->
+        create_credit_note_mock(params)
     end
   end
 
@@ -1708,6 +1855,26 @@ defmodule PaperTiger.TestClient do
     stripe_request(:get, "/v1/payment_links/#{payment_link_id}/line_items", params)
   end
 
+  defp create_coupon_real(params) do
+    stripe_request(:post, "/v1/coupons", params)
+  end
+
+  defp create_promotion_code_real(params) do
+    stripe_request(:post, "/v1/promotion_codes", params)
+  end
+
+  defp get_promotion_code_real(promotion_code_id) do
+    stripe_request(:get, "/v1/promotion_codes/#{promotion_code_id}")
+  end
+
+  defp update_promotion_code_real(promotion_code_id, params) do
+    stripe_request(:post, "/v1/promotion_codes/#{promotion_code_id}", params)
+  end
+
+  defp list_promotion_codes_real(params) do
+    stripe_request(:get, "/v1/promotion_codes", params)
+  end
+
   defp create_billing_portal_configuration_real(params) do
     stripe_request(:post, "/v1/billing_portal/configurations", params)
   end
@@ -1726,6 +1893,30 @@ defmodule PaperTiger.TestClient do
 
   defp create_billing_portal_session_real(params) do
     stripe_request(:post, "/v1/billing_portal/sessions", params)
+  end
+
+  defp create_customer_balance_transaction_real(customer_id, params) do
+    stripe_request(:post, "/v1/customers/#{customer_id}/balance_transactions", params)
+  end
+
+  defp get_customer_balance_transaction_real(customer_id, transaction_id) do
+    stripe_request(:get, "/v1/customers/#{customer_id}/balance_transactions/#{transaction_id}")
+  end
+
+  defp list_customer_balance_transactions_real(customer_id, params) do
+    stripe_request(:get, "/v1/customers/#{customer_id}/balance_transactions", params)
+  end
+
+  defp get_cash_balance_real(customer_id) do
+    stripe_request(:get, "/v1/customers/#{customer_id}/cash_balance")
+  end
+
+  defp update_cash_balance_real(customer_id, params) do
+    stripe_request(:post, "/v1/customers/#{customer_id}/cash_balance", params)
+  end
+
+  defp create_credit_note_real(params) do
+    stripe_request(:post, "/v1/credit_notes", params)
   end
 
   ## Private - PaperTiger Mock
@@ -2090,6 +2281,31 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp create_coupon_mock(params) do
+    conn = request(:post, "/v1/coupons", params)
+    handle_response(conn)
+  end
+
+  defp create_promotion_code_mock(params) do
+    conn = request(:post, "/v1/promotion_codes", params)
+    handle_response(conn)
+  end
+
+  defp get_promotion_code_mock(promotion_code_id) do
+    conn = request(:get, "/v1/promotion_codes/#{promotion_code_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_promotion_code_mock(promotion_code_id, params) do
+    conn = request(:post, "/v1/promotion_codes/#{promotion_code_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_promotion_codes_mock(params) do
+    conn = request(:get, "/v1/promotion_codes", params)
+    handle_response(conn)
+  end
+
   defp create_billing_portal_configuration_mock(params) do
     conn = request(:post, "/v1/billing_portal/configurations", params)
     handle_response(conn)
@@ -2112,6 +2328,36 @@ defmodule PaperTiger.TestClient do
 
   defp create_billing_portal_session_mock(params) do
     conn = request(:post, "/v1/billing_portal/sessions", params)
+    handle_response(conn)
+  end
+
+  defp create_customer_balance_transaction_mock(customer_id, params) do
+    conn = request(:post, "/v1/customers/#{customer_id}/balance_transactions", params)
+    handle_response(conn)
+  end
+
+  defp get_customer_balance_transaction_mock(customer_id, transaction_id) do
+    conn = request(:get, "/v1/customers/#{customer_id}/balance_transactions/#{transaction_id}", %{})
+    handle_response(conn)
+  end
+
+  defp list_customer_balance_transactions_mock(customer_id, params) do
+    conn = request(:get, "/v1/customers/#{customer_id}/balance_transactions", params)
+    handle_response(conn)
+  end
+
+  defp get_cash_balance_mock(customer_id) do
+    conn = request(:get, "/v1/customers/#{customer_id}/cash_balance", %{})
+    handle_response(conn)
+  end
+
+  defp update_cash_balance_mock(customer_id, params) do
+    conn = request(:post, "/v1/customers/#{customer_id}/cash_balance", params)
+    handle_response(conn)
+  end
+
+  defp create_credit_note_mock(params) do
+    conn = request(:post, "/v1/credit_notes", params)
     handle_response(conn)
   end
 
