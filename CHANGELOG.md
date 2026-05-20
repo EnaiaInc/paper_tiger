@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modern payment-method adjunct APIs: test-helper ConfirmationToken creation plus retrieval, PaymentMethodDomain create/retrieve/update/list, PaymentMethodConfiguration create/retrieve/update/list, CustomerSession creation with client secrets, and stored Mandate retrieval for successful mandate-bearing SetupIntent/PaymentIntent flows.
 - Invoice lifecycle endpoints for `POST /v1/invoices/:id/send`, `POST /v1/invoices/:id/mark_uncollectible`, and PaymentIntent-backed `POST /v1/invoices/:id/attach_payment`, including `invoice.sent`, `invoice.marked_uncollectible`, and `invoice.voided` webhook emission plus status-transition timestamps.
 - Hosted product APIs for Payment Links and Billing Portal: `POST/GET/POST/GET-list /v1/payment_links`, paginated `GET /v1/payment_links/:id/line_items`, browser-visible Payment Link URLs backed by deterministic Checkout Session completion, `POST /v1/billing_portal/sessions`, and Billing Portal Configuration create/retrieve/update/list endpoints.
+- Billing discount and credit APIs: Promotion Codes, Customer Balance Transactions, Customer Cash Balance, and Credit Notes with invoice/customer balance mutation for common credit workflows.
 
 ### Fixed
 

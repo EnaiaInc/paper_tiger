@@ -60,11 +60,14 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.BillingPortalConfiguration
   alias PaperTiger.Resources.BillingPortalSession
   alias PaperTiger.Resources.Card
+  alias PaperTiger.Resources.CashBalance
   alias PaperTiger.Resources.Charge
   alias PaperTiger.Resources.CheckoutSession
   alias PaperTiger.Resources.ConfirmationToken
   alias PaperTiger.Resources.Coupon
+  alias PaperTiger.Resources.CreditNote
   alias PaperTiger.Resources.Customer
+  alias PaperTiger.Resources.CustomerBalanceTransaction
   alias PaperTiger.Resources.CustomerSession
   alias PaperTiger.Resources.Dispute
   alias PaperTiger.Resources.Event
@@ -80,6 +83,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Plan
   alias PaperTiger.Resources.Price
   alias PaperTiger.Resources.Product
+  alias PaperTiger.Resources.PromotionCode
   alias PaperTiger.Resources.Refund
   alias PaperTiger.Resources.Review
   alias PaperTiger.Resources.SetupAttempt
@@ -220,6 +224,30 @@ defmodule PaperTiger.Router do
     Customer.search(conn)
   end
 
+  post "/v1/customers/:customer_id/balance_transactions" do
+    CustomerBalanceTransaction.create(conn, customer_id)
+  end
+
+  get "/v1/customers/:customer_id/balance_transactions/:id" do
+    CustomerBalanceTransaction.retrieve(conn, customer_id, id)
+  end
+
+  post "/v1/customers/:customer_id/balance_transactions/:id" do
+    CustomerBalanceTransaction.update(conn, customer_id, id)
+  end
+
+  get "/v1/customers/:customer_id/balance_transactions" do
+    CustomerBalanceTransaction.list(conn, customer_id)
+  end
+
+  get "/v1/customers/:customer_id/cash_balance" do
+    CashBalance.retrieve(conn, customer_id)
+  end
+
+  post "/v1/customers/:customer_id/cash_balance" do
+    CashBalance.update(conn, customer_id)
+  end
+
   stripe_resource("customers", Customer, [])
 
   get "/v1/subscriptions/search" do
@@ -309,6 +337,7 @@ defmodule PaperTiger.Router do
   stripe_resource("charges", Charge, except: [:delete])
   stripe_resource("refunds", Refund, except: [:delete])
   stripe_resource("coupons", Coupon, [])
+  stripe_resource("promotion_codes", PromotionCode, except: [:delete])
   stripe_resource("plans", Plan, [])
   stripe_resource("tax_rates", TaxRate, except: [:delete])
   stripe_resource("payouts", Payout, except: [:delete])
@@ -327,6 +356,24 @@ defmodule PaperTiger.Router do
   stripe_resource("events", Event, only: [:retrieve, :list])
   stripe_resource("tokens", Token, only: [:create, :retrieve])
   stripe_resource("checkout/sessions", CheckoutSession, only: [:create, :retrieve, :update, :list])
+
+  get "/v1/credit_notes/preview/lines" do
+    CreditNote.preview_lines(conn)
+  end
+
+  get "/v1/credit_notes/preview" do
+    CreditNote.preview(conn)
+  end
+
+  get "/v1/credit_notes/:id/lines" do
+    CreditNote.lines(conn, id)
+  end
+
+  post "/v1/credit_notes/:id/void" do
+    CreditNote.void(conn, id)
+  end
+
+  stripe_resource("credit_notes", CreditNote, except: [:delete])
 
   ## Custom Checkout Session Endpoints
 

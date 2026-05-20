@@ -40,8 +40,8 @@ defmodule PaperTiger.Resources.Subscription do
   import PaperTiger.Resource
 
   alias PaperTiger.AutomaticTax
+  alias PaperTiger.Discounts
   alias PaperTiger.Search
-  alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
@@ -385,7 +385,7 @@ defmodule PaperTiger.Resources.Subscription do
       customer: Map.get(params, :customer),
       days_until_due: nil,
       default_payment_method: Map.get(params, :default_payment_method),
-      discount: build_discount_from_coupon(params),
+      discount: Discounts.build_from_params(params),
       ended_at: nil,
       id: generate_id("sub", Map.get(params, :id)),
       items: %{data: [], has_more: false, object: "list", url: "/v1/subscription_items"},
@@ -404,28 +404,10 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   defp maybe_update_discount(subscription, params) do
-    if Map.has_key?(params, :coupon) do
-      Map.put(subscription, :discount, build_discount_from_coupon(params))
+    if Map.has_key?(params, :coupon) or Map.has_key?(params, :promotion_code) or Map.has_key?(params, :discounts) do
+      Map.put(subscription, :discount, Discounts.build_from_params(params))
     else
       subscription
-    end
-  end
-
-  defp build_discount_from_coupon(params) do
-    coupon_id = Map.get(params, :coupon)
-
-    if coupon_id && coupon_id != "" do
-      case Coupons.get(to_string(coupon_id)) do
-        {:ok, coupon} ->
-          %{
-            coupon: coupon,
-            id: generate_id("di"),
-            object: "discount"
-          }
-
-        _ ->
-          nil
-      end
     end
   end
 
@@ -847,7 +829,9 @@ defmodule PaperTiger.Resources.Subscription do
       invoice_id = generate_id("in")
       line_items = build_initial_invoice_line_items(subscription, invoice_id)
       {line_items, totals} = AutomaticTax.apply_to_line_items(line_items, params, :invoice)
-      total = if(AutomaticTax.enabled?(params), do: totals.total, else: subtotal)
+      discount_amount = Discounts.amount(subscription.discount, subtotal, "usd")
+      total_before_discount = if(AutomaticTax.enabled?(params), do: totals.total, else: subtotal)
+      total = max(total_before_discount - discount_amount, 0)
       amount_paid = if(amt_paid == :paid_total, do: total, else: amt_paid)
       amount_remaining = if(amt_remaining == :remaining_total, do: total, else: amt_remaining)
 
@@ -902,7 +886,8 @@ defmodule PaperTiger.Resources.Subscription do
         subtotal: subtotal,
         tax: totals.amount_tax,
         total: total,
-        total_details: totals.total_details
+        total_details: Map.put(totals.total_details, :amount_discount, discount_amount),
+        total_discount_amounts: discount_amounts(subscription.discount, discount_amount)
       }
 
       Enum.each(line_items, &InvoiceItems.insert/1)
@@ -930,6 +915,14 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   defp calculate_items_total(_), do: 0
+
+  defp discount_amounts(_discount, 0), do: []
+
+  defp discount_amounts(discount, amount) when is_map(discount) do
+    [%{amount: amount, discount: discount.id}]
+  end
+
+  defp discount_amounts(_discount, _amount), do: []
 
   defp build_initial_invoice_line_items(subscription, invoice_id) do
     now = PaperTiger.now()

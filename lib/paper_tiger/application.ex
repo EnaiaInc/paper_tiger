@@ -15,6 +15,8 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.CheckoutSessions
   alias PaperTiger.Store.ConfirmationTokens
   alias PaperTiger.Store.Coupons
+  alias PaperTiger.Store.CreditNotes
+  alias PaperTiger.Store.CustomerBalanceTransactions
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.Disputes
   alias PaperTiger.Store.Events
@@ -30,6 +32,7 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.Products
+  alias PaperTiger.Store.PromotionCodes
   alias PaperTiger.Store.Refunds
   alias PaperTiger.Store.Reviews
   alias PaperTiger.Store.SetupAttempts
@@ -78,6 +81,7 @@ defmodule PaperTiger.Application do
         Prices,
         PaymentLinks,
         Invoices,
+        CreditNotes,
         PaymentMethods,
         PaymentMethodDomains,
         PaymentMethodConfigurations,
@@ -93,6 +97,8 @@ defmodule PaperTiger.Application do
         InvoiceItems,
         Plans,
         Coupons,
+        PromotionCodes,
+        CustomerBalanceTransactions,
         TaxRates,
         Cards,
         BankAccounts,

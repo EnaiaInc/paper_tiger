@@ -39,6 +39,7 @@ defmodule PaperTiger.Resources.Invoice do
   import PaperTiger.Resource
 
   alias PaperTiger.ChaosCoordinator
+  alias PaperTiger.CustomerBalance
   alias PaperTiger.Search
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
@@ -354,7 +355,7 @@ defmodule PaperTiger.Resources.Invoice do
   def finalize(conn, id) do
     with {:ok, invoice} <- Invoices.get(id),
          :ok <- validate_can_finalize(invoice),
-         finalized = finalize_invoice(invoice),
+         finalized = invoice |> finalize_invoice() |> CustomerBalance.apply_to_invoice(),
          {:ok, finalized} <- Invoices.update(finalized) do
       finalized_with_lines = load_invoice_lines(finalized)
       :telemetry.execute([:paper_tiger, :invoice, :finalized], %{}, %{object: finalized_with_lines})

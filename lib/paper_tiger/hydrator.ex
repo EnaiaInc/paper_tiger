@@ -38,6 +38,8 @@ defmodule PaperTiger.Hydrator do
   alias PaperTiger.Store.CheckoutSessions
   alias PaperTiger.Store.ConfirmationTokens
   alias PaperTiger.Store.Coupons
+  alias PaperTiger.Store.CreditNotes
+  alias PaperTiger.Store.CustomerBalanceTransactions
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.Disputes
   alias PaperTiger.Store.Events
@@ -53,6 +55,7 @@ defmodule PaperTiger.Hydrator do
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.Products
+  alias PaperTiger.Store.PromotionCodes
   alias PaperTiger.Store.Refunds
   alias PaperTiger.Store.Reviews
   alias PaperTiger.Store.SetupAttempts
@@ -77,7 +80,9 @@ defmodule PaperTiger.Hydrator do
     Charges,
     CheckoutSessions,
     ConfirmationTokens,
+    CreditNotes,
     Coupons,
+    CustomerBalanceTransactions,
     Customers,
     Disputes,
     Events,
@@ -93,6 +98,7 @@ defmodule PaperTiger.Hydrator do
     Plans,
     Prices,
     Products,
+    PromotionCodes,
     Refunds,
     Reviews,
     SetupAttempts,
