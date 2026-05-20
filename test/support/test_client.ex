@@ -343,6 +343,19 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Searches customers.
+  """
+  def search_customers(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        search_customers_real(params)
+
+      :paper_tiger ->
+        search_customers_mock(params)
+    end
+  end
+
   ## Product Operations
 
   @doc """
@@ -463,6 +476,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         list_subscriptions_mock(params)
+    end
+  end
+
+  @doc """
+  Searches subscriptions.
+  """
+  def search_subscriptions(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        search_subscriptions_real(params)
+
+      :paper_tiger ->
+        search_subscriptions_mock(params)
     end
   end
 
@@ -630,6 +656,19 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Searches charges.
+  """
+  def search_charges(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        search_charges_real(params)
+
+      :paper_tiger ->
+        search_charges_mock(params)
+    end
+  end
+
   ## BalanceTransaction Operations
 
   @doc """
@@ -709,6 +748,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         capture_payment_intent_mock(payment_intent_id, params)
+    end
+  end
+
+  @doc """
+  Searches payment intents.
+  """
+  def search_payment_intents(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        search_payment_intents_real(params)
+
+      :paper_tiger ->
+        search_payment_intents_mock(params)
     end
   end
 
@@ -891,6 +943,19 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Searches invoices.
+  """
+  def search_invoices(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        search_invoices_real(params)
+
+      :paper_tiger ->
+        search_invoices_mock(params)
+    end
+  end
+
   ## InvoiceItem Operations
 
   @doc """
@@ -941,6 +1006,12 @@ defmodule PaperTiger.TestClient do
             params: params
           ]
 
+        :delete ->
+          [
+            headers: headers,
+            params: params
+          ]
+
         :post ->
           [
             body: params_to_form_data(params),
@@ -967,47 +1038,27 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_customer_real(params) do
-    case Stripe.Customer.create(normalize_params(params), stripe_opts()) do
-      {:ok, customer} -> {:ok, stripe_to_map(customer)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/customers", params)
   end
 
   defp get_customer_real(customer_id) do
-    case Stripe.Customer.retrieve(customer_id, %{}, stripe_opts()) do
-      {:ok, customer} -> {:ok, stripe_to_map(customer)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/customers/#{customer_id}")
   end
 
   defp update_customer_real(customer_id, params) do
-    case Stripe.Customer.update(customer_id, normalize_params(params), stripe_opts()) do
-      {:ok, customer} -> {:ok, stripe_to_map(customer)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/customers/#{customer_id}", params)
   end
 
   defp delete_customer_real(customer_id) do
-    case Stripe.Customer.delete(customer_id, stripe_opts()) do
-      {:ok, result} ->
-        # stripity_stripe loses the "deleted" field when converting to struct
-        # Add it back since a successful delete means deleted=true
-        map = stripe_to_map(result)
-        {:ok, Map.put(map, "deleted", true)}
-
-      {:error, error} ->
-        {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:delete, "/v1/customers/#{customer_id}")
   end
 
   defp list_customers_real(params) do
-    case Stripe.Customer.list(normalize_params(params), stripe_opts()) do
-      {:ok, %{data: customers, has_more: has_more}} ->
-        {:ok, %{"data" => Enum.map(customers, &stripe_to_map/1), "has_more" => has_more}}
+    stripe_request(:get, "/v1/customers", params)
+  end
 
-      {:error, error} ->
-        {:error, stripe_error_to_map(error)}
-    end
+  defp search_customers_real(params) do
+    stripe_request(:get, "/v1/customers/search", params)
   end
 
   defp create_subscription_real(params) do
@@ -1046,6 +1097,10 @@ defmodule PaperTiger.TestClient do
       {:error, error} ->
         {:error, stripe_error_to_map(error)}
     end
+  end
+
+  defp search_subscriptions_real(params) do
+    stripe_request(:get, "/v1/subscriptions/search", params)
   end
 
   defp create_payment_method_real(params) do
@@ -1124,6 +1179,10 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp search_invoices_real(params) do
+    stripe_request(:get, "/v1/invoices/search", params)
+  end
+
   defp create_invoice_item_real(params) do
     case Stripe.Invoiceitem.create(normalize_params(params), stripe_opts()) do
       {:ok, item} -> {:ok, stripe_to_map(item)}
@@ -1177,6 +1236,10 @@ defmodule PaperTiger.TestClient do
     stripe_request(:get, "/v1/charges/#{charge_id}")
   end
 
+  defp search_charges_real(params) do
+    stripe_request(:get, "/v1/charges/search", params)
+  end
+
   defp create_payment_intent_real(params) do
     stripe_request(:post, "/v1/payment_intents", params)
   end
@@ -1195,6 +1258,10 @@ defmodule PaperTiger.TestClient do
 
   defp capture_payment_intent_real(payment_intent_id, params) do
     stripe_request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
+  end
+
+  defp search_payment_intents_real(params) do
+    stripe_request(:get, "/v1/payment_intents/search", params)
   end
 
   defp create_setup_intent_real(params) do
@@ -1286,6 +1353,11 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp search_customers_mock(params) do
+    conn = request(:get, "/v1/customers/search", params)
+    handle_response(conn)
+  end
+
   defp create_subscription_mock(params) do
     conn = request(:post, "/v1/subscriptions", params)
     handle_response(conn)
@@ -1308,6 +1380,11 @@ defmodule PaperTiger.TestClient do
 
   defp list_subscriptions_mock(params) do
     conn = request(:get, "/v1/subscriptions", params)
+    handle_response(conn)
+  end
+
+  defp search_subscriptions_mock(params) do
+    conn = request(:get, "/v1/subscriptions/search", params)
     handle_response(conn)
   end
 
@@ -1361,6 +1438,11 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp search_invoices_mock(params) do
+    conn = request(:get, "/v1/invoices/search", params)
+    handle_response(conn)
+  end
+
   defp create_invoice_item_mock(params) do
     conn = request(:post, "/v1/invoiceitems", params)
     handle_response(conn)
@@ -1401,6 +1483,11 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp search_charges_mock(params) do
+    conn = request(:get, "/v1/charges/search", params)
+    handle_response(conn)
+  end
+
   defp create_payment_intent_mock(params) do
     conn = request(:post, "/v1/payment_intents", params)
     handle_response(conn)
@@ -1423,6 +1510,11 @@ defmodule PaperTiger.TestClient do
 
   defp capture_payment_intent_mock(payment_intent_id, params) do
     conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/capture", params)
+    handle_response(conn)
+  end
+
+  defp search_payment_intents_mock(params) do
+    conn = request(:get, "/v1/payment_intents/search", params)
     handle_response(conn)
   end
 

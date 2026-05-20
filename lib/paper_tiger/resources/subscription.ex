@@ -40,6 +40,7 @@ defmodule PaperTiger.Resources.Subscription do
   import PaperTiger.Resource
 
   alias PaperTiger.AutomaticTax
+  alias PaperTiger.Search
   alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.InvoiceItems
@@ -49,6 +50,13 @@ defmodule PaperTiger.Resources.Subscription do
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
+
+  @search_fields %{
+    "canceled_at" => :numeric,
+    "created" => :numeric,
+    "metadata" => :token,
+    "status" => :string
+  }
 
   @doc """
   Creates a new subscription.
@@ -244,6 +252,25 @@ defmodule PaperTiger.Resources.Subscription do
   end
 
   @doc """
+  Searches subscriptions with Stripe-style search query syntax.
+  """
+  @spec search(Plug.Conn.t()) :: Plug.Conn.t()
+  def search(conn) do
+    Subscriptions.list_namespace(PaperTiger.Test.current_namespace())
+    |> Search.run(conn.params,
+      fields: @search_fields,
+      url: "/v1/subscriptions/search",
+      decorate: fn subscription ->
+        subscription
+        |> load_subscription_items()
+        |> load_latest_invoice()
+        |> maybe_expand(conn.params)
+      end
+    )
+    |> respond_to_search(conn)
+  end
+
+  @doc """
   Cancels a subscription immediately.
 
   POST /v1/subscriptions/:id/cancel
@@ -334,6 +361,9 @@ defmodule PaperTiger.Resources.Subscription do
       true -> "active"
     end
   end
+
+  defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
+  defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
 
   defp build_subscription(params) do
     now = PaperTiger.now()

@@ -28,7 +28,16 @@ defmodule PaperTiger.Resources.Customer do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.Search
   alias PaperTiger.Store.Customers
+
+  @search_fields %{
+    "created" => :numeric,
+    "email" => :string,
+    "metadata" => :token,
+    "name" => :string,
+    "phone" => :string
+  }
 
   @doc """
   Creates a new customer.
@@ -158,7 +167,24 @@ defmodule PaperTiger.Resources.Customer do
     json_response(conn, 200, result)
   end
 
+  @doc """
+  Searches customers with Stripe-style search query syntax.
+  """
+  @spec search(Plug.Conn.t()) :: Plug.Conn.t()
+  def search(conn) do
+    Customers.list_namespace(PaperTiger.Test.current_namespace())
+    |> Search.run(conn.params,
+      fields: @search_fields,
+      url: "/v1/customers/search",
+      decorate: &maybe_expand(&1, conn.params)
+    )
+    |> respond_to_search(conn)
+  end
+
   ## Private Functions
+  defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
+  defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
+
   # Use provided created timestamp or default to now
   defp build_customer(params) do
     created = get_optional_integer(params, :created) || PaperTiger.now()

@@ -192,7 +192,16 @@ defmodule PaperTiger.Router do
   ## Resource Routes
 
   # Core resources (Phase 1)
+  get "/v1/customers/search" do
+    Customer.search(conn)
+  end
+
   stripe_resource("customers", Customer, [])
+
+  get "/v1/subscriptions/search" do
+    Subscription.search(conn)
+  end
+
   stripe_resource("subscriptions", Subscription, [])
   stripe_resource("products", Product, [])
   stripe_resource("prices", Price, except: [:delete])
@@ -206,9 +215,17 @@ defmodule PaperTiger.Router do
     Invoice.create_preview(conn)
   end
 
+  get "/v1/invoices/search" do
+    Invoice.search(conn)
+  end
+
   stripe_resource("invoices", Invoice, [])
   stripe_resource("payment_methods", PaymentMethod, [])
   # Custom payment intent endpoints — must come BEFORE stripe_resource
+  get "/v1/payment_intents/search" do
+    PaymentIntent.search(conn)
+  end
+
   post "/v1/payment_intents/:id/confirm" do
     PaymentIntent.confirm(conn, id)
   end
@@ -237,6 +254,11 @@ defmodule PaperTiger.Router do
 
   stripe_resource("setup_intents", SetupIntent, except: [:delete])
   stripe_resource("setup_attempts", SetupAttempt, only: [:list])
+
+  get "/v1/charges/search" do
+    Charge.search(conn)
+  end
+
   stripe_resource("charges", Charge, except: [:delete])
   stripe_resource("refunds", Refund, except: [:delete])
   stripe_resource("coupons", Coupon, [])

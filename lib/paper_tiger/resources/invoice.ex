@@ -39,11 +39,26 @@ defmodule PaperTiger.Resources.Invoice do
   import PaperTiger.Resource
 
   alias PaperTiger.ChaosCoordinator
+  alias PaperTiger.Search
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
+
+  @search_fields %{
+    "created" => :numeric,
+    "currency" => :token,
+    "customer" => :token,
+    "last_finalization_error.code" => :token,
+    "last_finalization_error.type" => :token,
+    "metadata" => :token,
+    "number" => :string,
+    "receipt_number" => :string,
+    "status" => :string,
+    "subscription" => :token,
+    "total" => :numeric
+  }
 
   @doc """
   Creates a new invoice.
@@ -195,9 +210,30 @@ defmodule PaperTiger.Resources.Invoice do
     json_response(conn, 200, result)
   end
 
+  @doc """
+  Searches invoices with Stripe-style search query syntax.
+  """
+  @spec search(Plug.Conn.t()) :: Plug.Conn.t()
+  def search(conn) do
+    Invoices.list_namespace(PaperTiger.Test.current_namespace())
+    |> Search.run(conn.params,
+      fields: @search_fields,
+      url: "/v1/invoices/search",
+      decorate: fn invoice ->
+        invoice
+        |> load_invoice_lines()
+        |> maybe_expand(conn.params)
+      end
+    )
+    |> respond_to_search(conn)
+  end
+
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(val) when is_binary(val), do: val
   defp to_string_or_nil(val) when is_atom(val), do: Atom.to_string(val)
+
+  defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
+  defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
 
   defp get_filtered_invoices(nil, nil, nil) do
     Invoices.all()
