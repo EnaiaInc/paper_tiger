@@ -184,6 +184,48 @@ defmodule PaperTiger.WebhookCollectionTest do
       assert delivery.event_data.object.id == subscription["id"]
       refute Map.has_key?(delivery.event_data, :previous_attributes)
     end
+
+    test "invoice send triggers invoice.sent webhook" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "invoice-send@example.com"})
+
+      {:ok, invoice} =
+        TestClient.create_invoice(%{
+          "collection_method" => "send_invoice",
+          "customer" => customer["id"],
+          "days_until_due" => 30,
+          "total" => 1200
+        })
+
+      {:ok, _finalized} = TestClient.finalize_invoice(invoice["id"])
+      clear_delivered_webhooks()
+
+      {:ok, sent} = TestClient.send_invoice(invoice["id"])
+
+      [delivery] = assert_webhook_delivered("invoice.sent")
+      assert delivery.event_data.object.id == sent["id"]
+      assert delivery.event_data.object.status == "open"
+    end
+
+    test "marking invoice uncollectible triggers invoice.marked_uncollectible webhook" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "invoice-uncollectible@example.com"})
+
+      {:ok, invoice} =
+        TestClient.create_invoice(%{
+          "amount_due" => 2100,
+          "customer" => customer["id"],
+          "total" => 2100
+        })
+
+      {:ok, _finalized} = TestClient.finalize_invoice(invoice["id"])
+      clear_delivered_webhooks()
+
+      {:ok, uncollectible} = TestClient.mark_invoice_uncollectible(invoice["id"])
+
+      [delivery] = assert_webhook_delivered("invoice.marked_uncollectible")
+      assert delivery.event_data.object.id == uncollectible["id"]
+      assert delivery.event_data.object.status == "uncollectible"
+      assert is_integer(delivery.event_data.object.status_transitions.marked_uncollectible_at)
+    end
   end
 
   describe "get_delivered_webhooks/0" do

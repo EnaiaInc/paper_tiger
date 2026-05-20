@@ -340,6 +340,18 @@ defmodule PaperTiger.Router do
     Invoice.void_invoice(conn, id)
   end
 
+  post "/v1/invoices/:id/send" do
+    Invoice.send_invoice(conn, id)
+  end
+
+  post "/v1/invoices/:id/mark_uncollectible" do
+    Invoice.mark_uncollectible(conn, id)
+  end
+
+  post "/v1/invoices/:id/attach_payment" do
+    Invoice.attach_payment(conn, id)
+  end
+
   ## Custom PaymentMethod Endpoints
 
   post "/v1/payment_methods/:id/attach" do

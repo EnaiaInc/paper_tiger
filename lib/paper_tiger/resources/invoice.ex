@@ -42,6 +42,7 @@ defmodule PaperTiger.Resources.Invoice do
   alias PaperTiger.Search
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
+  alias PaperTiger.Store.PaymentIntents
   alias PaperTiger.Store.Prices
   alias PaperTiger.Store.SubscriptionItems
   alias PaperTiger.Store.Subscriptions
@@ -419,7 +420,7 @@ defmodule PaperTiger.Resources.Invoice do
     code_str = to_string(decline_code)
 
     invoice
-    |> Map.put(:status, "open")
+    |> Map.put(:status, payment_failed_status(invoice))
     |> Map.put(:attempted, true)
     |> Map.put(:attempt_count, (invoice[:attempt_count] || 0) + 1)
     |> Map.put(:last_finalization_error, %{
@@ -442,13 +443,138 @@ defmodule PaperTiger.Resources.Invoice do
     with {:ok, invoice} <- Invoices.get(id),
          voided = mark_invoice_void(invoice),
          {:ok, voided} <- Invoices.update(voided) do
-      voided
-      |> load_invoice_lines()
+      voided_with_lines = load_invoice_lines(voided)
+      :telemetry.execute([:paper_tiger, :invoice, :voided], %{}, %{object: voided_with_lines})
+
+      voided_with_lines
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))
     else
       {:error, :not_found} ->
         error_response(conn, PaperTiger.Error.not_found("invoice", id))
+    end
+  end
+
+  @doc """
+  Sends an invoice to the customer.
+
+  POST /v1/invoices/:id/send
+
+  Emits invoice.sent and returns the invoice. The invoice remains open.
+  """
+  @spec send_invoice(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def send_invoice(conn, id) do
+    with {:ok, invoice} <- Invoices.get(id),
+         :ok <- validate_sendable(invoice),
+         sent = mark_invoice_sent(invoice),
+         {:ok, sent} <- Invoices.update(sent) do
+      sent_with_lines = load_invoice_lines(sent)
+      :telemetry.execute([:paper_tiger, :invoice, :sent], %{}, %{object: sent_with_lines})
+
+      sent_with_lines
+      |> maybe_expand(conn.params)
+      |> then(&json_response(conn, 200, &1))
+    else
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("invoice", id))
+
+      {:error, :not_sendable, status} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This invoice's status (#{status}) does not allow sending.",
+            "status"
+          )
+        )
+    end
+  end
+
+  @doc """
+  Marks an invoice as uncollectible.
+
+  POST /v1/invoices/:id/mark_uncollectible
+  """
+  @spec mark_uncollectible(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def mark_uncollectible(conn, id) do
+    with {:ok, invoice} <- Invoices.get(id),
+         :ok <- validate_mark_uncollectible(invoice),
+         uncollectible = mark_invoice_uncollectible(invoice),
+         {:ok, uncollectible} <- Invoices.update(uncollectible) do
+      uncollectible_with_lines = load_invoice_lines(uncollectible)
+
+      :telemetry.execute([:paper_tiger, :invoice, :marked_uncollectible], %{}, %{
+        object: uncollectible_with_lines
+      })
+
+      uncollectible_with_lines
+      |> maybe_expand(conn.params)
+      |> then(&json_response(conn, 200, &1))
+    else
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("invoice", id))
+
+      {:error, :not_markable_uncollectible, status} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This invoice's status (#{status}) does not allow marking it uncollectible.",
+            "status"
+          )
+        )
+    end
+  end
+
+  @doc """
+  Attaches a payment to an invoice.
+
+  POST /v1/invoices/:id/attach_payment
+  """
+  @spec attach_payment(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def attach_payment(conn, id) do
+    with {:ok, invoice} <- Invoices.get(id),
+         :ok <- validate_can_attach_payment(invoice),
+         {:ok, payment} <- resolve_invoice_payment(conn.params),
+         {:ok, updated} <- attach_invoice_payment(invoice, payment) do
+      updated_with_lines = load_invoice_lines(updated)
+      :telemetry.execute([:paper_tiger, :invoice, :updated], %{}, %{object: updated_with_lines})
+      maybe_emit_invoice_paid(invoice, updated_with_lines)
+
+      updated_with_lines
+      |> maybe_expand(conn.params)
+      |> then(&json_response(conn, 200, &1))
+    else
+      {:error, :not_found} ->
+        error_response(conn, PaperTiger.Error.not_found("invoice", id))
+
+      {:error, :payment_intent_not_found, payment_intent_id} ->
+        error_response(conn, PaperTiger.Error.not_found("payment_intent", payment_intent_id))
+
+      {:error, :missing_payment} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request("Missing required parameter", "payment_intent")
+        )
+
+      {:error, :multiple_payments} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request("Specify only one of payment_intent or payment_record")
+        )
+
+      {:error, :payment_record_unsupported} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request("PaymentRecord attachment is not supported", "payment_record")
+        )
+
+      {:error, :not_attachable, status} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This invoice's status (#{status}) does not allow attaching payments.",
+            "status"
+          )
+        )
     end
   end
 
@@ -504,6 +630,7 @@ defmodule PaperTiger.Resources.Invoice do
       number: nil,
       object: "invoice",
       paid: Map.get(params, :paid, false),
+      payment_intent: Map.get(params, :payment_intent),
       period_end: period_end,
       period_start: period_start,
       receipt_number: nil,
@@ -546,34 +673,200 @@ defmodule PaperTiger.Resources.Invoice do
   defp validate_can_finalize(%{status: "draft"}), do: :ok
   defp validate_can_finalize(_invoice), do: {:error, :not_draft}
 
+  defp validate_sendable(%{status: status}) when status in ["open", "paid"], do: :ok
+  defp validate_sendable(%{status: status}), do: {:error, :not_sendable, status}
+
+  defp validate_mark_uncollectible(%{status: "open"}), do: :ok
+  defp validate_mark_uncollectible(%{status: status}), do: {:error, :not_markable_uncollectible, status}
+
+  defp validate_can_attach_payment(%{status: status}) when status in ["open", "uncollectible"], do: :ok
+  defp validate_can_attach_payment(%{status: status}), do: {:error, :not_attachable, status}
+
   defp finalize_invoice(invoice) do
     now = PaperTiger.now()
 
-    %{
-      invoice
-      | number: generate_id("inv"),
-        period_end: now,
-        status: "open",
-        webhooks_delivered_at: now
-    }
+    invoice
+    |> Map.put(:number, invoice[:number] || generate_id("inv"))
+    |> Map.put(:period_end, now)
+    |> Map.put(:status, "open")
+    |> Map.put(:hosted_invoice_url, hosted_invoice_url(invoice))
+    |> Map.put(:invoice_pdf, invoice_pdf_url(invoice))
+    |> Map.put(:webhooks_delivered_at, now)
+    |> put_status_transition(:finalized_at, now)
   end
 
   defp mark_invoice_paid(invoice) do
-    %{
-      invoice
-      | amount_paid: invoice.amount_due,
-        amount_remaining: 0,
-        paid: true,
-        status: "paid"
-    }
+    now = PaperTiger.now()
+    amount_due = Map.get(invoice, :amount_due, 0)
+
+    invoice
+    |> Map.put(:amount_paid, amount_due)
+    |> Map.put(:amount_remaining, 0)
+    |> Map.put(:paid, true)
+    |> Map.put(:status, "paid")
+    |> Map.put(:webhooks_delivered_at, now)
+    |> put_status_transition(:paid_at, now)
   end
 
   defp mark_invoice_void(invoice) do
-    %{
+    now = PaperTiger.now()
+
+    invoice
+    |> Map.put(:status, "void")
+    |> Map.put(:webhooks_delivered_at, now)
+    |> put_status_transition(:voided_at, now)
+  end
+
+  defp mark_invoice_sent(invoice) do
+    now = PaperTiger.now()
+
+    invoice
+    |> Map.put(:attempted, true)
+    |> Map.put(:hosted_invoice_url, hosted_invoice_url(invoice))
+    |> Map.put(:invoice_pdf, invoice_pdf_url(invoice))
+    |> Map.put(:webhooks_delivered_at, now)
+  end
+
+  defp mark_invoice_uncollectible(invoice) do
+    now = PaperTiger.now()
+
+    invoice
+    |> Map.put(:status, "uncollectible")
+    |> Map.put(:paid, false)
+    |> Map.put(:webhooks_delivered_at, now)
+    |> put_status_transition(:marked_uncollectible_at, now)
+  end
+
+  defp put_status_transition(invoice, field, timestamp) do
+    transitions =
       invoice
-      | status: "void"
+      |> Map.get(:status_transitions, %{})
+      |> Map.put(field, timestamp)
+
+    Map.put(invoice, :status_transitions, transitions)
+  end
+
+  defp payment_failed_status(%{status: "uncollectible"}), do: "uncollectible"
+  defp payment_failed_status(_invoice), do: "open"
+
+  defp hosted_invoice_url(invoice), do: "https://invoice.stripe.com/i/#{invoice.id}"
+  defp invoice_pdf_url(invoice), do: "https://pay.stripe.com/invoice/#{invoice.id}/pdf"
+
+  defp resolve_invoice_payment(params) do
+    payment_intent_id = normalize_optional_string(params, :payment_intent)
+    payment_record_id = normalize_optional_string(params, :payment_record)
+
+    case {payment_intent_id, payment_record_id} do
+      {nil, nil} ->
+        {:error, :missing_payment}
+
+      {_payment_intent_id, _payment_record_id} when is_binary(payment_intent_id) and is_binary(payment_record_id) ->
+        {:error, :multiple_payments}
+
+      {payment_intent_id, nil} ->
+        case PaymentIntents.get(payment_intent_id) do
+          {:ok, payment_intent} -> {:ok, {:payment_intent, payment_intent}}
+          {:error, :not_found} -> {:error, :payment_intent_not_found, payment_intent_id}
+        end
+
+      {nil, _payment_record_id} ->
+        {:error, :payment_record_unsupported}
+    end
+  end
+
+  defp attach_invoice_payment(invoice, {:payment_intent, payment_intent}) do
+    now = PaperTiger.now()
+    payment_amount = payment_intent_amount(payment_intent)
+    credited_amount = credited_payment_amount(invoice, payment_intent)
+    invoice_payment = build_invoice_payment(invoice, payment_intent, payment_amount, credited_amount, now)
+
+    updated_invoice =
+      invoice
+      |> Map.put(:payment_intent, payment_intent.id)
+      |> append_invoice_payment(invoice_payment)
+      |> credit_invoice_payment(credited_amount, now)
+
+    updated_payment_intent = Map.put(payment_intent, :invoice, invoice.id)
+
+    with {:ok, _payment_intent} <- PaymentIntents.update(updated_payment_intent) do
+      Invoices.update(updated_invoice)
+    end
+  end
+
+  defp payment_intent_amount(payment_intent) do
+    Map.get(payment_intent, :amount_received, 0)
+    |> max(Map.get(payment_intent, :amount, 0))
+  end
+
+  defp credited_payment_amount(_invoice, %{status: status}) when status != "succeeded", do: 0
+
+  defp credited_payment_amount(invoice, payment_intent) do
+    invoice
+    |> Map.get(:amount_remaining, 0)
+    |> min(Map.get(payment_intent, :amount_received, 0))
+  end
+
+  defp build_invoice_payment(invoice, payment_intent, amount_requested, amount_paid, now) when is_map(payment_intent) do
+    %{
+      amount_paid: amount_paid,
+      amount_requested: amount_requested,
+      created: now,
+      currency: invoice.currency,
+      id: generate_id("inpay"),
+      invoice: invoice.id,
+      is_default: true,
+      livemode: false,
+      object: "invoice_payment",
+      payment: %{payment_intent: payment_intent.id, type: "payment_intent"},
+      status: if(amount_paid > 0, do: "paid", else: "open"),
+      status_transitions: %{canceled_at: nil, paid_at: if(amount_paid > 0, do: now)}
     }
   end
+
+  defp append_invoice_payment(invoice, invoice_payment) do
+    payments =
+      invoice
+      |> Map.get(:payments)
+      |> normalize_payments_list(invoice.id)
+      |> Map.update!(:data, fn payments -> payments ++ [invoice_payment] end)
+
+    Map.put(invoice, :payments, payments)
+  end
+
+  defp normalize_payments_list(nil, invoice_id) do
+    %{data: [], has_more: false, object: "list", url: "/v1/invoices/#{invoice_id}/payments"}
+  end
+
+  defp normalize_payments_list(%{data: data} = payments, _invoice_id) when is_list(data), do: payments
+
+  defp credit_invoice_payment(invoice, 0, _now), do: invoice
+
+  defp credit_invoice_payment(invoice, credited_amount, now) do
+    amount_paid = Map.get(invoice, :amount_paid, 0) + credited_amount
+    amount_remaining = max(Map.get(invoice, :amount_due, 0) - amount_paid, 0)
+
+    invoice =
+      invoice
+      |> Map.put(:amount_paid, amount_paid)
+      |> Map.put(:amount_remaining, amount_remaining)
+
+    if amount_remaining == 0 do
+      invoice
+      |> Map.put(:paid, true)
+      |> Map.put(:status, "paid")
+      |> Map.put(:webhooks_delivered_at, now)
+      |> put_status_transition(:paid_at, now)
+    else
+      invoice
+    end
+  end
+
+  defp maybe_emit_invoice_paid(%{status: old_status}, %{status: "paid"} = invoice) when old_status != "paid" do
+    :telemetry.execute([:paper_tiger, :invoice, :paid], %{}, %{object: invoice})
+    :telemetry.execute([:paper_tiger, :invoice, :payment_succeeded], %{}, %{object: invoice})
+  end
+
+  defp maybe_emit_invoice_paid(_old_invoice, _new_invoice), do: :ok
 
   defp maybe_expand(invoice, params) do
     expand_params = parse_expand_params(params)
