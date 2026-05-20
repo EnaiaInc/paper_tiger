@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-20
+
 ### Added
 
 - **Pluggable webhook delivery adapter.** `PaperTiger.WebhookDelivery.Adapter` behaviour with a single `deliver/1` callback taking a `PaperTiger.WebhookDelivery.Request` (the signed payload, full headers, signature header, url, event, webhook, namespace) and returning `{:ok, %PaperTiger.WebhookDelivery.Response{}}` (terminal success / ownership taken) or `{:error, reason}` (PaperTiger retries with its existing exponential backoff). Configure with `config :paper_tiger, webhook_delivery_adapter: MyApp.Sink`. Lets a host embedding PaperTiger take durable ownership of webhook delivery via an explicit, enforced contract — a missing or crashing host cannot silently drop webhooks. Default is `PaperTiger.WebhookDelivery.HTTPAdapter`, which performs the HTTP POST exactly as before; **no behavior change when the adapter is not configured.**
