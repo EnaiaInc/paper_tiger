@@ -1262,6 +1262,81 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Connect Platform APIs" do
+    @tag :contract
+    test "creates connected accounts and account links" do
+      result =
+        TestClient.create_account(%{
+          "capabilities" => %{"transfers" => %{"requested" => true}},
+          "country" => "US",
+          "email" => "connect-account-#{System.unique_integer([:positive])}@example.com",
+          "type" => "express"
+        })
+
+      case result do
+        {:ok, account} ->
+          assert account["object"] == "account"
+          assert String.starts_with?(account["id"], "acct_")
+          assert Map.has_key?(account, "capabilities")
+
+          {:ok, retrieved} = TestClient.get_account(account["id"])
+          assert retrieved["id"] == account["id"]
+
+          {:ok, link} =
+            TestClient.create_account_link(%{
+              "account" => account["id"],
+              "refresh_url" => "https://example.test/reauth",
+              "return_url" => "https://example.test/return",
+              "type" => "account_onboarding"
+            })
+
+          assert link["object"] == "account_link"
+          assert is_binary(link["url"])
+
+          cleanup_account(account["id"])
+
+        {:error, error} ->
+          assert_connect_environment_error(error)
+      end
+    end
+
+    @tag :contract
+    test "creates transfers and reversals for connected accounts" do
+      with {:ok, account} <-
+             TestClient.create_account(%{
+               "capabilities" => %{"transfers" => %{"requested" => true}},
+               "country" => "US",
+               "type" => "express"
+             }),
+           {:ok, transfer} <-
+             TestClient.create_transfer(%{
+               "amount" => 400,
+               "currency" => "usd",
+               "destination" => account["id"],
+               "transfer_group" => "pt_contract_#{System.unique_integer([:positive])}"
+             }) do
+        assert transfer["object"] == "transfer"
+        assert String.starts_with?(transfer["id"], "tr_")
+        assert transfer["amount"] == 400
+        assert transfer["destination"] == account["id"]
+        assert Map.has_key?(transfer, "reversals")
+
+        {:ok, reversal} = TestClient.create_transfer_reversal(transfer["id"], %{"amount" => 100})
+        assert reversal["object"] == "transfer_reversal"
+        assert reversal["amount"] == 100
+        assert reversal["transfer"] == transfer["id"]
+
+        {:ok, reversals} = TestClient.list_transfer_reversals(transfer["id"], %{"limit" => 1})
+        assert is_list(reversals["data"])
+
+        cleanup_account(account["id"])
+      else
+        {:error, error} ->
+          assert_connect_environment_error(error)
+      end
+    end
+  end
+
   describe "Error Response Format Validation" do
     @tag :contract
     test "non-existent customer returns resource_missing error" do
@@ -1783,6 +1858,20 @@ defmodule PaperTiger.ContractTest do
   defp cleanup_subscription(subscription_id) do
     if TestClient.real_stripe?() do
       TestClient.delete_subscription(subscription_id)
+    end
+  end
+
+  defp cleanup_account(account_id) do
+    if TestClient.real_stripe?() do
+      TestClient.delete_account(account_id)
+    end
+  end
+
+  defp assert_connect_environment_error(error) do
+    if TestClient.real_stripe?() do
+      assert error["error"]["type"] in ["invalid_request_error", "api_error"]
+    else
+      flunk("Unexpected PaperTiger Connect error: #{inspect(error)}")
     end
   end
 

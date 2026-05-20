@@ -30,6 +30,8 @@ defmodule PaperTiger.Test do
   with each other's data.
   """
 
+  alias PaperTiger.Store.Accounts
+  alias PaperTiger.Store.ApplicationFeeRefunds
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -69,6 +71,8 @@ defmodule PaperTiger.Test do
   alias PaperTiger.Store.TaxRates
   alias PaperTiger.Store.Tokens
   alias PaperTiger.Store.Topups
+  alias PaperTiger.Store.TransferReversals
+  alias PaperTiger.Store.Transfers
   alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
 
@@ -205,7 +209,9 @@ defmodule PaperTiger.Test do
   @spec cleanup_namespace(pid() | :global) :: :ok
   def cleanup_namespace(namespace) do
     stores = [
+      Accounts,
       ApplicationFees,
+      ApplicationFeeRefunds,
       BalanceTransactions,
       BankAccounts,
       BillingPortalConfigurations,
@@ -244,6 +250,8 @@ defmodule PaperTiger.Test do
       TaxRates,
       Tokens,
       Topups,
+      Transfers,
+      TransferReversals,
       WebhookDeliveries,
       Webhooks
     ]

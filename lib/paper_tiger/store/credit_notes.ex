@@ -13,7 +13,7 @@ defmodule PaperTiger.Store.CreditNotes do
   """
   @spec find_by_invoice(String.t()) :: [map()]
   def find_by_invoice(invoice_id) when is_binary(invoice_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     @table
     |> :ets.match_object({{namespace, :_}, :_})

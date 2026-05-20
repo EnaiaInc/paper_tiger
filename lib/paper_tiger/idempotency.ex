@@ -60,7 +60,7 @@ defmodule PaperTiger.Idempotency do
   """
   @spec check(String.t()) :: {:cached, map()} | :new_request | :in_progress
   def check(idempotency_key) when is_binary(idempotency_key) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, idempotency_key}
     now = PaperTiger.Clock.now()
 
@@ -101,7 +101,7 @@ defmodule PaperTiger.Idempotency do
   """
   @spec store(String.t(), map()) :: :ok
   def store(idempotency_key, response) when is_binary(idempotency_key) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, idempotency_key}
     expires_at = PaperTiger.Clock.now() + @ttl_seconds
     :ets.insert(@table, {key, response, expires_at})
@@ -148,6 +148,7 @@ defmodule PaperTiger.Idempotency do
 
   def handle_call({:clear_namespace, namespace}, _from, state) do
     :ets.match_delete(@table, {{namespace, :_}, :_, :_})
+    :ets.match_delete(@table, {{{namespace, :_}, :_}, :_, :_})
     Logger.debug("Idempotency cache cleared for namespace")
     {:reply, :ok, state}
   end

@@ -89,7 +89,7 @@ defmodule PaperTiger.Store do
 
       # Returns the current namespace for data isolation
       defp current_namespace do
-        PaperTiger.Test.current_namespace()
+        PaperTiger.Connect.storage_namespace()
       end
     end
   end
@@ -212,7 +212,7 @@ defmodule PaperTiger.Store do
 
       Used by `PaperTiger.Test` to clean up after each test.
       """
-      @spec clear_namespace(pid() | :global) :: :ok
+      @spec clear_namespace(pid() | :global | {pid() | :global, String.t()}) :: :ok
       def clear_namespace(namespace) do
         GenServer.call(__MODULE__, {:clear_namespace, namespace})
       end
@@ -222,7 +222,7 @@ defmodule PaperTiger.Store do
 
       Useful for debugging test isolation.
       """
-      @spec list_namespace(pid() | :global) :: [map()]
+      @spec list_namespace(pid() | :global | {pid() | :global, String.t()}) :: [map()]
       def list_namespace(namespace) do
         :ets.match_object(unquote(table), {{namespace, :_}, :_})
         |> Enum.map(fn {_key, item} -> item end)
@@ -273,6 +273,7 @@ defmodule PaperTiger.Store do
       def handle_call({:clear_namespace, namespace}, _from, state) do
         # Delete all entries matching the namespace
         :ets.match_delete(unquote(table), {{namespace, :_}, :_})
+        :ets.match_delete(unquote(table), {{{namespace, :_}, :_}, :_})
         {:reply, :ok, state}
       end
 

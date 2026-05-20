@@ -215,7 +215,7 @@ defmodule PaperTiger.Resources.Subscription do
   @spec list(Plug.Conn.t()) :: Plug.Conn.t()
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
-    all_subscriptions = Subscriptions.list_namespace(PaperTiger.Test.current_namespace())
+    all_subscriptions = Subscriptions.list_namespace(PaperTiger.Connect.storage_namespace())
 
     filtered_subscriptions =
       case {Map.get(conn.params, :customer), Map.get(conn.params, :status)} do
@@ -256,7 +256,7 @@ defmodule PaperTiger.Resources.Subscription do
   """
   @spec search(Plug.Conn.t()) :: Plug.Conn.t()
   def search(conn) do
-    Subscriptions.list_namespace(PaperTiger.Test.current_namespace())
+    Subscriptions.list_namespace(PaperTiger.Connect.storage_namespace())
     |> Search.run(conn.params,
       fields: @search_fields,
       url: "/v1/subscriptions/search",

@@ -1296,6 +1296,99 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Connect Operations
+
+  def create_account(params) do
+    case mode() do
+      :real_stripe -> create_account_real(params)
+      :paper_tiger -> create_account_mock(params)
+    end
+  end
+
+  def get_account(account_id) do
+    case mode() do
+      :real_stripe -> get_account_real(account_id)
+      :paper_tiger -> get_account_mock(account_id)
+    end
+  end
+
+  def update_account(account_id, params) do
+    case mode() do
+      :real_stripe -> update_account_real(account_id, params)
+      :paper_tiger -> update_account_mock(account_id, params)
+    end
+  end
+
+  def delete_account(account_id) do
+    case mode() do
+      :real_stripe -> delete_account_real(account_id)
+      :paper_tiger -> delete_account_mock(account_id)
+    end
+  end
+
+  def list_accounts(params \\ %{}) do
+    case mode() do
+      :real_stripe -> list_accounts_real(params)
+      :paper_tiger -> list_accounts_mock(params)
+    end
+  end
+
+  def create_account_link(params) do
+    case mode() do
+      :real_stripe -> create_account_link_real(params)
+      :paper_tiger -> create_account_link_mock(params)
+    end
+  end
+
+  def create_transfer(params) do
+    case mode() do
+      :real_stripe -> create_transfer_real(params)
+      :paper_tiger -> create_transfer_mock(params)
+    end
+  end
+
+  def get_transfer(transfer_id) do
+    case mode() do
+      :real_stripe -> get_transfer_real(transfer_id)
+      :paper_tiger -> get_transfer_mock(transfer_id)
+    end
+  end
+
+  def create_transfer_reversal(transfer_id, params \\ %{}) do
+    case mode() do
+      :real_stripe -> create_transfer_reversal_real(transfer_id, params)
+      :paper_tiger -> create_transfer_reversal_mock(transfer_id, params)
+    end
+  end
+
+  def list_transfer_reversals(transfer_id, params \\ %{}) do
+    case mode() do
+      :real_stripe -> list_transfer_reversals_real(transfer_id, params)
+      :paper_tiger -> list_transfer_reversals_mock(transfer_id, params)
+    end
+  end
+
+  def get_application_fee(fee_id) do
+    case mode() do
+      :real_stripe -> get_application_fee_real(fee_id)
+      :paper_tiger -> get_application_fee_mock(fee_id)
+    end
+  end
+
+  def create_application_fee_refund(fee_id, params \\ %{}) do
+    case mode() do
+      :real_stripe -> create_application_fee_refund_real(fee_id, params)
+      :paper_tiger -> create_application_fee_refund_mock(fee_id, params)
+    end
+  end
+
+  def list_application_fee_refunds(fee_id, params \\ %{}) do
+    case mode() do
+      :real_stripe -> list_application_fee_refunds_real(fee_id, params)
+      :paper_tiger -> list_application_fee_refunds_mock(fee_id, params)
+    end
+  end
+
   ## Invoice Operations
 
   @doc """
@@ -1919,6 +2012,58 @@ defmodule PaperTiger.TestClient do
     stripe_request(:post, "/v1/credit_notes", params)
   end
 
+  defp create_account_real(params) do
+    stripe_request(:post, "/v1/accounts", params)
+  end
+
+  defp get_account_real(account_id) do
+    stripe_request(:get, "/v1/accounts/#{account_id}")
+  end
+
+  defp update_account_real(account_id, params) do
+    stripe_request(:post, "/v1/accounts/#{account_id}", params)
+  end
+
+  defp delete_account_real(account_id) do
+    stripe_request(:delete, "/v1/accounts/#{account_id}")
+  end
+
+  defp list_accounts_real(params) do
+    stripe_request(:get, "/v1/accounts", params)
+  end
+
+  defp create_account_link_real(params) do
+    stripe_request(:post, "/v1/account_links", params)
+  end
+
+  defp create_transfer_real(params) do
+    stripe_request(:post, "/v1/transfers", params)
+  end
+
+  defp get_transfer_real(transfer_id) do
+    stripe_request(:get, "/v1/transfers/#{transfer_id}")
+  end
+
+  defp create_transfer_reversal_real(transfer_id, params) do
+    stripe_request(:post, "/v1/transfers/#{transfer_id}/reversals", params)
+  end
+
+  defp list_transfer_reversals_real(transfer_id, params) do
+    stripe_request(:get, "/v1/transfers/#{transfer_id}/reversals", params)
+  end
+
+  defp get_application_fee_real(fee_id) do
+    stripe_request(:get, "/v1/application_fees/#{fee_id}")
+  end
+
+  defp create_application_fee_refund_real(fee_id, params) do
+    stripe_request(:post, "/v1/application_fees/#{fee_id}/refunds", params)
+  end
+
+  defp list_application_fee_refunds_real(fee_id, params) do
+    stripe_request(:get, "/v1/application_fees/#{fee_id}/refunds", params)
+  end
+
   ## Private - PaperTiger Mock
 
   defp create_customer_mock(params) do
@@ -2358,6 +2503,71 @@ defmodule PaperTiger.TestClient do
 
   defp create_credit_note_mock(params) do
     conn = request(:post, "/v1/credit_notes", params)
+    handle_response(conn)
+  end
+
+  defp create_account_mock(params) do
+    conn = request(:post, "/v1/accounts", params)
+    handle_response(conn)
+  end
+
+  defp get_account_mock(account_id) do
+    conn = request(:get, "/v1/accounts/#{account_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_account_mock(account_id, params) do
+    conn = request(:post, "/v1/accounts/#{account_id}", params)
+    handle_response(conn)
+  end
+
+  defp delete_account_mock(account_id) do
+    conn = request(:delete, "/v1/accounts/#{account_id}", %{})
+    handle_response(conn)
+  end
+
+  defp list_accounts_mock(params) do
+    conn = request(:get, "/v1/accounts", params)
+    handle_response(conn)
+  end
+
+  defp create_account_link_mock(params) do
+    conn = request(:post, "/v1/account_links", params)
+    handle_response(conn)
+  end
+
+  defp create_transfer_mock(params) do
+    conn = request(:post, "/v1/transfers", params)
+    handle_response(conn)
+  end
+
+  defp get_transfer_mock(transfer_id) do
+    conn = request(:get, "/v1/transfers/#{transfer_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_transfer_reversal_mock(transfer_id, params) do
+    conn = request(:post, "/v1/transfers/#{transfer_id}/reversals", params)
+    handle_response(conn)
+  end
+
+  defp list_transfer_reversals_mock(transfer_id, params) do
+    conn = request(:get, "/v1/transfers/#{transfer_id}/reversals", params)
+    handle_response(conn)
+  end
+
+  defp get_application_fee_mock(fee_id) do
+    conn = request(:get, "/v1/application_fees/#{fee_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_application_fee_refund_mock(fee_id, params) do
+    conn = request(:post, "/v1/application_fees/#{fee_id}/refunds", params)
+    handle_response(conn)
+  end
+
+  defp list_application_fee_refunds_mock(fee_id, params) do
+    conn = request(:get, "/v1/application_fees/#{fee_id}/refunds", params)
     handle_response(conn)
   end
 

@@ -38,7 +38,9 @@ defmodule PaperTiger.Store.BalanceTransactions do
   """
   @spec find_by_source(String.t()) :: [map()]
   def find_by_source(source_id) when is_binary(source_id) do
-    :ets.match_object(@table, {:_, %{source: source_id}})
+    namespace = PaperTiger.Connect.storage_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{source: source_id}})
     |> Enum.map(fn {_id, balance_transaction} -> balance_transaction end)
   end
 end

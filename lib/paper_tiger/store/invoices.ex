@@ -39,7 +39,7 @@ defmodule PaperTiger.Store.Invoices do
   """
   @spec all() :: [map()]
   def all do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, :_})
     |> Enum.map(fn {_key, invoice} -> invoice end)
@@ -52,7 +52,7 @@ defmodule PaperTiger.Store.Invoices do
   """
   @spec find_by_customer(String.t()) :: [map()]
   def find_by_customer(customer_id) when is_binary(customer_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, %{customer: customer_id}})
     |> Enum.map(fn {_id, invoice} -> invoice end)
@@ -65,7 +65,7 @@ defmodule PaperTiger.Store.Invoices do
   """
   @spec find_by_subscription(String.t()) :: [map()]
   def find_by_subscription(subscription_id) when is_binary(subscription_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, %{subscription: subscription_id}})
     |> Enum.map(fn {_id, invoice} -> invoice end)
@@ -89,7 +89,7 @@ defmodule PaperTiger.Store.Invoices do
   """
   @spec find_by_status(String.t()) :: [map()]
   def find_by_status(status) when is_binary(status) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, %{status: status}})
     |> Enum.map(fn {_id, invoice} -> invoice end)

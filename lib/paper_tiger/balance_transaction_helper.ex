@@ -82,6 +82,182 @@ defmodule PaperTiger.BalanceTransactionHelper do
   end
 
   @doc """
+  Creates the platform-side balance transaction for a transfer.
+  """
+  @spec create_for_transfer(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_transfer(transfer) do
+    amount = get_field(transfer, :amount, 0)
+    currency = get_field(transfer, :currency, "usd")
+
+    balance_transaction = %{
+      amount: -amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: get_field(transfer, :description, "Transfer"),
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: -amount,
+      object: "balance_transaction",
+      reporting_category: "transfer",
+      source: get_field(transfer, :id, nil),
+      status: "available",
+      type: "transfer"
+    }
+
+    PaperTiger.Connect.without_account(fn ->
+      insert_and_return_id(balance_transaction)
+    end)
+  end
+
+  @doc """
+  Creates a connected-account balance transaction for funds received by transfer.
+  """
+  @spec create_for_destination_transfer(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_destination_transfer(transfer) do
+    amount = get_field(transfer, :amount, 0)
+    currency = get_field(transfer, :currency, "usd")
+
+    balance_transaction = %{
+      amount: amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: get_field(transfer, :description, "Transfer"),
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: amount,
+      object: "balance_transaction",
+      reporting_category: "transfer",
+      source: get_field(transfer, :id, nil),
+      status: "available",
+      type: "transfer"
+    }
+
+    insert_and_return_id(balance_transaction)
+  end
+
+  @doc """
+  Creates the platform-side balance transaction for a transfer reversal.
+  """
+  @spec create_for_transfer_reversal(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_transfer_reversal(reversal) do
+    amount = get_field(reversal, :amount, 0)
+    currency = get_field(reversal, :currency, "usd")
+
+    balance_transaction = %{
+      amount: amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: "Transfer reversal",
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: amount,
+      object: "balance_transaction",
+      reporting_category: "transfer_reversal",
+      source: get_field(reversal, :id, nil),
+      status: "available",
+      type: "transfer_reversal"
+    }
+
+    PaperTiger.Connect.without_account(fn ->
+      insert_and_return_id(balance_transaction)
+    end)
+  end
+
+  @doc """
+  Creates the connected-account balance transaction for a transfer reversal.
+  """
+  @spec create_for_destination_transfer_reversal(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_destination_transfer_reversal(reversal) do
+    amount = get_field(reversal, :amount, 0)
+    currency = get_field(reversal, :currency, "usd")
+
+    balance_transaction = %{
+      amount: -amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: "Transfer reversal",
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: -amount,
+      object: "balance_transaction",
+      reporting_category: "transfer_reversal",
+      source: get_field(reversal, :id, nil),
+      status: "available",
+      type: "transfer_reversal"
+    }
+
+    insert_and_return_id(balance_transaction)
+  end
+
+  @doc """
+  Creates a platform-side balance transaction for an application fee.
+  """
+  @spec create_for_application_fee(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_application_fee(application_fee) do
+    amount = get_field(application_fee, :amount, 0)
+    currency = get_field(application_fee, :currency, "usd")
+
+    balance_transaction = %{
+      amount: amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: "Application fee",
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: amount,
+      object: "balance_transaction",
+      reporting_category: "application_fee",
+      source: get_field(application_fee, :id, nil),
+      status: "available",
+      type: "application_fee"
+    }
+
+    PaperTiger.Connect.without_account(fn ->
+      insert_and_return_id(balance_transaction)
+    end)
+  end
+
+  @doc """
+  Creates a platform-side balance transaction for an application fee refund.
+  """
+  @spec create_for_application_fee_refund(map()) :: {:ok, String.t()} | {:error, term()}
+  def create_for_application_fee_refund(refund) do
+    amount = get_field(refund, :amount, 0)
+    currency = get_field(refund, :currency, "usd")
+
+    balance_transaction = %{
+      amount: -amount,
+      available_on: PaperTiger.now(),
+      created: PaperTiger.now(),
+      currency: currency,
+      description: "Application fee refund",
+      fee: 0,
+      fee_details: [],
+      id: PaperTiger.Resource.generate_id("txn"),
+      net: -amount,
+      object: "balance_transaction",
+      reporting_category: "application_fee_refund",
+      source: get_field(refund, :id, nil),
+      status: "available",
+      type: "application_fee_refund"
+    }
+
+    PaperTiger.Connect.without_account(fn ->
+      insert_and_return_id(balance_transaction)
+    end)
+  end
+
+  @doc """
   Calculates Stripe's processing fee for a given amount.
 
   Formula: 2.9% + $0.30 (in cents)

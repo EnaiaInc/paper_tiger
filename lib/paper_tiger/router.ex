@@ -49,12 +49,16 @@ defmodule PaperTiger.Router do
 
   alias PaperTiger.Plug.APIChaos
   alias PaperTiger.Plugs.Auth
+  alias PaperTiger.Plugs.ConnectContext
   alias PaperTiger.Plugs.CORS
   alias PaperTiger.Plugs.GetFormBody
   alias PaperTiger.Plugs.Idempotency
   alias PaperTiger.Plugs.Sandbox
   alias PaperTiger.Plugs.UnflattenParams
+  alias PaperTiger.Resources.Account
+  alias PaperTiger.Resources.AccountLink
   alias PaperTiger.Resources.ApplicationFee
+  alias PaperTiger.Resources.ApplicationFeeRefund
   alias PaperTiger.Resources.BalanceTransaction
   alias PaperTiger.Resources.BankAccount
   alias PaperTiger.Resources.BillingPortalConfiguration
@@ -95,12 +99,14 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.TaxRate
   alias PaperTiger.Resources.Token
   alias PaperTiger.Resources.Topup
+  alias PaperTiger.Resources.Transfer
   alias PaperTiger.Resources.Webhook
 
   # Plug pipeline
   plug(:match)
   plug(CORS)
   plug(Sandbox)
+  plug(ConnectContext)
   plug(APIChaos)
   plug(GetFormBody)
 
@@ -216,6 +222,12 @@ defmodule PaperTiger.Router do
   ## Resource Routes
 
   # Core resources (Phase 1)
+  post "/v1/account_links" do
+    AccountLink.create(conn)
+  end
+
+  stripe_resource("accounts", Account, [])
+
   post "/v1/customer_sessions" do
     CustomerSession.create(conn)
   end
@@ -350,6 +362,41 @@ defmodule PaperTiger.Router do
   stripe_resource("topups", Topup, except: [:delete])
   stripe_resource("balance_transactions", BalanceTransaction, only: [:retrieve, :list])
   stripe_resource("disputes", Dispute, only: [:retrieve, :update, :list])
+
+  post "/v1/transfers/:transfer_id/reversals" do
+    Transfer.create_reversal(conn, transfer_id)
+  end
+
+  get "/v1/transfers/:transfer_id/reversals/:id" do
+    Transfer.retrieve_reversal(conn, transfer_id, id)
+  end
+
+  post "/v1/transfers/:transfer_id/reversals/:id" do
+    Transfer.update_reversal(conn, transfer_id, id)
+  end
+
+  get "/v1/transfers/:transfer_id/reversals" do
+    Transfer.list_reversals(conn, transfer_id)
+  end
+
+  stripe_resource("transfers", Transfer, except: [:delete])
+
+  post "/v1/application_fees/:fee_id/refunds" do
+    ApplicationFeeRefund.create(conn, fee_id)
+  end
+
+  get "/v1/application_fees/:fee_id/refunds/:id" do
+    ApplicationFeeRefund.retrieve(conn, fee_id, id)
+  end
+
+  post "/v1/application_fees/:fee_id/refunds/:id" do
+    ApplicationFeeRefund.update(conn, fee_id, id)
+  end
+
+  get "/v1/application_fees/:fee_id/refunds" do
+    ApplicationFeeRefund.list(conn, fee_id)
+  end
+
   stripe_resource("application_fees", ApplicationFee, only: [:retrieve, :list])
   stripe_resource("reviews", Review, only: [:retrieve, :update, :list])
   stripe_resource("webhook_endpoints", Webhook, [])

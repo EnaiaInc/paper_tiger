@@ -38,7 +38,11 @@ defmodule PaperTiger.Store.ApplicationFees do
   """
   @spec find_by_charge(String.t()) :: [map()]
   def find_by_charge(charge_id) when is_binary(charge_id) do
-    :ets.match_object(@table, {:_, %{charge: charge_id}})
-    |> Enum.map(fn {_id, fee} -> fee end)
+    PaperTiger.Connect.without_account(fn ->
+      namespace = PaperTiger.Connect.storage_namespace()
+
+      :ets.match_object(@table, {{namespace, :_}, %{charge: charge_id}})
+      |> Enum.map(fn {_id, fee} -> fee end)
+    end)
   end
 end

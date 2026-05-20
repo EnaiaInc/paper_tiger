@@ -34,15 +34,17 @@ defmodule PaperTiger.Resources.ApplicationFee do
   """
   @spec retrieve(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def retrieve(conn, id) do
-    case ApplicationFees.get(id) do
-      {:ok, fee} ->
-        fee
-        |> maybe_expand(conn.params)
-        |> then(&json_response(conn, 200, &1))
+    PaperTiger.Connect.without_account(fn ->
+      case ApplicationFees.get(id) do
+        {:ok, fee} ->
+          fee
+          |> maybe_expand(conn.params)
+          |> then(&json_response(conn, 200, &1))
 
-      {:error, :not_found} ->
-        error_response(conn, PaperTiger.Error.not_found("application_fee", id))
-    end
+        {:error, :not_found} ->
+          error_response(conn, PaperTiger.Error.not_found("application_fee", id))
+      end
+    end)
   end
 
   @doc """
@@ -57,11 +59,22 @@ defmodule PaperTiger.Resources.ApplicationFee do
   """
   @spec list(Plug.Conn.t()) :: Plug.Conn.t()
   def list(conn) do
-    pagination_opts = parse_pagination_params(conn.params)
+    PaperTiger.Connect.without_account(fn ->
+      pagination_opts = parse_pagination_params(conn.params)
 
-    result = ApplicationFees.list(pagination_opts)
+      result =
+        case Map.get(conn.params, :charge) do
+          charge when is_binary(charge) and charge != "" ->
+            charge
+            |> ApplicationFees.find_by_charge()
+            |> PaperTiger.List.paginate(Map.put(pagination_opts, :url, "/v1/application_fees"))
 
-    json_response(conn, 200, result)
+          _ ->
+            ApplicationFees.list(pagination_opts)
+        end
+
+      json_response(conn, 200, result)
+    end)
   end
 
   ## Private Functions

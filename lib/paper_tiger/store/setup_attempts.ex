@@ -21,7 +21,7 @@ defmodule PaperTiger.Store.SetupAttempts do
   def find_by_setup_intent(nil), do: []
 
   def find_by_setup_intent(setup_intent_id) when is_binary(setup_intent_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, %{setup_intent: setup_intent_id}})
     |> Enum.map(fn {_key, setup_attempt} -> setup_attempt end)

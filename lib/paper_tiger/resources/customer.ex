@@ -172,7 +172,7 @@ defmodule PaperTiger.Resources.Customer do
   """
   @spec search(Plug.Conn.t()) :: Plug.Conn.t()
   def search(conn) do
-    Customers.list_namespace(PaperTiger.Test.current_namespace())
+    Customers.list_namespace(PaperTiger.Connect.storage_namespace())
     |> Search.run(conn.params,
       fields: @search_fields,
       url: "/v1/customers/search",
