@@ -42,16 +42,25 @@ defmodule PaperTiger.Plugs.Auth do
 
   @impl true
   def call(conn, mode) do
-    case get_req_header(conn, "authorization") do
-      [] ->
-        send_auth_error(conn, "You did not provide an API key.")
+    if public_browser_path?(conn.request_path) do
+      conn
+    else
+      case get_req_header(conn, "authorization") do
+        [] ->
+          send_auth_error(conn, "You did not provide an API key.")
 
-      [auth_header | _] ->
-        validate_auth_header(conn, auth_header, mode)
+        [auth_header | _] ->
+          validate_auth_header(conn, auth_header, mode)
+      end
     end
   end
 
   ## Private Functions
+
+  defp public_browser_path?("/checkout/" <> _rest), do: true
+  defp public_browser_path?("/payment_links/" <> _rest), do: true
+  defp public_browser_path?("/billing_portal/sessions/" <> _rest), do: true
+  defp public_browser_path?(_path), do: false
 
   defp validate_auth_header(conn, "Bearer " <> key, mode) do
     validate_key(conn, key, mode)

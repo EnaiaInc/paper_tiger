@@ -1015,6 +1015,140 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  ## Payment Link Operations
+
+  @doc """
+  Creates a Payment Link.
+  """
+  def create_payment_link(params) do
+    case mode() do
+      :real_stripe ->
+        create_payment_link_real(params)
+
+      :paper_tiger ->
+        create_payment_link_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a Payment Link.
+  """
+  def get_payment_link(payment_link_id) do
+    case mode() do
+      :real_stripe ->
+        get_payment_link_real(payment_link_id)
+
+      :paper_tiger ->
+        get_payment_link_mock(payment_link_id)
+    end
+  end
+
+  @doc """
+  Updates a Payment Link.
+  """
+  def update_payment_link(payment_link_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_payment_link_real(payment_link_id, params)
+
+      :paper_tiger ->
+        update_payment_link_mock(payment_link_id, params)
+    end
+  end
+
+  @doc """
+  Lists Payment Links.
+  """
+  def list_payment_links(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_payment_links_real(params)
+
+      :paper_tiger ->
+        list_payment_links_mock(params)
+    end
+  end
+
+  @doc """
+  Lists Payment Link line items.
+  """
+  def list_payment_link_line_items(payment_link_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_payment_link_line_items_real(payment_link_id, params)
+
+      :paper_tiger ->
+        list_payment_link_line_items_mock(payment_link_id, params)
+    end
+  end
+
+  ## Billing Portal Operations
+
+  @doc """
+  Creates a Billing Portal Configuration.
+  """
+  def create_billing_portal_configuration(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        create_billing_portal_configuration_real(params)
+
+      :paper_tiger ->
+        create_billing_portal_configuration_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a Billing Portal Configuration.
+  """
+  def get_billing_portal_configuration(configuration_id) do
+    case mode() do
+      :real_stripe ->
+        get_billing_portal_configuration_real(configuration_id)
+
+      :paper_tiger ->
+        get_billing_portal_configuration_mock(configuration_id)
+    end
+  end
+
+  @doc """
+  Updates a Billing Portal Configuration.
+  """
+  def update_billing_portal_configuration(configuration_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_billing_portal_configuration_real(configuration_id, params)
+
+      :paper_tiger ->
+        update_billing_portal_configuration_mock(configuration_id, params)
+    end
+  end
+
+  @doc """
+  Lists Billing Portal Configurations.
+  """
+  def list_billing_portal_configurations(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_billing_portal_configurations_real(params)
+
+      :paper_tiger ->
+        list_billing_portal_configurations_mock(params)
+    end
+  end
+
+  @doc """
+  Creates a Billing Portal Session.
+  """
+  def create_billing_portal_session(params) do
+    case mode() do
+      :real_stripe ->
+        create_billing_portal_session_real(params)
+
+      :paper_tiger ->
+        create_billing_portal_session_mock(params)
+    end
+  end
+
   ## Invoice Operations
 
   @doc """
@@ -1554,6 +1688,46 @@ defmodule PaperTiger.TestClient do
     stripe_request(:post, "/v1/checkout/sessions/#{session_id}/expire")
   end
 
+  defp create_payment_link_real(params) do
+    stripe_request(:post, "/v1/payment_links", params)
+  end
+
+  defp get_payment_link_real(payment_link_id) do
+    stripe_request(:get, "/v1/payment_links/#{payment_link_id}")
+  end
+
+  defp update_payment_link_real(payment_link_id, params) do
+    stripe_request(:post, "/v1/payment_links/#{payment_link_id}", params)
+  end
+
+  defp list_payment_links_real(params) do
+    stripe_request(:get, "/v1/payment_links", params)
+  end
+
+  defp list_payment_link_line_items_real(payment_link_id, params) do
+    stripe_request(:get, "/v1/payment_links/#{payment_link_id}/line_items", params)
+  end
+
+  defp create_billing_portal_configuration_real(params) do
+    stripe_request(:post, "/v1/billing_portal/configurations", params)
+  end
+
+  defp get_billing_portal_configuration_real(configuration_id) do
+    stripe_request(:get, "/v1/billing_portal/configurations/#{configuration_id}")
+  end
+
+  defp update_billing_portal_configuration_real(configuration_id, params) do
+    stripe_request(:post, "/v1/billing_portal/configurations/#{configuration_id}", params)
+  end
+
+  defp list_billing_portal_configurations_real(params) do
+    stripe_request(:get, "/v1/billing_portal/configurations", params)
+  end
+
+  defp create_billing_portal_session_real(params) do
+    stripe_request(:post, "/v1/billing_portal/sessions", params)
+  end
+
   ## Private - PaperTiger Mock
 
   defp create_customer_mock(params) do
@@ -1888,6 +2062,56 @@ defmodule PaperTiger.TestClient do
 
   defp expire_checkout_session_mock(session_id) do
     conn = request(:post, "/v1/checkout/sessions/#{session_id}/expire", %{})
+    handle_response(conn)
+  end
+
+  defp create_payment_link_mock(params) do
+    conn = request(:post, "/v1/payment_links", params)
+    handle_response(conn)
+  end
+
+  defp get_payment_link_mock(payment_link_id) do
+    conn = request(:get, "/v1/payment_links/#{payment_link_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_payment_link_mock(payment_link_id, params) do
+    conn = request(:post, "/v1/payment_links/#{payment_link_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_payment_links_mock(params) do
+    conn = request(:get, "/v1/payment_links", params)
+    handle_response(conn)
+  end
+
+  defp list_payment_link_line_items_mock(payment_link_id, params) do
+    conn = request(:get, "/v1/payment_links/#{payment_link_id}/line_items", params)
+    handle_response(conn)
+  end
+
+  defp create_billing_portal_configuration_mock(params) do
+    conn = request(:post, "/v1/billing_portal/configurations", params)
+    handle_response(conn)
+  end
+
+  defp get_billing_portal_configuration_mock(configuration_id) do
+    conn = request(:get, "/v1/billing_portal/configurations/#{configuration_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_billing_portal_configuration_mock(configuration_id, params) do
+    conn = request(:post, "/v1/billing_portal/configurations/#{configuration_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_billing_portal_configurations_mock(params) do
+    conn = request(:get, "/v1/billing_portal/configurations", params)
+    handle_response(conn)
+  end
+
+  defp create_billing_portal_session_mock(params) do
+    conn = request(:post, "/v1/billing_portal/sessions", params)
     handle_response(conn)
   end
 
