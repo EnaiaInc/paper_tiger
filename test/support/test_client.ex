@@ -548,6 +548,162 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Creates a test ConfirmationToken.
+  """
+  def create_confirmation_token(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        create_confirmation_token_real(params)
+
+      :paper_tiger ->
+        create_confirmation_token_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a ConfirmationToken by ID.
+  """
+  def get_confirmation_token(confirmation_token_id) do
+    case mode() do
+      :real_stripe ->
+        get_confirmation_token_real(confirmation_token_id)
+
+      :paper_tiger ->
+        get_confirmation_token_mock(confirmation_token_id)
+    end
+  end
+
+  @doc """
+  Creates a Customer Session.
+  """
+  def create_customer_session(params) do
+    case mode() do
+      :real_stripe ->
+        create_customer_session_real(params)
+
+      :paper_tiger ->
+        create_customer_session_mock(params)
+    end
+  end
+
+  @doc """
+  Creates a payment method domain.
+  """
+  def create_payment_method_domain(params) do
+    case mode() do
+      :real_stripe ->
+        create_payment_method_domain_real(params)
+
+      :paper_tiger ->
+        create_payment_method_domain_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a payment method domain by ID.
+  """
+  def get_payment_method_domain(payment_method_domain_id) do
+    case mode() do
+      :real_stripe ->
+        get_payment_method_domain_real(payment_method_domain_id)
+
+      :paper_tiger ->
+        get_payment_method_domain_mock(payment_method_domain_id)
+    end
+  end
+
+  @doc """
+  Updates a payment method domain.
+  """
+  def update_payment_method_domain(payment_method_domain_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_payment_method_domain_real(payment_method_domain_id, params)
+
+      :paper_tiger ->
+        update_payment_method_domain_mock(payment_method_domain_id, params)
+    end
+  end
+
+  @doc """
+  Lists payment method domains.
+  """
+  def list_payment_method_domains(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_payment_method_domains_real(params)
+
+      :paper_tiger ->
+        list_payment_method_domains_mock(params)
+    end
+  end
+
+  @doc """
+  Creates a payment method configuration.
+  """
+  def create_payment_method_configuration(params) do
+    case mode() do
+      :real_stripe ->
+        create_payment_method_configuration_real(params)
+
+      :paper_tiger ->
+        create_payment_method_configuration_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a payment method configuration by ID.
+  """
+  def get_payment_method_configuration(payment_method_configuration_id) do
+    case mode() do
+      :real_stripe ->
+        get_payment_method_configuration_real(payment_method_configuration_id)
+
+      :paper_tiger ->
+        get_payment_method_configuration_mock(payment_method_configuration_id)
+    end
+  end
+
+  @doc """
+  Updates a payment method configuration.
+  """
+  def update_payment_method_configuration(payment_method_configuration_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_payment_method_configuration_real(payment_method_configuration_id, params)
+
+      :paper_tiger ->
+        update_payment_method_configuration_mock(payment_method_configuration_id, params)
+    end
+  end
+
+  @doc """
+  Lists payment method configurations.
+  """
+  def list_payment_method_configurations(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_payment_method_configurations_real(params)
+
+      :paper_tiger ->
+        list_payment_method_configurations_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a mandate by ID.
+  """
+  def get_mandate(mandate_id) do
+    case mode() do
+      :real_stripe ->
+        get_mandate_real(mandate_id)
+
+      :paper_tiger ->
+        get_mandate_mock(mandate_id)
+    end
+  end
+
   ## SetupIntent Operations
 
   @doc """
@@ -1134,6 +1290,54 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp create_confirmation_token_real(params) do
+    stripe_request(:post, "/v1/test_helpers/confirmation_tokens", params)
+  end
+
+  defp get_confirmation_token_real(confirmation_token_id) do
+    stripe_request(:get, "/v1/confirmation_tokens/#{confirmation_token_id}")
+  end
+
+  defp create_customer_session_real(params) do
+    stripe_request(:post, "/v1/customer_sessions", params)
+  end
+
+  defp create_payment_method_domain_real(params) do
+    stripe_request(:post, "/v1/payment_method_domains", params)
+  end
+
+  defp get_payment_method_domain_real(payment_method_domain_id) do
+    stripe_request(:get, "/v1/payment_method_domains/#{payment_method_domain_id}")
+  end
+
+  defp update_payment_method_domain_real(payment_method_domain_id, params) do
+    stripe_request(:post, "/v1/payment_method_domains/#{payment_method_domain_id}", params)
+  end
+
+  defp list_payment_method_domains_real(params) do
+    stripe_request(:get, "/v1/payment_method_domains", params)
+  end
+
+  defp create_payment_method_configuration_real(params) do
+    stripe_request(:post, "/v1/payment_method_configurations", params)
+  end
+
+  defp get_payment_method_configuration_real(payment_method_configuration_id) do
+    stripe_request(:get, "/v1/payment_method_configurations/#{payment_method_configuration_id}")
+  end
+
+  defp update_payment_method_configuration_real(payment_method_configuration_id, params) do
+    stripe_request(:post, "/v1/payment_method_configurations/#{payment_method_configuration_id}", params)
+  end
+
+  defp list_payment_method_configurations_real(params) do
+    stripe_request(:get, "/v1/payment_method_configurations", params)
+  end
+
+  defp get_mandate_real(mandate_id) do
+    stripe_request(:get, "/v1/mandates/#{mandate_id}")
+  end
+
   defp create_invoice_real(params) do
     case Stripe.Invoice.create(normalize_params(params), stripe_opts()) do
       {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
@@ -1405,6 +1609,66 @@ defmodule PaperTiger.TestClient do
 
   defp attach_payment_method_mock(payment_method_id, params) do
     conn = request(:post, "/v1/payment_methods/#{payment_method_id}/attach", params)
+    handle_response(conn)
+  end
+
+  defp create_confirmation_token_mock(params) do
+    conn = request(:post, "/v1/test_helpers/confirmation_tokens", params)
+    handle_response(conn)
+  end
+
+  defp get_confirmation_token_mock(confirmation_token_id) do
+    conn = request(:get, "/v1/confirmation_tokens/#{confirmation_token_id}", %{})
+    handle_response(conn)
+  end
+
+  defp create_customer_session_mock(params) do
+    conn = request(:post, "/v1/customer_sessions", params)
+    handle_response(conn)
+  end
+
+  defp create_payment_method_domain_mock(params) do
+    conn = request(:post, "/v1/payment_method_domains", params)
+    handle_response(conn)
+  end
+
+  defp get_payment_method_domain_mock(payment_method_domain_id) do
+    conn = request(:get, "/v1/payment_method_domains/#{payment_method_domain_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_payment_method_domain_mock(payment_method_domain_id, params) do
+    conn = request(:post, "/v1/payment_method_domains/#{payment_method_domain_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_payment_method_domains_mock(params) do
+    conn = request(:get, "/v1/payment_method_domains", params)
+    handle_response(conn)
+  end
+
+  defp create_payment_method_configuration_mock(params) do
+    conn = request(:post, "/v1/payment_method_configurations", params)
+    handle_response(conn)
+  end
+
+  defp get_payment_method_configuration_mock(payment_method_configuration_id) do
+    conn = request(:get, "/v1/payment_method_configurations/#{payment_method_configuration_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_payment_method_configuration_mock(payment_method_configuration_id, params) do
+    conn = request(:post, "/v1/payment_method_configurations/#{payment_method_configuration_id}", params)
+    handle_response(conn)
+  end
+
+  defp list_payment_method_configurations_mock(params) do
+    conn = request(:get, "/v1/payment_method_configurations", params)
+    handle_response(conn)
+  end
+
+  defp get_mandate_mock(mandate_id) do
+    conn = request(:get, "/v1/mandates/#{mandate_id}", %{})
     handle_response(conn)
   end
 

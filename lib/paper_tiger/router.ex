@@ -60,14 +60,19 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.Card
   alias PaperTiger.Resources.Charge
   alias PaperTiger.Resources.CheckoutSession
+  alias PaperTiger.Resources.ConfirmationToken
   alias PaperTiger.Resources.Coupon
   alias PaperTiger.Resources.Customer
+  alias PaperTiger.Resources.CustomerSession
   alias PaperTiger.Resources.Dispute
   alias PaperTiger.Resources.Event
   alias PaperTiger.Resources.Invoice
   alias PaperTiger.Resources.InvoiceItem
+  alias PaperTiger.Resources.Mandate
   alias PaperTiger.Resources.PaymentIntent
   alias PaperTiger.Resources.PaymentMethod
+  alias PaperTiger.Resources.PaymentMethodConfiguration
+  alias PaperTiger.Resources.PaymentMethodDomain
   alias PaperTiger.Resources.Payout
   alias PaperTiger.Resources.Plan
   alias PaperTiger.Resources.Price
@@ -192,6 +197,10 @@ defmodule PaperTiger.Router do
   ## Resource Routes
 
   # Core resources (Phase 1)
+  post "/v1/customer_sessions" do
+    CustomerSession.create(conn)
+  end
+
   get "/v1/customers/search" do
     Customer.search(conn)
   end
@@ -221,6 +230,15 @@ defmodule PaperTiger.Router do
 
   stripe_resource("invoices", Invoice, [])
   stripe_resource("payment_methods", PaymentMethod, [])
+  stripe_resource("payment_method_domains", PaymentMethodDomain, except: [:delete])
+  stripe_resource("payment_method_configurations", PaymentMethodConfiguration, except: [:delete])
+
+  post "/v1/test_helpers/confirmation_tokens" do
+    ConfirmationToken.create_test_helper(conn)
+  end
+
+  stripe_resource("confirmation_tokens", ConfirmationToken, only: [:retrieve])
+
   # Custom payment intent endpoints — must come BEFORE stripe_resource
   get "/v1/payment_intents/search" do
     PaymentIntent.search(conn)
@@ -239,6 +257,7 @@ defmodule PaperTiger.Router do
   end
 
   stripe_resource("payment_intents", PaymentIntent, except: [:delete])
+  stripe_resource("mandates", Mandate, only: [:retrieve])
   # Custom setup intent endpoints — must come BEFORE stripe_resource
   post "/v1/setup_intents/:id/confirm" do
     SetupIntent.confirm(conn, id)

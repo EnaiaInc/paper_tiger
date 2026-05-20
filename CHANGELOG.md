@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Checkout Session update and line-item retrieval endpoints, including metadata merge/delete semantics, paginated `GET /v1/checkout/sessions/:id/line_items`, `expand[]=line_items`, and preview-style full-array line item updates for dynamic Checkout tests.
 - SetupIntent lifecycle endpoints for `POST /v1/setup_intents/:id/confirm`, `POST /v1/setup_intents/:id/cancel`, `POST /v1/setup_intents/:id/verify_microdeposits`, and `GET /v1/setup_attempts`, including customer attachment for successful card setup, bank-account microdeposit verification, cancellation reasons, failed/abandoned/succeeded SetupAttempt records, and live Stripe contract coverage for confirm/cancel/list-attempts.
 - Stripe-style search endpoints for `GET /v1/customers/search`, `GET /v1/subscriptions/search`, `GET /v1/payment_intents/search`, `GET /v1/charges/search`, and `GET /v1/invoices/search`, backed by a shared query parser/evaluator with resource field schemas, metadata predicates, boolean connectors, negation, numeric comparisons, substring matching, search-result pagination, and Stripe-shaped unsupported-query errors.
+- Modern payment-method adjunct APIs: test-helper ConfirmationToken creation plus retrieval, PaymentMethodDomain create/retrieve/update/list, PaymentMethodConfiguration create/retrieve/update/list, CustomerSession creation with client secrets, and stored Mandate retrieval for successful mandate-bearing SetupIntent/PaymentIntent flows.
 
 ### Fixed
 

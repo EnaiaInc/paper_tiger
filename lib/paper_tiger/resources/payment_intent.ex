@@ -32,8 +32,11 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.MandateHelper
+  alias PaperTiger.Resources.ConfirmationToken
   alias PaperTiger.Search
   alias PaperTiger.Store.PaymentIntents
+  alias PaperTiger.Store.PaymentMethods
 
   @cancelable_statuses ~w(requires_payment_method requires_capture requires_confirmation requires_action processing)
   @cancellation_reasons ~w(duplicate fraudulent requested_by_customer abandoned)
@@ -174,18 +177,9 @@ defmodule PaperTiger.Resources.PaymentIntent do
   @spec confirm(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def confirm(conn, id) do
     with {:ok, pi} <- PaymentIntents.get(id),
-         :ok <- validate_confirmable(pi) do
-      # Apply payment_method from confirm params if provided
-      # Transition to succeeded
-      # Create charge + balance transaction
-      # Re-fetch to get latest_charge
-      ## Private Functions
-
-      updated =
-        case conn.params do
-          %{payment_method: pm} when is_binary(pm) -> %{pi | payment_method: pm}
-          _ -> pi
-        end
+         :ok <- validate_confirmable(pi),
+         {:ok, updated, payment_method, mandate_params} <- prepare_confirmation(pi, conn.params) do
+      # Transition to succeeded, create charge + balance transaction, then re-fetch to get latest_charge.
 
       manual_capture? = updated.capture_method == "manual"
 
@@ -194,6 +188,9 @@ defmodule PaperTiger.Resources.PaymentIntent do
         |> Map.put(:status, if(manual_capture?, do: "requires_capture", else: "succeeded"))
         |> Map.put(:amount_capturable, if(manual_capture?, do: updated.amount, else: 0))
         |> Map.put(:amount_received, if(manual_capture?, do: 0, else: updated.amount))
+
+      {:ok, mandate_id} = MandateHelper.ensure_for_payment_intent(updated, payment_method, mandate_params)
+      updated = Map.put(updated, :mandate, mandate_id)
 
       {:ok, updated} = PaymentIntents.update(updated)
       {:ok, _charge} = PaperTiger.ChargeHelper.create_for_payment_intent(updated, captured: not manual_capture?)
@@ -223,6 +220,18 @@ defmodule PaperTiger.Resources.PaymentIntent do
             "status"
           )
         )
+
+      {:error, :confirmation_token_not_found, confirmation_token_id} ->
+        error_response(conn, PaperTiger.Error.not_found("confirmation_token", confirmation_token_id))
+
+      {:error, :confirmation_token_used} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request("This ConfirmationToken has already been used", "confirmation_token")
+        )
+
+      {:error, :payment_method_not_found, payment_method_id} ->
+        error_response(conn, PaperTiger.Error.not_found("payment_method", payment_method_id))
     end
   end
 
@@ -328,6 +337,72 @@ defmodule PaperTiger.Resources.PaymentIntent do
 
   defp validate_capturable(%{amount_capturable: amount, status: "requires_capture"}) when amount > 0, do: :ok
   defp validate_capturable(%{status: status}), do: {:error, :not_capturable, status}
+
+  defp prepare_confirmation(payment_intent, %{confirmation_token: confirmation_token_id} = params)
+       when is_binary(confirmation_token_id) do
+    with {:ok, payment_method, confirmation_token} <-
+           ConfirmationToken.consume(confirmation_token_id, :payment_intent, payment_intent.id) do
+      payment_intent =
+        payment_intent
+        |> Map.put(:payment_method, payment_method.id)
+        |> maybe_put_from_confirmation_token(:payment_method_options, confirmation_token)
+        |> maybe_put_from_confirmation_token(:setup_future_usage, confirmation_token)
+        |> maybe_put_from_confirmation_token(:shipping, confirmation_token)
+
+      {:ok, payment_intent, payment_method, Map.merge(confirmation_token, params)}
+    end
+  end
+
+  defp prepare_confirmation(payment_intent, params) do
+    payment_intent =
+      payment_intent
+      |> maybe_replace(:payment_method, params)
+      |> maybe_replace(:payment_method_options, params)
+      |> maybe_replace(:setup_future_usage, params)
+      |> maybe_replace(:shipping, params)
+
+    {:ok, payment_method} = fetch_payment_method_for_mandate(payment_intent.payment_method)
+    {:ok, payment_intent, payment_method, params}
+  end
+
+  defp maybe_put_from_confirmation_token(payment_intent, field, confirmation_token) do
+    case Map.get(confirmation_token, field) do
+      nil -> payment_intent
+      value -> Map.put(payment_intent, field, value)
+    end
+  end
+
+  defp maybe_replace(resource, key, params) do
+    if Map.has_key?(params, key) do
+      Map.put(resource, key, Map.get(params, key))
+    else
+      resource
+    end
+  end
+
+  defp fetch_payment_method_for_mandate(nil), do: {:ok, nil}
+
+  defp fetch_payment_method_for_mandate(payment_method_id) when is_binary(payment_method_id) do
+    case PaymentMethods.get(payment_method_id) do
+      {:ok, payment_method} -> {:ok, payment_method}
+      {:error, :not_found} -> load_test_payment_method_for_mandate(payment_method_id)
+    end
+  end
+
+  defp fetch_payment_method_for_mandate(_payment_method), do: {:ok, nil}
+
+  defp load_test_payment_method_for_mandate(payment_method_id) do
+    if payment_method_id in PaperTiger.TestTokens.payment_method_ids() do
+      {:ok, _stats} = PaperTiger.TestTokens.load()
+
+      case PaymentMethods.get(payment_method_id) do
+        {:ok, payment_method} -> {:ok, payment_method}
+        {:error, :not_found} -> {:ok, nil}
+      end
+    else
+      {:ok, nil}
+    end
+  end
 
   defp respond_to_search({:ok, result}, conn), do: json_response(conn, 200, result)
   defp respond_to_search({:error, error}, conn), do: error_response(conn, error)
