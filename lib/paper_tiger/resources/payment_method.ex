@@ -197,6 +197,8 @@ defmodule PaperTiger.Resources.PaymentMethod do
          {:ok, customer_id} <- validate_customer_param(conn.params),
          attached = attach_to_customer(payment_method, customer_id),
          {:ok, attached} <- PaymentMethods.update(attached) do
+      :telemetry.execute([:paper_tiger, :payment_method, :attached], %{}, %{object: attached})
+
       attached
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))
@@ -224,6 +226,8 @@ defmodule PaperTiger.Resources.PaymentMethod do
     with {:ok, payment_method} <- PaymentMethods.get(id),
          detached = detach_from_customer(payment_method),
          {:ok, detached} <- PaymentMethods.update(detached) do
+      :telemetry.execute([:paper_tiger, :payment_method, :detached], %{}, %{object: detached})
+
       detached
       |> maybe_expand(conn.params)
       |> then(&json_response(conn, 200, &1))

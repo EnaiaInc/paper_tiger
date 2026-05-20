@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `POST /v1/payment_methods/:id/attach` and `/detach` now emit `payment_method.attached` and `payment_method.detached` webhooks.
 - Removed unreachable invoice-proration fallback branches flagged by the Elixir `1.20.0-rc.5` type checker; generated proration lines are unchanged.
 - Webhook delivery adapter requests now carry the captured PaperTiger namespace through chaos buffering, async task delivery, retry scheduling, telemetry, and delivery-attempt updates, so host-owned durable adapters can preserve tenant context.
 - Subscription item direct store helpers now respect the active PaperTiger namespace for lookup and bulk deletion, matching the shared store isolation used by standard CRUD operations.
