@@ -46,13 +46,17 @@ defmodule PaperTiger do
     Cards,
     Charges,
     CheckoutSessions,
+    ConfirmationTokens,
     Coupons,
     Customers,
     Disputes,
     Events,
     InvoiceItems,
     Invoices,
+    Mandates,
     PaymentIntents,
+    PaymentMethodConfigurations,
+    PaymentMethodDomains,
     PaymentMethods,
     Payouts,
     Plans,
@@ -223,6 +227,10 @@ defmodule PaperTiger do
   def flush(:prices), do: Prices.clear()
   def flush(:plans), do: Plans.clear()
   def flush(:payment_methods), do: PaymentMethods.clear()
+  def flush(:payment_method_domains), do: PaymentMethodDomains.clear()
+  def flush(:payment_method_configurations), do: PaymentMethodConfigurations.clear()
+  def flush(:confirmation_tokens), do: ConfirmationTokens.clear()
+  def flush(:mandates), do: Mandates.clear()
   def flush(:payment_intents), do: PaymentIntents.clear()
   def flush(:setup_attempts), do: SetupAttempts.clear()
   def flush(:setup_intents), do: SetupIntents.clear()

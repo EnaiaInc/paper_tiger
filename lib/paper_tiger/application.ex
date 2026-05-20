@@ -11,13 +11,17 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Cards
   alias PaperTiger.Store.Charges
   alias PaperTiger.Store.CheckoutSessions
+  alias PaperTiger.Store.ConfirmationTokens
   alias PaperTiger.Store.Coupons
   alias PaperTiger.Store.Customers
   alias PaperTiger.Store.Disputes
   alias PaperTiger.Store.Events
   alias PaperTiger.Store.InvoiceItems
   alias PaperTiger.Store.Invoices
+  alias PaperTiger.Store.Mandates
   alias PaperTiger.Store.PaymentIntents
+  alias PaperTiger.Store.PaymentMethodConfigurations
+  alias PaperTiger.Store.PaymentMethodDomains
   alias PaperTiger.Store.PaymentMethods
   alias PaperTiger.Store.Payouts
   alias PaperTiger.Store.Plans
@@ -71,6 +75,10 @@ defmodule PaperTiger.Application do
         Prices,
         Invoices,
         PaymentMethods,
+        PaymentMethodDomains,
+        PaymentMethodConfigurations,
+        ConfirmationTokens,
+        Mandates,
         Charges,
         Refunds,
         PaymentIntents,

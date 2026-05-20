@@ -31,6 +31,8 @@ defmodule PaperTiger.Resources.SetupIntent do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.MandateHelper
+  alias PaperTiger.Resources.ConfirmationToken
   alias PaperTiger.Store.PaymentMethods
   alias PaperTiger.Store.SetupAttempts
   alias PaperTiger.Store.SetupIntents
@@ -171,6 +173,15 @@ defmodule PaperTiger.Resources.SetupIntent do
 
       {:error, :payment_method_not_found, payment_method_id} ->
         error_response(conn, PaperTiger.Error.not_found("payment_method", payment_method_id))
+
+      {:error, :confirmation_token_not_found, confirmation_token_id} ->
+        error_response(conn, PaperTiger.Error.not_found("confirmation_token", confirmation_token_id))
+
+      {:error, :confirmation_token_used} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request("This ConfirmationToken has already been used", "confirmation_token")
+        )
 
       {:error, :payment_method_attached_elsewhere} ->
         error_response(
@@ -346,6 +357,12 @@ defmodule PaperTiger.Resources.SetupIntent do
 
   defp resolve_payment_method(setup_intent, params) do
     cond do
+      confirmation_token_id = Map.get(params, :confirmation_token) ->
+        case ConfirmationToken.consume(confirmation_token_id, :setup_intent, setup_intent.id) do
+          {:ok, payment_method, _confirmation_token} -> {:ok, payment_method}
+          error -> error
+        end
+
       is_map(Map.get(params, :payment_method_data)) ->
         create_payment_method_from_data(Map.get(params, :payment_method_data))
 
@@ -416,7 +433,7 @@ defmodule PaperTiger.Resources.SetupIntent do
         require_microdeposit_verification(setup_intent, payment_method)
 
       true ->
-        succeed_setup_intent(setup_intent, payment_method)
+        succeed_setup_intent(setup_intent, payment_method, params)
     end
   end
 
@@ -455,14 +472,15 @@ defmodule PaperTiger.Resources.SetupIntent do
     {:ok, requires_action}
   end
 
-  defp succeed_setup_intent(setup_intent, payment_method) do
+  defp succeed_setup_intent(setup_intent, payment_method, params) do
     with {:ok, payment_method} <- maybe_attach_payment_method(payment_method, setup_intent.customer),
-         {:ok, attempt} <- create_setup_attempt(setup_intent, payment_method, "succeeded") do
+         {:ok, attempt} <- create_setup_attempt(setup_intent, payment_method, "succeeded"),
+         {:ok, mandate_id} <- MandateHelper.ensure_for_setup_intent(setup_intent, payment_method, params) do
       succeeded =
         setup_intent
         |> Map.put(:last_setup_error, nil)
         |> Map.put(:latest_attempt, attempt.id)
-        |> Map.put(:mandate, maybe_mandate_id(setup_intent, payment_method))
+        |> Map.put(:mandate, mandate_id)
         |> Map.put(:next_action, nil)
         |> Map.put(:status, "succeeded")
 
@@ -477,12 +495,13 @@ defmodule PaperTiger.Resources.SetupIntent do
   defp verify_microdeposit_setup(setup_intent) do
     with {:ok, payment_method} <- fetch_payment_method(setup_intent.payment_method),
          {:ok, payment_method} <- maybe_attach_payment_method(payment_method, setup_intent.customer),
-         {:ok, latest_attempt_id} <- succeed_latest_or_new_attempt(setup_intent, payment_method) do
+         {:ok, latest_attempt_id} <- succeed_latest_or_new_attempt(setup_intent, payment_method),
+         {:ok, mandate_id} <- MandateHelper.ensure_for_setup_intent(setup_intent, payment_method, %{}) do
       verified =
         setup_intent
         |> Map.put(:last_setup_error, nil)
         |> Map.put(:latest_attempt, latest_attempt_id)
-        |> Map.put(:mandate, Map.get(setup_intent, :mandate) || generate_id("mandate"))
+        |> Map.put(:mandate, mandate_id)
         |> Map.put(:next_action, nil)
         |> Map.put(:status, "succeeded")
 
@@ -600,13 +619,6 @@ defmodule PaperTiger.Resources.SetupIntent do
   end
 
   defp abandon_latest_attempt(setup_intent), do: setup_intent
-
-  defp maybe_mandate_id(%{mandate: mandate_id}, _payment_method) when is_binary(mandate_id), do: mandate_id
-
-  defp maybe_mandate_id(_setup_intent, %{type: type}) when type in ["us_bank_account", "acss_debit"],
-    do: generate_id("mandate")
-
-  defp maybe_mandate_id(_setup_intent, _payment_method), do: nil
 
   defp maybe_replace(resource, key, params) do
     if Map.has_key?(params, key) do
