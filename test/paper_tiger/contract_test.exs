@@ -430,6 +430,153 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "SubscriptionSchedule Operations" do
+    defp create_schedule_test_price(name, amount, interval) do
+      {:ok, product} = TestClient.create_product(%{"name" => name})
+
+      {:ok, price} =
+        TestClient.create_price(%{
+          "currency" => "usd",
+          "product" => product["id"],
+          "recurring" => %{"interval" => interval},
+          "unit_amount" => amount
+        })
+
+      {product, price}
+    end
+
+    @tag :contract
+    @tag :stripe_live
+    test "creates an immediate send-invoice schedule with active current_phase" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "schedule-active@example.com"})
+      {product, price} = create_schedule_test_price("Schedule Active Plan", 2100, "month")
+
+      {:ok, schedule} =
+        TestClient.create_subscription_schedule(%{
+          "customer" => customer["id"],
+          "default_settings" => %{
+            "collection_method" => "send_invoice",
+            "invoice_settings" => %{"days_until_due" => 30}
+          },
+          "end_behavior" => "release",
+          "phases" => [
+            %{
+              "description" => "Active schedule phase",
+              "duration" => %{"interval" => "month", "interval_count" => 1},
+              "items" => [%{"price" => price["id"], "quantity" => 2}],
+              "metadata" => %{"phase" => "active"}
+            }
+          ],
+          "start_date" => "now"
+        })
+
+      assert schedule["object"] == "subscription_schedule"
+      assert schedule["status"] == "active"
+      assert schedule["current_phase"]["start_date"] < schedule["current_phase"]["end_date"]
+      assert is_binary(schedule["subscription"])
+
+      [phase] = schedule["phases"]
+      assert phase["start_date"] == schedule["current_phase"]["start_date"]
+      assert phase["end_date"] == schedule["current_phase"]["end_date"]
+      assert [%{"price" => price_id, "quantity" => 2}] = phase["items"]
+      assert price_id == price["id"]
+
+      {:ok, subscription} = TestClient.get_subscription(schedule["subscription"])
+      assert subscription["schedule"] == schedule["id"]
+      assert subscription["collection_method"] == "send_invoice"
+
+      {:ok, released} = TestClient.release_subscription_schedule(schedule["id"])
+      assert released["status"] == "released"
+
+      cleanup_subscription(schedule["subscription"])
+      cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
+    end
+
+    @tag :contract
+    @tag :stripe_live
+    test "updates, lists, cancels, and releases future multi-phase schedules" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "schedule-future@example.com"})
+      {product, weekly_price} = create_schedule_test_price("Schedule Weekly Plan", 1200, "week")
+      start_date = System.system_time(:second) + 7 * 86_400
+
+      {:ok, schedule} =
+        TestClient.create_subscription_schedule(%{
+          "customer" => customer["id"],
+          "end_behavior" => "release",
+          "phases" => [
+            %{
+              "duration" => %{"interval" => "week", "interval_count" => 1},
+              "items" => [%{"price" => weekly_price["id"], "quantity" => 1}]
+            },
+            %{
+              "duration" => %{"interval" => "week", "interval_count" => 2},
+              "items" => [%{"price" => weekly_price["id"], "quantity" => 2}]
+            }
+          ],
+          "start_date" => start_date
+        })
+
+      assert schedule["status"] == "not_started"
+      assert schedule["current_phase"] == nil
+      assert schedule["subscription"] == nil
+
+      [first_phase, second_phase] = schedule["phases"]
+      assert first_phase["start_date"] == start_date
+      assert first_phase["end_date"] == start_date + 7 * 86_400
+      assert second_phase["start_date"] == first_phase["end_date"]
+      assert second_phase["end_date"] == first_phase["end_date"] + 2 * 7 * 86_400
+
+      {:ok, updated} =
+        TestClient.update_subscription_schedule(schedule["id"], %{
+          "end_behavior" => "cancel",
+          "metadata" => %{"contract" => "schedule_update"},
+          "phases" => [
+            %{
+              "duration" => %{"interval" => "week", "interval_count" => 3},
+              "items" => [%{"price" => weekly_price["id"], "quantity" => 3}],
+              "start_date" => start_date
+            }
+          ]
+        })
+
+      assert updated["id"] == schedule["id"]
+      assert updated["end_behavior"] == "cancel"
+      assert updated["metadata"]["contract"] == "schedule_update"
+
+      [updated_phase] = updated["phases"]
+      assert updated_phase["start_date"] == start_date
+      assert updated_phase["end_date"] == start_date + 3 * 7 * 86_400
+      assert [%{"quantity" => 3}] = updated_phase["items"]
+
+      {:ok, listed} = TestClient.list_subscription_schedules(%{"customer" => customer["id"], "scheduled" => true})
+      assert Enum.any?(listed["data"], fn item -> item["id"] == schedule["id"] end)
+
+      {:ok, canceled} = TestClient.cancel_subscription_schedule(schedule["id"])
+      assert canceled["status"] == "canceled"
+      assert is_integer(canceled["canceled_at"])
+
+      {:ok, release_schedule} =
+        TestClient.create_subscription_schedule(%{
+          "customer" => customer["id"],
+          "phases" => [
+            %{
+              "duration" => %{"interval" => "week", "interval_count" => 1},
+              "items" => [%{"price" => weekly_price["id"]}]
+            }
+          ],
+          "start_date" => start_date + 86_400
+        })
+
+      {:ok, released} = TestClient.release_subscription_schedule(release_schedule["id"])
+      assert released["status"] == "released"
+      assert is_integer(released["released_at"])
+
+      cleanup_customer(customer["id"])
+      cleanup_product(product["id"])
+    end
+  end
+
   describe "PaymentMethod Operations" do
     @tag :contract
     test "lists payment methods for a customer filters correctly" do

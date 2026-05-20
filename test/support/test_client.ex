@@ -34,6 +34,7 @@ defmodule PaperTiger.TestClient do
   alias PaperTiger.Router
 
   @forced_mode_key {__MODULE__, :forced_mode}
+  @subscription_schedule_api_version "2025-11-17.clover"
 
   @doc """
   Returns the current test mode.
@@ -502,6 +503,86 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         list_subscriptions_mock(params)
+    end
+  end
+
+  ## SubscriptionSchedule Operations
+
+  @doc """
+  Creates a subscription schedule.
+  """
+  def create_subscription_schedule(params) do
+    case mode() do
+      :real_stripe ->
+        create_subscription_schedule_real(params)
+
+      :paper_tiger ->
+        create_subscription_schedule_mock(params)
+    end
+  end
+
+  @doc """
+  Retrieves a subscription schedule by ID.
+  """
+  def get_subscription_schedule(schedule_id) do
+    case mode() do
+      :real_stripe ->
+        get_subscription_schedule_real(schedule_id)
+
+      :paper_tiger ->
+        get_subscription_schedule_mock(schedule_id)
+    end
+  end
+
+  @doc """
+  Updates a subscription schedule.
+  """
+  def update_subscription_schedule(schedule_id, params) do
+    case mode() do
+      :real_stripe ->
+        update_subscription_schedule_real(schedule_id, params)
+
+      :paper_tiger ->
+        update_subscription_schedule_mock(schedule_id, params)
+    end
+  end
+
+  @doc """
+  Cancels a subscription schedule.
+  """
+  def cancel_subscription_schedule(schedule_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        cancel_subscription_schedule_real(schedule_id, params)
+
+      :paper_tiger ->
+        cancel_subscription_schedule_mock(schedule_id, params)
+    end
+  end
+
+  @doc """
+  Releases a subscription schedule.
+  """
+  def release_subscription_schedule(schedule_id, params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        release_subscription_schedule_real(schedule_id, params)
+
+      :paper_tiger ->
+        release_subscription_schedule_mock(schedule_id, params)
+    end
+  end
+
+  @doc """
+  Lists subscription schedules.
+  """
+  def list_subscription_schedules(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_subscription_schedules_real(params)
+
+      :paper_tiger ->
+        list_subscription_schedules_mock(params)
     end
   end
 
@@ -1598,13 +1679,15 @@ defmodule PaperTiger.TestClient do
     [api_key: System.get_env("STRIPE_API_KEY")]
   end
 
-  defp stripe_request(method, path, params \\ %{}) do
+  defp stripe_request(method, path, params \\ %{}, opts \\ []) do
     url = stripe_request_url(method, path, params)
 
-    headers = [
-      {"authorization", "Bearer #{System.get_env("STRIPE_API_KEY")}"},
-      {"content-type", "application/x-www-form-urlencoded"}
-    ]
+    headers =
+      [
+        {"authorization", "Bearer #{System.get_env("STRIPE_API_KEY")}"},
+        {"content-type", "application/x-www-form-urlencoded"}
+      ]
+      |> maybe_put_stripe_version(Keyword.get(opts, :api_version))
 
     req_opts =
       case method do
@@ -1650,6 +1733,9 @@ defmodule PaperTiger.TestClient do
   end
 
   defp stripe_request_url(_method, path, _params), do: "https://api.stripe.com#{path}"
+
+  defp maybe_put_stripe_version(headers, nil), do: headers
+  defp maybe_put_stripe_version(headers, api_version), do: [{"stripe-version", api_version} | headers]
 
   defp create_customer_real(params) do
     stripe_request(:post, "/v1/customers", params)
@@ -1715,6 +1801,38 @@ defmodule PaperTiger.TestClient do
 
   defp search_subscriptions_real(params) do
     stripe_request(:get, "/v1/subscriptions/search", params)
+  end
+
+  defp create_subscription_schedule_real(params) do
+    stripe_request(:post, "/v1/subscription_schedules", params, api_version: @subscription_schedule_api_version)
+  end
+
+  defp get_subscription_schedule_real(schedule_id) do
+    stripe_request(:get, "/v1/subscription_schedules/#{schedule_id}", %{},
+      api_version: @subscription_schedule_api_version
+    )
+  end
+
+  defp update_subscription_schedule_real(schedule_id, params) do
+    stripe_request(:post, "/v1/subscription_schedules/#{schedule_id}", params,
+      api_version: @subscription_schedule_api_version
+    )
+  end
+
+  defp cancel_subscription_schedule_real(schedule_id, params) do
+    stripe_request(:post, "/v1/subscription_schedules/#{schedule_id}/cancel", params,
+      api_version: @subscription_schedule_api_version
+    )
+  end
+
+  defp release_subscription_schedule_real(schedule_id, params) do
+    stripe_request(:post, "/v1/subscription_schedules/#{schedule_id}/release", params,
+      api_version: @subscription_schedule_api_version
+    )
+  end
+
+  defp list_subscription_schedules_real(params) do
+    stripe_request(:get, "/v1/subscription_schedules", params, api_version: @subscription_schedule_api_version)
   end
 
   defp create_payment_method_real(params) do
@@ -2180,6 +2298,36 @@ defmodule PaperTiger.TestClient do
 
   defp search_subscriptions_mock(params) do
     conn = request(:get, "/v1/subscriptions/search", params)
+    handle_response(conn)
+  end
+
+  defp create_subscription_schedule_mock(params) do
+    conn = request(:post, "/v1/subscription_schedules", params)
+    handle_response(conn)
+  end
+
+  defp get_subscription_schedule_mock(schedule_id) do
+    conn = request(:get, "/v1/subscription_schedules/#{schedule_id}", %{})
+    handle_response(conn)
+  end
+
+  defp update_subscription_schedule_mock(schedule_id, params) do
+    conn = request(:post, "/v1/subscription_schedules/#{schedule_id}", params)
+    handle_response(conn)
+  end
+
+  defp cancel_subscription_schedule_mock(schedule_id, params) do
+    conn = request(:post, "/v1/subscription_schedules/#{schedule_id}/cancel", params)
+    handle_response(conn)
+  end
+
+  defp release_subscription_schedule_mock(schedule_id, params) do
+    conn = request(:post, "/v1/subscription_schedules/#{schedule_id}/release", params)
+    handle_response(conn)
+  end
+
+  defp list_subscription_schedules_mock(params) do
+    conn = request(:get, "/v1/subscription_schedules", params)
     handle_response(conn)
   end
 

@@ -38,8 +38,9 @@ defmodule PaperTiger.Store.SubscriptionItems do
   """
   @spec find_by_subscription(String.t()) :: [map()]
   def find_by_subscription(subscription_id) when is_binary(subscription_id) do
-    :ets.tab2list(@table)
-    |> Enum.filter(fn {_id, item} -> Map.get(item, :subscription) == subscription_id end)
+    namespace = current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{subscription: subscription_id}})
     |> Enum.map(fn {_id, subscription_item} -> subscription_item end)
   end
 
@@ -50,18 +51,22 @@ defmodule PaperTiger.Store.SubscriptionItems do
   """
   @spec delete_by_subscription(String.t()) :: :ok
   def delete_by_subscription(subscription_id) when is_binary(subscription_id) do
-    GenServer.call(__MODULE__, {:delete_by_subscription, subscription_id})
+    namespace = current_namespace()
+    GenServer.call(__MODULE__, {:delete_by_subscription, namespace, subscription_id})
   end
 
   # Override handle_call to add custom delete_by_subscription handler
   @impl true
-  def handle_call({:delete_by_subscription, subscription_id}, _from, state) do
+  def handle_call({:delete_by_subscription, namespace, subscription_id}, _from, state) do
     require Logger
+
     # Find all items for this subscription and delete them
-    items = find_by_subscription(subscription_id)
+    items =
+      :ets.match_object(@table, {{namespace, :_}, %{subscription: subscription_id}})
+      |> Enum.map(fn {_id, subscription_item} -> subscription_item end)
 
     Enum.each(items, fn item ->
-      :ets.delete(@table, item.id)
+      :ets.delete(@table, {namespace, item.id})
     end)
 
     Logger.debug("Deleted #{length(items)} items for subscription #{subscription_id}")

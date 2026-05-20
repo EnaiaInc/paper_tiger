@@ -25,11 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Billing discount and credit APIs: Promotion Codes, Customer Balance Transactions, Customer Cash Balance, and Credit Notes with invoice/customer balance mutation for common credit workflows.
 - Properly scoped Connect platform APIs: legacy `/v1/accounts`, `POST /v1/account_links`, per-request `Stripe-Account` resource isolation, `POST/GET/POST/GET-list /v1/transfers`, nested transfer reversals, and nested application fee refunds with transfer/fee/reversal balance transaction effects.
 - Complete Stripe-style list filtering for Products, Prices, and Refunds, including created-range predicates, documented scalar filters, array filters (`ids[]`, `lookup_keys[]`), Price recurring child filters, list-item expansion such as `expand[]=data.product`, and Refund filtering by Charge or PaymentIntent before cursor pagination.
+- SubscriptionSchedule phase/date fidelity for immediate, future, multi-phase, and `from_subscription` schedules: contiguous phase normalization, `duration` and legacy `iterations` derivation, active `current_phase`, schedule-driven subscription/item updates, cancel/release/completion side effects, documented list filters, and live Stripe contract coverage for create/update/cancel/release flows.
 
 ### Fixed
 
 - Removed unreachable invoice-proration fallback branches flagged by the Elixir `1.20.0-rc.5` type checker; generated proration lines are unchanged.
 - Webhook delivery adapter requests now carry the captured PaperTiger namespace through chaos buffering, async task delivery, retry scheduling, telemetry, and delivery-attempt updates, so host-owned durable adapters can preserve tenant context.
+- Subscription item direct store helpers now respect the active PaperTiger namespace for lookup and bulk deletion, matching the shared store isolation used by standard CRUD operations.
 
 ### Hardened
 
