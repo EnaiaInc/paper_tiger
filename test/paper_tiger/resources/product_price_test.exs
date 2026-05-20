@@ -118,8 +118,8 @@ defmodule PaperTiger.Resources.ProductPriceTest do
   defp normalize_int(other), do: other
 
   # Helper to create a product
-  defp create_product(name, metadata \\ %{}) do
-    conn = request(:post, "/v1/products", %{"metadata" => metadata, "name" => name})
+  defp create_product(name, metadata \\ %{}, attrs \\ %{}) do
+    conn = request(:post, "/v1/products", Map.merge(%{"metadata" => metadata, "name" => name}, attrs))
     assert conn.status == 200
     json_response(conn)
   end
@@ -603,6 +603,70 @@ defmodule PaperTiger.Resources.ProductPriceTest do
       page2 = json_response(conn2)
       assert length(page2["data"]) == 1
       assert page2["has_more"] == true
+    end
+
+    test "filters products by active, shippable, url, ids, and created range" do
+      target =
+        create_product("Physical Active", %{}, %{
+          "shippable" => true,
+          "url" => "https://example.com/physical"
+        })
+
+      inactive =
+        create_product("Inactive Physical", %{}, %{
+          "active" => false,
+          "shippable" => true,
+          "url" => "https://example.com/inactive"
+        })
+
+      digital =
+        create_product("Digital Active", %{}, %{
+          "shippable" => false,
+          "url" => "https://example.com/digital"
+        })
+
+      conn =
+        request(
+          :get,
+          "/v1/products?active=true&shippable=true&url=https%3A%2F%2Fexample.com%2Fphysical&limit=10"
+        )
+
+      assert conn.status == 200
+      assert json_response(conn)["data"] |> Enum.map(& &1["id"]) == [target["id"]]
+
+      conn = request(:get, "/v1/products?active=false&limit=10")
+      assert conn.status == 200
+      assert json_response(conn)["data"] |> Enum.map(& &1["id"]) == [inactive["id"]]
+
+      conn =
+        request(
+          :get,
+          "/v1/products?ids%5B%5D=#{target["id"]}&ids%5B%5D=#{digital["id"]}&limit=10"
+        )
+
+      assert conn.status == 200
+
+      assert json_response(conn)["data"] |> Enum.map(& &1["id"]) |> Enum.sort() ==
+               [digital["id"], target["id"]] |> Enum.sort()
+
+      created = target["created"]
+      conn = request(:get, "/v1/products?created%5Bgte%5D=#{created}&created%5Blte%5D=#{created}&limit=10")
+
+      assert conn.status == 200
+      assert Enum.all?(json_response(conn)["data"], &(&1["created"] == created))
+    end
+
+    test "rejects product ids filter with cursors" do
+      product = create_product("Cursor Conflict")
+
+      conn =
+        request(
+          :get,
+          "/v1/products?ids%5B%5D=#{product["id"]}&starting_after=#{product["id"]}"
+        )
+
+      assert conn.status == 400
+      assert json_response(conn)["error"]["param"] == "starting_after"
     end
   end
 
@@ -1146,10 +1210,92 @@ defmodule PaperTiger.Resources.ProductPriceTest do
       create_price(product1["id"], "usd", 2000)
       create_price(product2["id"], "usd", 3000)
 
-      # List all prices
-      conn_all = request(:get, "/v1/prices")
-      all_prices = json_response(conn_all)["data"]
-      assert length(all_prices) == 3
+      conn = request(:get, "/v1/prices?product=#{product1["id"]}&limit=10")
+
+      assert conn.status == 200
+      prices = json_response(conn)["data"]
+      assert length(prices) == 2
+      assert Enum.all?(prices, &(&1["product"] == product1["id"]))
+    end
+
+    test "filters prices by active, currency, type, lookup keys, recurring fields, and created range" do
+      product1 = create_product("Filtered Product A")
+      product2 = create_product("Filtered Product B")
+
+      target =
+        request(:post, "/v1/prices", %{
+          "currency" => "usd",
+          "lookup_key" => "basic_monthly",
+          "product" => product1["id"],
+          "recurring" => %{"interval" => "month", "usage_type" => "licensed"},
+          "unit_amount" => "1200"
+        })
+        |> json_response()
+
+      _metered =
+        request(:post, "/v1/prices", %{
+          "currency" => "usd",
+          "lookup_key" => "metered_weekly",
+          "product" => product1["id"],
+          "recurring" => %{"interval" => "week", "meter" => "mtr_test", "usage_type" => "metered"},
+          "unit_amount" => "300"
+        })
+        |> json_response()
+
+      inactive_one_time =
+        request(:post, "/v1/prices", %{
+          "active" => false,
+          "currency" => "eur",
+          "lookup_key" => "inactive_once",
+          "product" => product2["id"],
+          "unit_amount" => "5000"
+        })
+        |> json_response()
+
+      conn =
+        request(
+          :get,
+          "/v1/prices?active=true&currency=usd&type=recurring&lookup_keys%5B%5D=basic_monthly&recurring%5Binterval%5D=month&recurring%5Busage_type%5D=licensed&limit=10"
+        )
+
+      assert conn.status == 200
+      assert json_response(conn)["data"] |> Enum.map(& &1["id"]) == [target["id"]]
+
+      conn = request(:get, "/v1/prices?recurring%5Bmeter%5D=mtr_test&limit=10")
+      assert conn.status == 200
+      assert json_response(conn)["data"] |> Enum.map(& &1["lookup_key"]) == ["metered_weekly"]
+
+      conn =
+        request(:get, "/v1/prices?active=false&type=one_time&created%5Blte%5D=#{inactive_one_time["created"]}&limit=10")
+
+      assert conn.status == 200
+      assert json_response(conn)["data"] |> Enum.map(& &1["id"]) == [inactive_one_time["id"]]
+    end
+
+    test "expands product in price list data" do
+      product = create_product("Expandable Product")
+      price = create_price(product["id"], "usd", 1500)
+
+      conn = request(:get, "/v1/prices?expand%5B%5D=data.product&limit=10")
+
+      assert conn.status == 200
+
+      expanded =
+        conn
+        |> json_response()
+        |> Map.fetch!("data")
+        |> Enum.find(&(&1["id"] == price["id"]))
+        |> Map.fetch!("product")
+
+      assert expanded["id"] == product["id"]
+      assert expanded["object"] == "product"
+    end
+
+    test "rejects invalid price list filter values" do
+      conn = request(:get, "/v1/prices?type=usage")
+
+      assert conn.status == 400
+      assert json_response(conn)["error"]["param"] == "type"
     end
   end
 

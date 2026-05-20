@@ -31,6 +31,7 @@ defmodule PaperTiger.Resources.Price do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.ListFilters
   alias PaperTiger.Store.Plans
   alias PaperTiger.Store.Prices
 
@@ -150,9 +151,30 @@ defmodule PaperTiger.Resources.Price do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    result = Prices.list(pagination_opts)
+    Prices.list_namespace(PaperTiger.Connect.storage_namespace())
+    |> ListFilters.apply(conn.params, [
+      {:boolean, :active},
+      {:created, :created},
+      {:string, :currency},
+      {:string_in, :lookup_keys, :lookup_key, max: 10},
+      {:string, :product},
+      {:nested_enum, [:recurring, :interval], ["day", "week", "month", "year"]},
+      {:nested_string, [:recurring, :meter]},
+      {:nested_enum, [:recurring, :usage_type], ["licensed", "metered"]},
+      {:enum, :type, ["one_time", "recurring"]}
+    ])
+    |> case do
+      {:ok, prices} ->
+        result =
+          prices
+          |> PaperTiger.List.paginate(Map.put(pagination_opts, :url, "/v1/prices"))
+          |> ListFilters.expand_page(conn.params)
 
-    json_response(conn, 200, result)
+        json_response(conn, 200, result)
+
+      {:error, error} ->
+        error_response(conn, error)
+    end
   end
 
   defp build_price(params) do
@@ -165,10 +187,11 @@ defmodule PaperTiger.Resources.Price do
     recurring = build_recurring(Map.get(params, :recurring))
 
     %{
-      active: Map.get(params, :active, true),
+      active: to_boolean(Map.get(params, :active, true)),
       billing_scheme: Map.get(params, :billing_scheme, "per_unit"),
       created: PaperTiger.now(),
       currency: Map.get(params, :currency),
+      custom_unit_amount: Map.get(params, :custom_unit_amount),
       id: generate_id("price", Map.get(params, :id)),
       livemode: false,
       lookup_key: Map.get(params, :lookup_key),
@@ -199,13 +222,21 @@ defmodule PaperTiger.Resources.Price do
     interval = Map.get(recurring, :interval) || Map.get(recurring, "interval")
     interval_count = Map.get(recurring, :interval_count) || Map.get(recurring, "interval_count")
 
-    recurring_map = %{interval: interval}
+    %{
+      aggregate_usage: Map.get(recurring, :aggregate_usage) || Map.get(recurring, "aggregate_usage"),
+      interval: interval,
+      interval_count: if(interval_count, do: to_integer(interval_count), else: 1),
+      meter: Map.get(recurring, :meter) || Map.get(recurring, "meter"),
+      trial_period_days: get_recurring_integer(recurring, :trial_period_days),
+      usage_type: Map.get(recurring, :usage_type) || Map.get(recurring, "usage_type") || "licensed"
+    }
+  end
 
-    # Only include interval_count if provided (it's optional per Stripe spec)
-    if interval_count do
-      Map.put(recurring_map, :interval_count, interval_count)
-    else
-      recurring_map
+  defp get_recurring_integer(recurring, key) do
+    value = Map.get(recurring, key) || Map.get(recurring, Atom.to_string(key))
+
+    if !is_nil(value) do
+      to_integer(value)
     end
   end
 

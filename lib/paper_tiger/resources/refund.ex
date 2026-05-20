@@ -30,7 +30,9 @@ defmodule PaperTiger.Resources.Refund do
   import PaperTiger.Resource
 
   alias PaperTiger.BalanceTransactionHelper
+  alias PaperTiger.ListFilters
   alias PaperTiger.Store.Charges
+  alias PaperTiger.Store.PaymentIntents
   alias PaperTiger.Store.Refunds
 
   @doc """
@@ -49,9 +51,12 @@ defmodule PaperTiger.Resources.Refund do
   @spec create(Plug.Conn.t()) :: Plug.Conn.t()
   def create(conn) do
     with {:ok, _params} <- validate_params(conn.params, [:charge]),
-         refund = build_refund(conn.params),
+         {:ok, charge} <- fetch_refundable_charge(conn.params),
+         {:ok, amount} <- resolve_refund_amount(conn.params, charge),
+         refund = build_refund(conn.params, charge, amount),
          {:ok, refund} <- Refunds.insert(refund),
-         {:ok, refund} <- create_balance_transaction(refund) do
+         {:ok, refund} <- create_balance_transaction(refund, charge),
+         {:ok, _charge} <- apply_refund_to_charge(charge, refund) do
       maybe_store_idempotency(conn, refund)
 
       refund
@@ -63,6 +68,12 @@ defmodule PaperTiger.Resources.Refund do
           conn,
           PaperTiger.Error.invalid_request("Missing required parameter", field)
         )
+
+      {:error, :charge_not_found, charge_id} ->
+        error_response(conn, PaperTiger.Error.not_found("charge", charge_id))
+
+      {:error, :invalid_amount, message} ->
+        error_response(conn, PaperTiger.Error.invalid_request(message, "amount"))
     end
   end
 
@@ -70,16 +81,8 @@ defmodule PaperTiger.Resources.Refund do
   # Get the original charge for fee calculation
   ## Private Functions
 
-  defp create_balance_transaction(refund) do
-    charge_id = refund[:charge] || refund["charge"]
-    # Additional fields
-    original_charge =
-      case Charges.get(charge_id) do
-        {:ok, charge} -> charge
-        _ -> %{amount: 0}
-      end
-
-    {:ok, txn_id} = BalanceTransactionHelper.create_for_refund(refund, original_charge)
+  defp create_balance_transaction(refund, charge) do
+    {:ok, txn_id} = BalanceTransactionHelper.create_for_refund(refund, charge)
     updated = Map.put(refund, :balance_transaction, txn_id)
     Refunds.update(updated)
   end
@@ -148,28 +151,119 @@ defmodule PaperTiger.Resources.Refund do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    result = Refunds.list(pagination_opts)
+    with :ok <- validate_list_reference(:charge, conn.params),
+         :ok <- validate_list_reference(:payment_intent, conn.params),
+         {:ok, refunds} <-
+           Refunds.list_namespace(PaperTiger.Connect.storage_namespace())
+           |> ListFilters.apply(conn.params, [
+             {:string, :charge},
+             {:created, :created},
+             {:string, :payment_intent},
+             {:string, :status}
+           ]) do
+      result =
+        refunds
+        |> PaperTiger.List.paginate(Map.put(pagination_opts, :url, "/v1/refunds"))
+        |> ListFilters.expand_page(conn.params)
 
-    json_response(conn, 200, result)
+      json_response(conn, 200, result)
+    else
+      {:error, error} ->
+        error_response(conn, error)
+    end
   end
 
-  defp build_refund(params) do
+  defp build_refund(params, charge, amount) do
     %{
-      amount: get_integer(params, :amount),
+      amount: amount,
       balance_transaction: nil,
-      charge: Map.get(params, :charge),
+      charge: charge.id,
       created: PaperTiger.now(),
-      currency: Map.get(params, :currency, "usd"),
+      currency: Map.get(params, :currency, charge.currency),
       failure_code: nil,
       failure_reason: nil,
       id: generate_id("re"),
       livemode: false,
       metadata: Map.get(params, :metadata, %{}),
       object: "refund",
+      payment_intent: Map.get(charge, :payment_intent),
       reason: Map.get(params, :reason),
       receipt_number: Map.get(params, :receipt_number),
+      source_transfer_reversal: nil,
       status: Map.get(params, :status, "succeeded")
     }
+  end
+
+  defp fetch_refundable_charge(params) do
+    charge_id = Map.get(params, :charge)
+
+    case Charges.get(charge_id) do
+      {:ok, charge} -> {:ok, charge}
+      {:error, :not_found} -> {:error, :charge_not_found, charge_id}
+    end
+  end
+
+  defp resolve_refund_amount(params, charge) do
+    refundable = refundable_amount(charge)
+    refunded = Map.get(charge, :amount_refunded, 0)
+    remaining = refundable - refunded
+
+    amount =
+      case get_optional_integer(params, :amount) do
+        nil -> remaining
+        value -> value
+      end
+
+    cond do
+      amount <= 0 ->
+        {:error, :invalid_amount, "Amount must be greater than zero"}
+
+      amount > remaining ->
+        {:error, :invalid_amount, "Amount exceeds the unrefunded charge amount"}
+
+      true ->
+        {:ok, amount}
+    end
+  end
+
+  defp apply_refund_to_charge(charge, refund) do
+    amount_refunded = Map.get(charge, :amount_refunded, 0) + refund.amount
+
+    updated =
+      charge
+      |> Map.put(:amount_refunded, amount_refunded)
+      |> Map.put(:refunded, amount_refunded >= refundable_amount(charge))
+
+    Charges.update(updated)
+  end
+
+  defp validate_list_reference(param, params) do
+    case Map.get(params, param) do
+      nil ->
+        :ok
+
+      id ->
+        param
+        |> store_for_list_reference()
+        |> then(& &1.get(id))
+        |> case do
+          {:ok, _resource} -> :ok
+          {:error, :not_found} -> {:error, PaperTiger.Error.not_found(resource_name(param), id)}
+        end
+    end
+  end
+
+  defp store_for_list_reference(:charge), do: Charges
+  defp store_for_list_reference(:payment_intent), do: PaymentIntents
+
+  defp resource_name(:charge), do: "charge"
+  defp resource_name(:payment_intent), do: "payment_intent"
+
+  defp refundable_amount(charge) do
+    case Map.get(charge, :amount_captured) do
+      amount when is_integer(amount) and amount > 0 -> amount
+      _ -> Map.get(charge, :amount, 0)
+    end
   end
 
   defp maybe_expand(refund, params) do
