@@ -31,6 +31,8 @@ defmodule PaperTiger.Hydrator do
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
+  alias PaperTiger.Store.BillingPortalConfigurations
+  alias PaperTiger.Store.BillingPortalSessions
   alias PaperTiger.Store.Cards
   alias PaperTiger.Store.Charges
   alias PaperTiger.Store.CheckoutSessions
@@ -43,6 +45,7 @@ defmodule PaperTiger.Hydrator do
   alias PaperTiger.Store.Invoices
   alias PaperTiger.Store.Mandates
   alias PaperTiger.Store.PaymentIntents
+  alias PaperTiger.Store.PaymentLinks
   alias PaperTiger.Store.PaymentMethodConfigurations
   alias PaperTiger.Store.PaymentMethodDomains
   alias PaperTiger.Store.PaymentMethods
@@ -68,6 +71,8 @@ defmodule PaperTiger.Hydrator do
     ApplicationFees,
     BalanceTransactions,
     BankAccounts,
+    BillingPortalConfigurations,
+    BillingPortalSessions,
     Cards,
     Charges,
     CheckoutSessions,
@@ -80,6 +85,7 @@ defmodule PaperTiger.Hydrator do
     Invoices,
     Mandates,
     PaymentIntents,
+    PaymentLinks,
     PaymentMethodConfigurations,
     PaymentMethodDomains,
     PaymentMethods,

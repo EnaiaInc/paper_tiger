@@ -1092,6 +1092,99 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Hosted Product APIs" do
+    @tag :contract
+    test "creates and updates payment links with line items" do
+      {:ok, payment_link} =
+        TestClient.create_payment_link(%{
+          "line_items" => [
+            %{
+              "price_data" => %{
+                "currency" => "usd",
+                "product_data" => %{"name" => "Payment Link Contract"},
+                "unit_amount" => 1800
+              },
+              "quantity" => 2
+            }
+          ],
+          "metadata" => %{"contract" => "payment_link"}
+        })
+
+      assert payment_link["object"] == "payment_link"
+      assert String.starts_with?(payment_link["id"], "plink_")
+      assert payment_link["active"] == true
+      assert is_binary(payment_link["url"])
+
+      {:ok, retrieved} = TestClient.get_payment_link(payment_link["id"])
+      assert retrieved["id"] == payment_link["id"]
+      assert retrieved["object"] == "payment_link"
+
+      {:ok, line_items} = TestClient.list_payment_link_line_items(payment_link["id"], %{"limit" => 1})
+      assert line_items["object"] == "list"
+      assert length(line_items["data"]) == 1
+
+      [line_item] = line_items["data"]
+      assert line_item["object"] == "item"
+      assert line_item["quantity"] == 2
+
+      {:ok, updated} =
+        TestClient.update_payment_link(payment_link["id"], %{
+          "active" => false,
+          "metadata" => %{"contract" => ""}
+        })
+
+      assert updated["id"] == payment_link["id"]
+      assert updated["active"] == false
+    end
+
+    @tag :contract
+    test "creates billing portal configurations and sessions" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "portal-contract@example.com"})
+
+      {:ok, configuration} =
+        TestClient.create_billing_portal_configuration(%{
+          "default_return_url" => "https://example.com/account",
+          "features" => %{
+            "customer_update" => %{
+              "allowed_updates" => ["email"],
+              "enabled" => true
+            },
+            "invoice_history" => %{"enabled" => true}
+          }
+        })
+
+      assert configuration["object"] == "billing_portal.configuration"
+      assert String.starts_with?(configuration["id"], "bpc_")
+      assert configuration["active"] == true
+
+      {:ok, retrieved} = TestClient.get_billing_portal_configuration(configuration["id"])
+      assert retrieved["id"] == configuration["id"]
+
+      {:ok, session} =
+        TestClient.create_billing_portal_session(%{
+          "configuration" => configuration["id"],
+          "customer" => customer["id"],
+          "return_url" => "https://example.com/account"
+        })
+
+      assert session["object"] == "billing_portal.session"
+      assert String.starts_with?(session["id"], "bps_")
+      assert session["configuration"] == configuration["id"]
+      assert session["customer"] == customer["id"]
+      assert session["return_url"] == "https://example.com/account"
+      assert is_binary(session["url"])
+
+      {:ok, updated} =
+        TestClient.update_billing_portal_configuration(configuration["id"], %{
+          "metadata" => %{"contract" => "billing_portal"}
+        })
+
+      assert updated["metadata"]["contract"] == "billing_portal"
+
+      cleanup_customer(customer["id"])
+    end
+  end
+
   describe "Error Response Format Validation" do
     @tag :contract
     test "non-existent customer returns resource_missing error" do

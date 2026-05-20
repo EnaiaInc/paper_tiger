@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stripe-style search endpoints for `GET /v1/customers/search`, `GET /v1/subscriptions/search`, `GET /v1/payment_intents/search`, `GET /v1/charges/search`, and `GET /v1/invoices/search`, backed by a shared query parser/evaluator with resource field schemas, metadata predicates, boolean connectors, negation, numeric comparisons, substring matching, search-result pagination, and Stripe-shaped unsupported-query errors.
 - Modern payment-method adjunct APIs: test-helper ConfirmationToken creation plus retrieval, PaymentMethodDomain create/retrieve/update/list, PaymentMethodConfiguration create/retrieve/update/list, CustomerSession creation with client secrets, and stored Mandate retrieval for successful mandate-bearing SetupIntent/PaymentIntent flows.
 - Invoice lifecycle endpoints for `POST /v1/invoices/:id/send`, `POST /v1/invoices/:id/mark_uncollectible`, and PaymentIntent-backed `POST /v1/invoices/:id/attach_payment`, including `invoice.sent`, `invoice.marked_uncollectible`, and `invoice.voided` webhook emission plus status-transition timestamps.
+- Hosted product APIs for Payment Links and Billing Portal: `POST/GET/POST/GET-list /v1/payment_links`, paginated `GET /v1/payment_links/:id/line_items`, browser-visible Payment Link URLs backed by deterministic Checkout Session completion, `POST /v1/billing_portal/sessions`, and Billing Portal Configuration create/retrieve/update/list endpoints.
 
 ### Fixed
 

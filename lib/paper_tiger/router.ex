@@ -57,6 +57,8 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.ApplicationFee
   alias PaperTiger.Resources.BalanceTransaction
   alias PaperTiger.Resources.BankAccount
+  alias PaperTiger.Resources.BillingPortalConfiguration
+  alias PaperTiger.Resources.BillingPortalSession
   alias PaperTiger.Resources.Card
   alias PaperTiger.Resources.Charge
   alias PaperTiger.Resources.CheckoutSession
@@ -70,6 +72,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Resources.InvoiceItem
   alias PaperTiger.Resources.Mandate
   alias PaperTiger.Resources.PaymentIntent
+  alias PaperTiger.Resources.PaymentLink
   alias PaperTiger.Resources.PaymentMethod
   alias PaperTiger.Resources.PaymentMethodConfiguration
   alias PaperTiger.Resources.PaymentMethodDomain
@@ -194,6 +197,18 @@ defmodule PaperTiger.Router do
     CheckoutSession.browser_complete(conn, id)
   end
 
+  get "/payment_links/:id" do
+    PaymentLink.browser_checkout(conn, id)
+  end
+
+  get "/payment_links/:id/complete" do
+    PaymentLink.browser_complete(conn, id)
+  end
+
+  get "/billing_portal/sessions/:id" do
+    BillingPortalSession.browser_enter(conn, id)
+  end
+
   ## Resource Routes
 
   # Core resources (Phase 1)
@@ -214,6 +229,19 @@ defmodule PaperTiger.Router do
   stripe_resource("subscriptions", Subscription, [])
   stripe_resource("products", Product, [])
   stripe_resource("prices", Price, except: [:delete])
+
+  post "/v1/billing_portal/sessions" do
+    BillingPortalSession.create(conn)
+  end
+
+  stripe_resource("billing_portal/configurations", BillingPortalConfiguration, except: [:delete])
+
+  get "/v1/payment_links/:id/line_items" do
+    PaymentLink.line_items(conn, id)
+  end
+
+  stripe_resource("payment_links", PaymentLink, except: [:delete])
+
   # Custom invoice endpoints — must come BEFORE stripe_resource so they
   # match before the generic GET /v1/invoices/:id route.
   get "/v1/invoices/upcoming" do

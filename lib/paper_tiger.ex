@@ -43,6 +43,8 @@ defmodule PaperTiger do
     ApplicationFees,
     BalanceTransactions,
     BankAccounts,
+    BillingPortalConfigurations,
+    BillingPortalSessions,
     Cards,
     Charges,
     CheckoutSessions,
@@ -55,6 +57,7 @@ defmodule PaperTiger do
     Invoices,
     Mandates,
     PaymentIntents,
+    PaymentLinks,
     PaymentMethodConfigurations,
     PaymentMethodDomains,
     PaymentMethods,
@@ -225,6 +228,7 @@ defmodule PaperTiger do
   def flush(:invoice_items), do: InvoiceItems.clear()
   def flush(:products), do: Products.clear()
   def flush(:prices), do: Prices.clear()
+  def flush(:payment_links), do: PaymentLinks.clear()
   def flush(:plans), do: Plans.clear()
   def flush(:payment_methods), do: PaymentMethods.clear()
   def flush(:payment_method_domains), do: PaymentMethodDomains.clear()
@@ -244,6 +248,8 @@ defmodule PaperTiger do
   def flush(:sources), do: Sources.clear()
   def flush(:tokens), do: Tokens.clear()
   def flush(:checkout_sessions), do: CheckoutSessions.clear()
+  def flush(:billing_portal_configurations), do: BillingPortalConfigurations.clear()
+  def flush(:billing_portal_sessions), do: BillingPortalSessions.clear()
   def flush(:webhooks), do: Webhooks.clear()
   def flush(:events), do: Events.clear()
   def flush(:payouts), do: Payouts.clear()
