@@ -75,6 +75,7 @@ defmodule PaperTiger.Test do
   alias PaperTiger.Store.Transfers
   alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
+  alias PaperTiger.WebhookDelivery.Request
 
   @namespace_key :paper_tiger_namespace
   @namespace_header "x-paper-tiger-namespace"
@@ -355,6 +356,48 @@ defmodule PaperTiger.Test do
   end
 
   @doc """
+  Returns the raw webhook request fields from a collected delivery or adapter
+  request.
+
+  Use this when testing a webhook controller that verifies the raw body and
+  `Stripe-Signature` header. The returned `:body` is the exact JSON byte
+  string that PaperTiger signed.
+
+  ## Example
+
+      [delivery] = assert_webhook_delivered("customer.created")
+      signed = signed_webhook_request(delivery)
+
+      {:ok, event} =
+        Stripe.Webhook.construct_event(
+          signed.body,
+          signed.signature_header,
+          Application.fetch_env!(:stripity_stripe, :webhook_signing_key),
+          response_as: :map
+        )
+  """
+  @spec signed_webhook_request(map() | Request.t()) :: %{
+          body: String.t(),
+          headers: [{String.t(), String.t()}],
+          signature_header: String.t()
+        }
+  def signed_webhook_request(%Request{} = request) do
+    %{
+      body: request.payload,
+      headers: request.headers,
+      signature_header: request.signature_header
+    }
+  end
+
+  def signed_webhook_request(delivery) when is_map(delivery) do
+    %{
+      body: fetch_signed_webhook_field(delivery, :payload),
+      headers: fetch_signed_webhook_field(delivery, :headers),
+      signature_header: fetch_signed_webhook_field(delivery, :signature_header)
+    }
+  end
+
+  @doc """
   Clears all collected webhook deliveries for the current namespace.
 
   Useful when testing multiple operations and wanting to verify
@@ -375,6 +418,13 @@ defmodule PaperTiger.Test do
   @spec clear_delivered_webhooks() :: :ok
   def clear_delivered_webhooks do
     WebhookDeliveries.clear_namespace(current_namespace())
+  end
+
+  defp fetch_signed_webhook_field(map, key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key)) ||
+      raise ArgumentError,
+            "expected collected webhook delivery to include #{inspect(key)}; " <>
+              "enable collection through PaperTiger.Test.enable_webhook_collection/0"
   end
 
   @doc """

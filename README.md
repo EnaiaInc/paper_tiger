@@ -196,7 +196,7 @@ defmodule MyAppWeb.StripeWebhookController do
     # PaperTiger signs webhooks identically to Stripe
     case Stripe.Webhook.construct_event(
       conn.assigns.raw_body,
-      get_req_header(conn, "stripe-signature"),
+      List.first(get_req_header(conn, "stripe-signature")),
       Application.get_env(:stripity_stripe, :webhook_signing_key)
     ) do
       {:ok, event} ->
@@ -270,6 +270,19 @@ defmodule MyApp.SubscriptionTest do
     assert delivery.event_data.object.id == subscription.id
     assert delivery.event_data.object.status == "active"
     assert delivery.event_data.object.customer == customer_id
+
+    # Or verify the exact raw body/header your controller receives
+    signed = signed_webhook_request(delivery)
+
+    {:ok, event} =
+      Stripe.Webhook.construct_event(
+        signed.body,
+        signed.signature_header,
+        Application.fetch_env!(:stripity_stripe, :webhook_signing_key),
+        response_as: :map
+      )
+
+    assert event["type"] == "customer.subscription.created"
   end
 
   test "cancellation triggers delete webhook" do
@@ -303,6 +316,7 @@ end
 - `enable_webhook_collection/0` - Enables `:collect` mode for the test (auto-cleanup on exit)
 - `get_delivered_webhooks/0` - Returns all collected webhooks
 - `get_delivered_webhooks/1` - Filter by event type (supports wildcards like `"customer.*"`)
+- `signed_webhook_request/1` - Returns the exact raw body, headers, and `Stripe-Signature` header for a collected delivery or adapter request
 - `assert_webhook_delivered/1` - Asserts webhook was delivered, returns matches
 - `refute_webhook_delivered/1` - Asserts webhook was NOT delivered
 - `clear_delivered_webhooks/0` - Clears collected webhooks (useful between operations)
