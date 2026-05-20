@@ -58,6 +58,9 @@ defmodule PaperTiger.WebhookDelivery do
   - **Async delivery**: `deliver_event/2` - Queues a delivery task (default)
   - **Sync delivery**: `deliver_event_sync/2` - Blocks until complete
   - **Signing**: `sign_payload/2` - Creates Stripe-compatible HMAC SHA256 signature
+  - **Signed request construction**: `build_signed_request/3` - Produces the
+    exact raw body, `Stripe-Signature` header, and HTTP headers without
+    delivering the webhook
   - **HTTP client**: Uses Req library for reliable, timeout-aware requests
   - **Retry strategy**: Exponential backoff (1s, 2s, 4s, 8s, 16s)
   - **Tracking**: Stores delivery attempts in Event object via Store.Events
@@ -83,6 +86,9 @@ defmodule PaperTiger.WebhookDelivery do
 
       # Manually create a signature for testing
       signature = PaperTiger.WebhookDelivery.sign_payload("body", "secret")
+
+      # Build the exact webhook request a controller test should verify
+      request = PaperTiger.WebhookDelivery.build_signed_request(event, webhook)
   """
 
   use GenServer
@@ -243,6 +249,52 @@ defmodule PaperTiger.WebhookDelivery do
     |> Base.encode16(case: :lower)
   end
 
+  @doc """
+  Builds a Stripe-compatible signed webhook request without delivering it.
+
+  The returned `PaperTiger.WebhookDelivery.Request` contains the exact raw
+  JSON body and `Stripe-Signature` header that PaperTiger will hand to the
+  delivery adapter. Tests can pass `request.payload` and
+  `request.signature_header` directly to `Stripe.Webhook.construct_event/5`.
+
+  By default, the signature timestamp uses wall-clock time
+  (`System.system_time(:second)`), matching Stripe's webhook delivery
+  semantics. PaperTiger's simulated resource clock controls object timestamps,
+  not webhook signature freshness.
+
+  Options:
+
+  - `:namespace` - PaperTiger namespace to attach to the request.
+  - `:timestamp` - Signature timestamp override, useful for stale-signature
+    tests.
+  """
+  @spec build_signed_request(map(), map(), keyword()) :: Request.t()
+  def build_signed_request(event, webhook, opts \\ []) when is_map(event) and is_map(webhook) do
+    timestamp = Keyword.get_lazy(opts, :timestamp, fn -> System.system_time(:second) end)
+    namespace = Keyword.get(opts, :namespace, PaperTiger.Test.current_namespace())
+    payload = Jason.encode!(event)
+    signed_content = "#{timestamp}.#{payload}"
+    signature = sign_payload(signed_content, webhook_secret(webhook))
+    stripe_signature = "t=#{timestamp},v1=#{signature}"
+
+    headers = [
+      {"Stripe-Signature", stripe_signature},
+      {"Content-Type", "application/json"},
+      {"User-Agent", "Stripe/1.0 (+https://stripe.com/docs/webhooks)"}
+    ]
+
+    %Request{
+      event: event,
+      headers: headers,
+      namespace: namespace,
+      payload: payload,
+      signature_header: stripe_signature,
+      timestamp: timestamp,
+      url: webhook_url(webhook),
+      webhook: webhook
+    }
+  end
+
   @impl true
   def init(_opts) do
     Logger.debug("PaperTiger.WebhookDelivery started")
@@ -363,46 +415,32 @@ defmodule PaperTiger.WebhookDelivery do
   end
 
   defp perform_delivery(event, webhook, namespace) do
-    timestamp = PaperTiger.Clock.now()
-    payload = Jason.encode!(event)
-    signed_content = "#{timestamp}.#{payload}"
-    signature = sign_payload(signed_content, webhook.secret)
-    stripe_signature = "t=#{timestamp},v1=#{signature}"
-
-    headers = [
-      {"Stripe-Signature", stripe_signature},
-      {"Content-Type", "application/json"},
-      {"User-Agent", "Stripe/1.0 (+https://stripe.com/docs/webhooks)"}
-    ]
-
-    request = %Request{
-      event: event,
-      headers: headers,
-      namespace: namespace,
-      payload: payload,
-      signature_header: stripe_signature,
-      timestamp: timestamp,
-      url: webhook.url,
-      webhook: webhook
-    }
+    request = build_signed_request(event, webhook, namespace: namespace)
 
     :telemetry.execute(
       [:paper_tiger, :webhook, :delivering],
       %{system_time: System.system_time()},
       %{
-        event: event,
-        headers: headers,
-        namespace: namespace,
-        payload: payload,
-        signature_header: stripe_signature,
-        timestamp: timestamp,
-        url: webhook.url,
-        webhook: webhook
+        event: request.event,
+        headers: request.headers,
+        namespace: request.namespace,
+        payload: request.payload,
+        signature_header: request.signature_header,
+        timestamp: request.timestamp,
+        url: request.url,
+        webhook: request.webhook
       }
     )
 
     safe_adapter_deliver(delivery_adapter(), request)
   end
+
+  defp webhook_secret(webhook) do
+    Map.get(webhook, :secret) || Map.get(webhook, "secret") ||
+      Application.get_env(:stripity_stripe, :webhook_signing_key, "whsec_paper_tiger_test")
+  end
+
+  defp webhook_url(webhook), do: Map.get(webhook, :url) || Map.get(webhook, "url")
 
   defp safe_adapter_deliver(adapter, request) do
     cond do

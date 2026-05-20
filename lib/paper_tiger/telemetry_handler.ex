@@ -169,10 +169,22 @@ defmodule PaperTiger.TelemetryHandler do
     # registered webhooks. This lets tests verify what webhooks would fire.
     if webhook_mode == :collect do
       Logger.debug("Collecting #{event_type} webhook for test inspection")
-      WebhookDeliveries.record(event, %{id: "test_collector", url: "test://collect"})
+
+      webhook = %{
+        id: "test_collector",
+        secret: collect_webhook_secret(),
+        url: "test://collect"
+      }
+
+      request = WebhookDelivery.build_signed_request(event, webhook)
+      WebhookDeliveries.record(event, webhook, request)
     else
       deliver_to_registered_webhooks(event, event_type, webhook_mode)
     end
+  end
+
+  defp collect_webhook_secret do
+    Application.get_env(:stripity_stripe, :webhook_signing_key, "whsec_paper_tiger_test")
   end
 
   defp deliver_to_registered_webhooks(event, event_type, _webhook_mode) do

@@ -19,20 +19,33 @@ defmodule PaperTiger.Store.WebhookDeliveries do
 
   Called by the telemetry handler when in `:collect` mode.
   """
-  def record(event, webhook) do
-    delivery = %{
-      # Use `created` to match Stripe's convention (paginate expects this field)
-      created: System.system_time(:second),
-      event_data: event.data,
-      event_id: event.id,
-      event_type: event.type,
-      id: PaperTiger.Resource.generate_id("whd"),
-      webhook_id: webhook[:id] || webhook["id"],
-      webhook_url: webhook[:url] || webhook["url"]
-    }
+  def record(event, webhook, signed_request \\ nil) do
+    delivery =
+      %{
+        # Use `created` to match Stripe's convention (paginate expects this field)
+        created: System.system_time(:second),
+        event_data: event.data,
+        event_id: event.id,
+        event_type: event.type,
+        id: PaperTiger.Resource.generate_id("whd"),
+        webhook_id: webhook[:id] || webhook["id"],
+        webhook_url: webhook[:url] || webhook["url"]
+      }
+      |> maybe_put_signed_request(signed_request)
 
     insert(delivery)
     delivery
+  end
+
+  defp maybe_put_signed_request(delivery, nil), do: delivery
+
+  defp maybe_put_signed_request(delivery, signed_request) do
+    Map.merge(delivery, %{
+      headers: signed_request.headers,
+      payload: signed_request.payload,
+      signature_header: signed_request.signature_header,
+      timestamp: signed_request.timestamp
+    })
   end
 
   @doc """
