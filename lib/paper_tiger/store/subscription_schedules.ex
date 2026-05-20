@@ -40,7 +40,9 @@ defmodule PaperTiger.Store.SubscriptionSchedules do
   """
   @spec find_by_customer(String.t()) :: [map()]
   def find_by_customer(customer_id) when is_binary(customer_id) do
-    :ets.match_object(@table, {:_, %{customer: customer_id}})
+    namespace = current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{customer: customer_id}})
     |> Enum.map(fn {_id, schedule} -> schedule end)
   end
 
@@ -62,12 +64,16 @@ defmodule PaperTiger.Store.SubscriptionSchedules do
   """
   @spec find_scheduled() :: [map()]
   def find_scheduled do
-    :ets.match_object(@table, {:_, %{status: "not_started"}})
+    namespace = current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, %{status: "not_started"}})
     |> Enum.map(fn {_id, schedule} -> schedule end)
   end
 
   defp all do
-    :ets.tab2list(@table)
+    namespace = current_namespace()
+
+    :ets.match_object(@table, {{namespace, :_}, :_})
     |> Enum.map(fn {_id, schedule} -> schedule end)
   end
 end
