@@ -40,6 +40,8 @@ defmodule PaperTiger do
   """
 
   alias PaperTiger.Store.{
+    Accounts,
+    ApplicationFeeRefunds,
     ApplicationFees,
     BalanceTransactions,
     BankAccounts,
@@ -78,6 +80,8 @@ defmodule PaperTiger do
     TaxRates,
     Tokens,
     Topups,
+    TransferReversals,
+    Transfers,
     Webhooks
   }
 
@@ -225,6 +229,7 @@ defmodule PaperTiger do
 
   @spec flush(atom()) :: :ok | {:error, :unknown_resource}
   def flush(:customers), do: Customers.clear()
+  def flush(:accounts), do: Accounts.clear()
   def flush(:subscriptions), do: Subscriptions.clear()
   def flush(:subscription_items), do: SubscriptionItems.clear()
   def flush(:invoices), do: Invoices.clear()
@@ -259,8 +264,11 @@ defmodule PaperTiger do
   def flush(:webhooks), do: Webhooks.clear()
   def flush(:events), do: Events.clear()
   def flush(:payouts), do: Payouts.clear()
+  def flush(:transfers), do: Transfers.clear()
+  def flush(:transfer_reversals), do: TransferReversals.clear()
   def flush(:balance_transactions), do: BalanceTransactions.clear()
   def flush(:application_fees), do: ApplicationFees.clear()
+  def flush(:application_fee_refunds), do: ApplicationFeeRefunds.clear()
   def flush(:reviews), do: Reviews.clear()
   def flush(:topups), do: Topups.clear()
   def flush(_), do: {:error, :unknown_resource}

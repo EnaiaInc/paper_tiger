@@ -173,7 +173,7 @@ defmodule PaperTiger.Resources.Charge do
   """
   @spec search(Plug.Conn.t()) :: Plug.Conn.t()
   def search(conn) do
-    Charges.list_namespace(PaperTiger.Test.current_namespace())
+    Charges.list_namespace(PaperTiger.Connect.storage_namespace())
     |> Search.run(conn.params,
       fields: @search_fields,
       url: "/v1/charges/search",

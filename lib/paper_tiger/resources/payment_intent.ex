@@ -160,7 +160,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
   """
   @spec search(Plug.Conn.t()) :: Plug.Conn.t()
   def search(conn) do
-    PaymentIntents.list_namespace(PaperTiger.Test.current_namespace())
+    PaymentIntents.list_namespace(PaperTiger.Connect.storage_namespace())
     |> Search.run(conn.params,
       fields: @search_fields,
       url: "/v1/payment_intents/search",
@@ -445,7 +445,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
       amount_details: Map.get(params, :amount_details),
       amount_received: 0,
       application: nil,
-      application_fee_amount: nil,
+      application_fee_amount: get_optional_integer(params, :application_fee_amount),
       canceled_at: nil,
       cancellation_reason: nil,
       capture_method: Map.get(params, :capture_method, "automatic"),
@@ -474,7 +474,8 @@ defmodule PaperTiger.Resources.PaymentIntent do
       shipping: Map.get(params, :shipping),
       source: Map.get(params, :source),
       statement_descriptor: Map.get(params, :statement_descriptor),
-      status: "requires_payment_method"
+      status: "requires_payment_method",
+      transfer_data: Map.get(params, :transfer_data)
     }
   end
 

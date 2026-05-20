@@ -727,11 +727,25 @@ PaperTiger provides comprehensive coverage of core Stripe resources with full CR
 
 **Payment Sources**: Cards, BankAccounts, Sources, Tokens
 
-**Platform & Connect**: Payouts, BalanceTransactions, ApplicationFees, Disputes
+**Platform & Connect**: Accounts, AccountLinks, Transfers, TransferReversals, ApplicationFees, ApplicationFeeRefunds, Payouts, BalanceTransactions, Disputes
 
 **Checkout & Events**: CheckoutSessions, WebhookEndpoints, Events, Reviews, Topups
 
 > **Note**: PaperTiger implements Stripe API v1 resources. Some v2-only resources (e.g., v2 billing features) are not yet supported. Check the [issues page](https://github.com/EnaiaInc/paper_tiger/issues) for planned additions or open a feature request.
+
+### Connect Semantics
+
+PaperTiger models legacy Stripe Connect `/v1/accounts` first because current server-side Stripe clients commonly use the v1 Account resource. Connected account request context follows Stripe's `Stripe-Account` header: when a request includes `Stripe-Account: acct_...`, ordinary resources are read and written in that connected account's isolated scope. Platform-owned resources such as Accounts and Application Fees stay in platform scope.
+
+Supported Connect surfaces:
+
+- `/v1/accounts` create/retrieve/update/delete/list
+- `/v1/account_links` create
+- `/v1/transfers` create/retrieve/update/list
+- `/v1/transfers/:id/reversals` create/retrieve/update/list
+- `/v1/application_fees/:id/refunds` create/retrieve/update/list
+
+Unsupported Connect surfaces are explicit: Accounts v2, Persons, external-account mutation, capability verification/review workflows, Treasury, and Issuing are not partially mocked.
 
 ## API Examples
 
@@ -1201,6 +1215,7 @@ Cursor-based pagination using `starting_after`, `ending_before`, and `limit`:
 
 - No persistent storage (in-memory only)
 - Webhook delivery is asynchronous but not distributed
+- Connect support is scoped to common platform tests. It does not implement Accounts v2, Persons, external-account mutation, Treasury, Issuing, or real capability review/onboarding state machines.
 - Some Stripe API edge cases may differ from production
 - Time-based features (trials, billing periods) require manual time control
 

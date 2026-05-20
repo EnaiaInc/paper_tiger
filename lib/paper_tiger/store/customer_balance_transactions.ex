@@ -13,7 +13,7 @@ defmodule PaperTiger.Store.CustomerBalanceTransactions do
   """
   @spec find_by_customer(String.t()) :: [map()]
   def find_by_customer(customer_id) when is_binary(customer_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     @table
     |> :ets.match_object({{namespace, :_}, :_})

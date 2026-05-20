@@ -217,7 +217,7 @@ defmodule PaperTiger.Resources.Invoice do
   """
   @spec search(Plug.Conn.t()) :: Plug.Conn.t()
   def search(conn) do
-    Invoices.list_namespace(PaperTiger.Test.current_namespace())
+    Invoices.list_namespace(PaperTiger.Connect.storage_namespace())
     |> Search.run(conn.params,
       fields: @search_fields,
       url: "/v1/invoices/search",

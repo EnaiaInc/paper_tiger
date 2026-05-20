@@ -5,6 +5,8 @@ defmodule PaperTiger.Application do
   use Application
 
   alias PaperTiger.Bootstrap
+  alias PaperTiger.Store.Accounts
+  alias PaperTiger.Store.ApplicationFeeRefunds
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -44,6 +46,8 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.TaxRates
   alias PaperTiger.Store.Tokens
   alias PaperTiger.Store.Topups
+  alias PaperTiger.Store.TransferReversals
+  alias PaperTiger.Store.Transfers
   alias PaperTiger.Store.WebhookDeliveries
   alias PaperTiger.Store.Webhooks
 
@@ -75,6 +79,7 @@ defmodule PaperTiger.Application do
         PaperTiger.WebhookDelivery,
 
         # Resource stores
+        Accounts,
         Customers,
         Subscriptions,
         Products,
@@ -106,6 +111,8 @@ defmodule PaperTiger.Application do
         Tokens,
         BalanceTransactions,
         Payouts,
+        Transfers,
+        TransferReversals,
         CheckoutSessions,
         BillingPortalConfigurations,
         BillingPortalSessions,
@@ -114,6 +121,7 @@ defmodule PaperTiger.Application do
         Webhooks,
         Disputes,
         ApplicationFees,
+        ApplicationFeeRefunds,
         Reviews,
         Topups,
         # Must be last so all Stores are up

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Invoice lifecycle endpoints for `POST /v1/invoices/:id/send`, `POST /v1/invoices/:id/mark_uncollectible`, and PaymentIntent-backed `POST /v1/invoices/:id/attach_payment`, including `invoice.sent`, `invoice.marked_uncollectible`, and `invoice.voided` webhook emission plus status-transition timestamps.
 - Hosted product APIs for Payment Links and Billing Portal: `POST/GET/POST/GET-list /v1/payment_links`, paginated `GET /v1/payment_links/:id/line_items`, browser-visible Payment Link URLs backed by deterministic Checkout Session completion, `POST /v1/billing_portal/sessions`, and Billing Portal Configuration create/retrieve/update/list endpoints.
 - Billing discount and credit APIs: Promotion Codes, Customer Balance Transactions, Customer Cash Balance, and Credit Notes with invoice/customer balance mutation for common credit workflows.
+- Properly scoped Connect platform APIs: legacy `/v1/accounts`, `POST /v1/account_links`, per-request `Stripe-Account` resource isolation, `POST/GET/POST/GET-list /v1/transfers`, nested transfer reversals, and nested application fee refunds with transfer/fee/reversal balance transaction effects.
 
 ### Fixed
 
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `:webhook_mode` config (`:sync` / `:async` / `:collect`) is unchanged and continues to control *when* delivery is dispatched. The new adapter controls *where/how* the signed request goes. The two are orthogonal.
 - `deliver_event_sync/2`'s public contract is unchanged (`{:ok, :delivered | :failed} | {:error, term()}`); adapter handoff does not leak a new return value.
+- Connect support intentionally targets Stripe API v1 compatibility first. Accounts v2, Persons, external-account mutation, capability review workflows, Treasury, and Issuing remain explicitly unsupported rather than partially mocked.
 
 ## [1.0.2] - 2026-02-28
 

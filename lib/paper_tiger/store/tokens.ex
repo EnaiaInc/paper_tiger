@@ -39,7 +39,7 @@ defmodule PaperTiger.Store.Tokens do
   """
   @spec get(String.t()) :: {:ok, map()} | {:error, :not_found}
   def get(id) when is_binary(id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, id}
 
     case :ets.lookup(@table, key) do

@@ -10,7 +10,7 @@ defmodule PaperTiger.ChargeHelper do
   import PaperTiger.Resource, only: [generate_id: 1]
 
   alias PaperTiger.BalanceTransactionHelper
-  alias PaperTiger.Store.{Charges, PaymentIntents}
+  alias PaperTiger.Store.{ApplicationFees, Charges, PaymentIntents}
 
   @doc """
   Creates a Charge (and its BalanceTransaction) for a succeeded PaymentIntent.
@@ -31,12 +31,16 @@ defmodule PaperTiger.ChargeHelper do
 
     {:ok, charge} =
       if captured? do
-        create_balance_transaction(charge, Map.get(charge, :amount, 0))
+        charge
+        |> create_balance_transaction(Map.get(charge, :amount, 0))
+        |> maybe_create_application_fee()
       else
         {:ok, charge}
       end
 
     # Update the PI with latest_charge
+    # The stored Charge keeps the authorization amount; the balance transaction
+    # records the amount actually captured in this operation.
     updated_pi = Map.put(payment_intent, :latest_charge, charge.id)
     PaymentIntents.update(updated_pi)
 
@@ -59,7 +63,9 @@ defmodule PaperTiger.ChargeHelper do
         |> Map.put(:captured, final_capture?)
         |> Map.put(:status, "succeeded")
 
-      create_balance_transaction(charge, amount_to_capture)
+      charge
+      |> create_balance_transaction(amount_to_capture)
+      |> maybe_create_application_fee()
     end
   end
 
@@ -72,12 +78,41 @@ defmodule PaperTiger.ChargeHelper do
   end
 
   defp create_balance_transaction(charge, amount) do
-    # The stored Charge keeps the authorization amount; the balance transaction
-    # records the amount actually captured in this operation.
     {:ok, txn_id} = charge |> Map.put(:amount, amount) |> BalanceTransactionHelper.create_for_charge()
 
     charge
     |> Map.put(:balance_transaction, txn_id)
+    |> Charges.update()
+  end
+
+  defp maybe_create_application_fee({:ok, charge}) do
+    amount = Map.get(charge, :application_fee_amount)
+
+    cond do
+      not is_integer(amount) or amount <= 0 ->
+        {:ok, charge}
+
+      is_binary(Map.get(charge, :application_fee)) ->
+        {:ok, charge}
+
+      true ->
+        create_application_fee(charge, amount)
+    end
+  end
+
+  defp create_application_fee(charge, amount) do
+    fee = build_application_fee(charge, amount)
+
+    {:ok, balance_transaction_id} = BalanceTransactionHelper.create_for_application_fee(fee)
+    fee = Map.put(fee, :balance_transaction, balance_transaction_id)
+
+    {:ok, _fee} =
+      PaperTiger.Connect.without_account(fn ->
+        ApplicationFees.insert(fee)
+      end)
+
+    charge
+    |> Map.put(:application_fee, fee.id)
     |> Charges.update()
   end
 
@@ -88,6 +123,8 @@ defmodule PaperTiger.ChargeHelper do
       amount: amount,
       amount_captured: if(captured?, do: amount, else: 0),
       amount_refunded: 0,
+      application_fee: nil,
+      application_fee_amount: Map.get(pi, :application_fee_amount),
       balance_transaction: nil,
       billing_details: nil,
       captured: captured?,
@@ -103,12 +140,8 @@ defmodule PaperTiger.ChargeHelper do
       livemode: false,
       metadata: Map.get(pi, :metadata, %{}),
       object: "charge",
-      outcome: %{
-        network_status: "approved_by_network",
-        reason: nil,
-        risk_level: "normal",
-        type: "authorized"
-      },
+      on_behalf_of: Map.get(pi, :on_behalf_of),
+      outcome: %{network_status: "approved_by_network", reason: nil, risk_level: "normal", type: "authorized"},
       paid: true,
       payment_intent: Map.get(pi, :id),
       payment_method: Map.get(pi, :payment_method),
@@ -117,7 +150,45 @@ defmodule PaperTiger.ChargeHelper do
       receipt_url: nil,
       refunded: false,
       statement_descriptor: Map.get(pi, :statement_descriptor),
-      status: "succeeded"
+      status: "succeeded",
+      transfer_data: Map.get(pi, :transfer_data)
     }
+  end
+
+  defp build_application_fee(charge, amount) do
+    %{
+      account: connected_account_for_fee(charge),
+      amount: amount,
+      amount_refunded: 0,
+      application: nil,
+      balance_transaction: nil,
+      charge: charge.id,
+      created: PaperTiger.now(),
+      currency: Map.get(charge, :currency),
+      id: generate_id("fee"),
+      livemode: false,
+      metadata: %{},
+      object: "application_fee",
+      originating_transaction: nil,
+      refunded: false,
+      refunds: %{
+        data: [],
+        has_more: false,
+        object: "list",
+        total_count: 0,
+        url: "/v1/application_fees/pending/refunds"
+      }
+    }
+    |> then(fn fee ->
+      put_in(fee, [:refunds, :url], "/v1/application_fees/#{fee.id}/refunds")
+    end)
+  end
+
+  defp connected_account_for_fee(charge) do
+    case Map.get(charge, :transfer_data) do
+      %{destination: destination} when is_binary(destination) -> destination
+      %{"destination" => destination} when is_binary(destination) -> destination
+      _ -> Map.get(charge, :on_behalf_of) || PaperTiger.Connect.current_account()
+    end
   end
 end

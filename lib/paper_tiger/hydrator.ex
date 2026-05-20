@@ -28,6 +28,8 @@ defmodule PaperTiger.Hydrator do
       hydrated = PaperTiger.Hydrator.hydrate(subscription, expand_params)
   """
 
+  alias PaperTiger.Store.Accounts
+  alias PaperTiger.Store.ApplicationFeeRefunds
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -66,12 +68,16 @@ defmodule PaperTiger.Hydrator do
   alias PaperTiger.Store.TaxRates
   alias PaperTiger.Store.Tokens
   alias PaperTiger.Store.Topups
+  alias PaperTiger.Store.TransferReversals
+  alias PaperTiger.Store.Transfers
   alias PaperTiger.Store.Webhooks
 
   require Logger
 
   @stores [
+    Accounts,
     ApplicationFees,
+    ApplicationFeeRefunds,
     BalanceTransactions,
     BankAccounts,
     BillingPortalConfigurations,
@@ -109,6 +115,8 @@ defmodule PaperTiger.Hydrator do
     TaxRates,
     Tokens,
     Topups,
+    Transfers,
+    TransferReversals,
     Webhooks
   ]
 

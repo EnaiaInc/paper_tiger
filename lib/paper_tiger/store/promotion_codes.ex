@@ -13,7 +13,7 @@ defmodule PaperTiger.Store.PromotionCodes do
   """
   @spec find_active_by_code(String.t()) :: [map()]
   def find_active_by_code(code) when is_binary(code) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
     normalized_code = String.downcase(code)
 
     @table

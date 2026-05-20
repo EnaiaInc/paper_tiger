@@ -42,7 +42,7 @@ defmodule PaperTiger.Store.PaymentMethods do
   """
   @spec get(String.t()) :: {:ok, map()} | {:error, :not_found}
   def get(id) when is_binary(id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, id}
 
     case :ets.lookup(@table, key) do
@@ -76,7 +76,7 @@ defmodule PaperTiger.Store.PaymentMethods do
   def find_by_customer(nil), do: []
 
   def find_by_customer(customer_id) when is_binary(customer_id) do
-    namespace = PaperTiger.Test.current_namespace()
+    namespace = PaperTiger.Connect.storage_namespace()
 
     :ets.match_object(@table, {{namespace, :_}, %{customer: customer_id}})
     |> Enum.map(fn {_key, payment_method} -> payment_method end)
