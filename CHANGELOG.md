@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hosted product APIs for Payment Links and Billing Portal: `POST/GET/POST/GET-list /v1/payment_links`, paginated `GET /v1/payment_links/:id/line_items`, browser-visible Payment Link URLs backed by deterministic Checkout Session completion, `POST /v1/billing_portal/sessions`, and Billing Portal Configuration create/retrieve/update/list endpoints.
 - Billing discount and credit APIs: Promotion Codes, Customer Balance Transactions, Customer Cash Balance, and Credit Notes with invoice/customer balance mutation for common credit workflows.
 - Properly scoped Connect platform APIs: legacy `/v1/accounts`, `POST /v1/account_links`, per-request `Stripe-Account` resource isolation, `POST/GET/POST/GET-list /v1/transfers`, nested transfer reversals, and nested application fee refunds with transfer/fee/reversal balance transaction effects.
+- Complete Stripe-style list filtering for Products, Prices, and Refunds, including created-range predicates, documented scalar filters, array filters (`ids[]`, `lookup_keys[]`), Price recurring child filters, list-item expansion such as `expand[]=data.product`, and Refund filtering by Charge or PaymentIntent before cursor pagination.
 
 ### Fixed
 

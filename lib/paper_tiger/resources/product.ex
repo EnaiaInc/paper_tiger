@@ -26,6 +26,7 @@ defmodule PaperTiger.Resources.Product do
 
   import PaperTiger.Resource
 
+  alias PaperTiger.ListFilters
   alias PaperTiger.Store.Products
 
   @doc """
@@ -143,9 +144,26 @@ defmodule PaperTiger.Resources.Product do
   def list(conn) do
     pagination_opts = parse_pagination_params(conn.params)
 
-    result = Products.list(pagination_opts)
+    with :ok <- ListFilters.reject_combination(conn.params, :ids, [:starting_after, :ending_before]),
+         {:ok, products} <-
+           Products.list_namespace(PaperTiger.Connect.storage_namespace())
+           |> ListFilters.apply(conn.params, [
+             {:boolean, :active},
+             {:created, :created},
+             {:string_in, :ids, :id, []},
+             {:boolean, :shippable},
+             {:string, :url}
+           ]) do
+      result =
+        products
+        |> PaperTiger.List.paginate(Map.put(pagination_opts, :url, "/v1/products"))
+        |> ListFilters.expand_page(conn.params)
 
-    json_response(conn, 200, result)
+      json_response(conn, 200, result)
+    else
+      {:error, error} ->
+        error_response(conn, error)
+    end
   end
 
   ## Private Functions
@@ -153,26 +171,32 @@ defmodule PaperTiger.Resources.Product do
   defp build_product(params) do
     # Additional fields
     %{
-      active: Map.get(params, :active, true),
+      active: to_boolean(Map.get(params, :active, true)),
       attributes: Map.get(params, :attributes, []),
       caption: Map.get(params, :caption),
       created: PaperTiger.now(),
+      default_price: Map.get(params, :default_price),
       description: Map.get(params, :description),
       id: generate_id("prod", Map.get(params, :id)),
       images: Map.get(params, :images, []),
       livemode: false,
+      marketing_features: Map.get(params, :marketing_features, []),
       metadata: Map.get(params, :metadata, %{}),
       name: Map.get(params, :name),
       object: "product",
       package_dimensions: Map.get(params, :package_dimensions),
-      shippable: Map.get(params, :shippable),
+      shippable: maybe_boolean(Map.get(params, :shippable)),
       statement_descriptor: Map.get(params, :statement_descriptor),
+      tax_code: Map.get(params, :tax_code),
       type: "service",
       unit_label: Map.get(params, :unit_label),
       updated: PaperTiger.now(),
       url: Map.get(params, :url)
     }
   end
+
+  defp maybe_boolean(nil), do: nil
+  defp maybe_boolean(value), do: to_boolean(value)
 
   defp maybe_expand(product, params) do
     expand_params = parse_expand_params(params)

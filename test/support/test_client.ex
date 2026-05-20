@@ -384,6 +384,19 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  @doc """
+  Lists products.
+  """
+  def list_products(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_products_real(params)
+
+      :paper_tiger ->
+        list_products_mock(params)
+    end
+  end
+
   ## Price Operations
 
   @doc """
@@ -409,6 +422,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         get_price_mock(price_id)
+    end
+  end
+
+  @doc """
+  Lists prices.
+  """
+  def list_prices(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_prices_real(params)
+
+      :paper_tiger ->
+        list_prices_mock(params)
     end
   end
 
@@ -945,6 +971,19 @@ defmodule PaperTiger.TestClient do
 
       :paper_tiger ->
         get_refund_mock(refund_id)
+    end
+  end
+
+  @doc """
+  Lists refunds.
+  """
+  def list_refunds(params \\ %{}) do
+    case mode() do
+      :real_stripe ->
+        list_refunds_real(params)
+
+      :paper_tiger ->
+        list_refunds_mock(params)
     end
   end
 
@@ -1560,7 +1599,7 @@ defmodule PaperTiger.TestClient do
   end
 
   defp stripe_request(method, path, params \\ %{}) do
-    url = "https://api.stripe.com#{path}"
+    url = stripe_request_url(method, path, params)
 
     headers = [
       {"authorization", "Bearer #{System.get_env("STRIPE_API_KEY")}"},
@@ -1570,16 +1609,10 @@ defmodule PaperTiger.TestClient do
     req_opts =
       case method do
         :get ->
-          [
-            headers: headers,
-            params: params
-          ]
+          [headers: headers]
 
         :delete ->
-          [
-            headers: headers,
-            params: params
-          ]
+          [headers: headers]
 
         :post ->
           [
@@ -1605,6 +1638,18 @@ defmodule PaperTiger.TestClient do
          }}
     end
   end
+
+  defp stripe_request_url(method, path, params) when method in [:get, :delete] do
+    url = "https://api.stripe.com#{path}"
+
+    if params && map_size(params) > 0 do
+      "#{url}?#{params_to_form_data(params)}"
+    else
+      url
+    end
+  end
+
+  defp stripe_request_url(_method, path, _params), do: "https://api.stripe.com#{path}"
 
   defp create_customer_real(params) do
     stripe_request(:post, "/v1/customers", params)
@@ -1813,6 +1858,10 @@ defmodule PaperTiger.TestClient do
     end
   end
 
+  defp list_products_real(params) do
+    stripe_request(:get, "/v1/products", params)
+  end
+
   defp create_price_real(params) do
     case Stripe.Price.create(normalize_params(params), stripe_opts()) do
       {:ok, price} -> {:ok, stripe_to_map(price)}
@@ -1825,6 +1874,10 @@ defmodule PaperTiger.TestClient do
       {:ok, price} -> {:ok, stripe_to_map(price)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
+  end
+
+  defp list_prices_real(params) do
+    stripe_request(:get, "/v1/prices", params)
   end
 
   defp create_charge_real(params) do
@@ -1906,6 +1959,10 @@ defmodule PaperTiger.TestClient do
       {:ok, refund} -> {:ok, stripe_to_map(refund)}
       {:error, error} -> {:error, stripe_error_to_map(error)}
     end
+  end
+
+  defp list_refunds_real(params) do
+    stripe_request(:get, "/v1/refunds", params)
   end
 
   defp create_checkout_session_real(params) do
@@ -2276,6 +2333,11 @@ defmodule PaperTiger.TestClient do
     handle_response(conn)
   end
 
+  defp list_products_mock(params) do
+    conn = request(:get, "/v1/products", params)
+    handle_response(conn)
+  end
+
   defp create_price_mock(params) do
     conn = request(:post, "/v1/prices", params)
     handle_response(conn)
@@ -2283,6 +2345,11 @@ defmodule PaperTiger.TestClient do
 
   defp get_price_mock(price_id) do
     conn = request(:get, "/v1/prices/#{price_id}", %{})
+    handle_response(conn)
+  end
+
+  defp list_prices_mock(params) do
+    conn = request(:get, "/v1/prices", params)
     handle_response(conn)
   end
 
@@ -2373,6 +2440,11 @@ defmodule PaperTiger.TestClient do
 
   defp get_refund_mock(refund_id) do
     conn = request(:get, "/v1/refunds/#{refund_id}", %{})
+    handle_response(conn)
+  end
+
+  defp list_refunds_mock(params) do
+    conn = request(:get, "/v1/refunds", params)
     handle_response(conn)
   end
 

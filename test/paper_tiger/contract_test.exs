@@ -741,6 +741,101 @@ defmodule PaperTiger.ContractTest do
     end
   end
 
+  describe "Product and Price List Filter Validation" do
+    @tag :contract
+    test "lists products with documented filters" do
+      suffix = unique_suffix()
+      url = "https://example.com/paper-tiger-product-filter-#{suffix}"
+
+      {:ok, target} =
+        TestClient.create_product(%{
+          "name" => "PT Product Filter Target #{suffix}",
+          "shippable" => true,
+          "url" => url
+        })
+
+      {:ok, inactive} =
+        TestClient.create_product(%{
+          "active" => false,
+          "name" => "PT Product Filter Inactive #{suffix}",
+          "shippable" => false
+        })
+
+      {:ok, active_list} =
+        TestClient.list_products(%{
+          "active" => true,
+          "ids" => [target["id"], inactive["id"]],
+          "limit" => 10
+        })
+
+      assert active_list["object"] == "list"
+      assert Enum.map(active_list["data"], & &1["id"]) == [target["id"]]
+
+      {:ok, url_list} = TestClient.list_products(%{"limit" => 10, "url" => url})
+
+      assert Enum.map(url_list["data"], & &1["id"]) == [target["id"]]
+    end
+
+    @tag :contract
+    test "lists prices with documented filters and product expansion" do
+      suffix = unique_suffix()
+      lookup_key = "pt_filter_#{suffix}"
+
+      {:ok, product} = TestClient.create_product(%{"name" => "PT Price Filter Product #{suffix}"})
+
+      {:ok, target} =
+        TestClient.create_price(%{
+          "currency" => "usd",
+          "lookup_key" => lookup_key,
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month", "usage_type" => "licensed"},
+          "unit_amount" => 1_200
+        })
+
+      {:ok, inactive_once} =
+        TestClient.create_price(%{
+          "active" => false,
+          "currency" => "eur",
+          "product" => product["id"],
+          "unit_amount" => 500
+        })
+
+      {:ok, recurring_list} =
+        TestClient.list_prices(%{
+          "active" => true,
+          "currency" => "usd",
+          "limit" => 10,
+          "lookup_keys" => [lookup_key],
+          "product" => product["id"],
+          "recurring" => %{"interval" => "month", "usage_type" => "licensed"},
+          "type" => "recurring"
+        })
+
+      assert Enum.map(recurring_list["data"], & &1["id"]) == [target["id"]]
+
+      {:ok, inactive_list} =
+        TestClient.list_prices(%{
+          "active" => false,
+          "limit" => 10,
+          "product" => product["id"],
+          "type" => "one_time"
+        })
+
+      assert Enum.map(inactive_list["data"], & &1["id"]) == [inactive_once["id"]]
+
+      {:ok, expanded_list} =
+        TestClient.list_prices(%{
+          "expand" => ["data.product"],
+          "limit" => 10,
+          "product" => product["id"]
+        })
+
+      expanded_target = Enum.find(expanded_list["data"], &(&1["id"] == target["id"]))
+      assert expanded_target["product"]["id"] == product["id"]
+      assert expanded_target["product"]["object"] == "product"
+    end
+  end
+
   describe "PaymentIntent Structure Validation" do
     @tag :contract
     test "creates payment intent with required fields" do
@@ -875,6 +970,24 @@ defmodule PaperTiger.ContractTest do
 
       assert refund["object"] == "refund"
       assert refund["charge"] == charge["id"]
+      assert refund["amount"] == charge["amount"]
+    end
+
+    @tag :contract
+    test "lists refunds filtered by charge" do
+      charge_params = %{
+        "amount" => 2400,
+        "currency" => "usd",
+        "source" => "tok_visa"
+      }
+
+      {:ok, charge} = TestClient.create_charge(charge_params)
+      {:ok, refund} = TestClient.create_refund(%{"amount" => 600, "charge" => charge["id"]})
+
+      {:ok, refunds} = TestClient.list_refunds(%{"charge" => charge["id"], "limit" => 10})
+
+      assert refunds["object"] == "list"
+      assert Enum.map(refunds["data"], & &1["id"]) == [refund["id"]]
     end
   end
 
@@ -1885,6 +1998,10 @@ defmodule PaperTiger.ContractTest do
     # Products can't be deleted in Stripe if they have prices
     # Just leave them - they're in test mode anyway
     :ok
+  end
+
+  defp unique_suffix do
+    "#{System.system_time(:nanosecond)}_#{System.unique_integer([:positive])}"
   end
 
   defp eventually_search_customer(query, customer_id) do
