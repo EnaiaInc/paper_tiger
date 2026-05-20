@@ -1290,6 +1290,96 @@ defmodule PaperTiger.ContractTest do
     end
 
     @tag :contract
+    test "sends a finalized send_invoice invoice" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "send-invoice@example.com"})
+
+      if TestClient.real_stripe?() do
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 1500,
+            "currency" => "usd",
+            "customer" => customer["id"]
+          })
+      end
+
+      {:ok, invoice} =
+        TestClient.create_invoice(%{
+          "auto_advance" => false,
+          "collection_method" => "send_invoice",
+          "customer" => customer["id"],
+          "days_until_due" => 30
+        })
+
+      if !TestClient.real_stripe?() do
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 1500,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+      end
+
+      {:ok, finalized} = TestClient.finalize_invoice(invoice["id"])
+      assert finalized["status"] == "open"
+
+      {:ok, sent} = TestClient.send_invoice(invoice["id"])
+
+      assert sent["id"] == invoice["id"]
+      assert sent["status"] == "open"
+      assert sent["collection_method"] == "send_invoice"
+      assert is_binary(sent["hosted_invoice_url"])
+      assert is_binary(sent["invoice_pdf"])
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
+    test "marks a finalized invoice uncollectible" do
+      {:ok, customer} = TestClient.create_customer(%{"email" => "mark-uncollectible@example.com"})
+
+      if TestClient.real_stripe?() do
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 2200,
+            "currency" => "usd",
+            "customer" => customer["id"]
+          })
+      end
+
+      {:ok, invoice} =
+        TestClient.create_invoice(%{
+          "auto_advance" => false,
+          "collection_method" => "send_invoice",
+          "customer" => customer["id"],
+          "days_until_due" => 30
+        })
+
+      if !TestClient.real_stripe?() do
+        {:ok, _item} =
+          TestClient.create_invoice_item(%{
+            "amount" => 2200,
+            "currency" => "usd",
+            "customer" => customer["id"],
+            "invoice" => invoice["id"]
+          })
+      end
+
+      {:ok, finalized} = TestClient.finalize_invoice(invoice["id"])
+      assert finalized["status"] == "open"
+
+      {:ok, uncollectible} = TestClient.mark_invoice_uncollectible(invoice["id"])
+
+      assert uncollectible["id"] == invoice["id"]
+      assert uncollectible["status"] == "uncollectible"
+      assert uncollectible["amount_remaining"] == uncollectible["amount_due"]
+
+      cleanup_invoice(invoice["id"])
+      cleanup_customer(customer["id"])
+    end
+
+    @tag :contract
     @tag :skip_real_stripe
     test "pays a finalized invoice" do
       # Skip for real Stripe - paying requires a valid payment method attached

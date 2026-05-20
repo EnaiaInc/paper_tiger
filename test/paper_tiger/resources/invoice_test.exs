@@ -538,6 +538,21 @@ defmodule PaperTiger.Resources.InvoiceTest do
       invoice = json_response(conn)
       assert invoice["description"] == "Service invoice"
     end
+
+    test "sets finalization timestamp and hosted invoice artifacts" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"customer" => customer_id})
+      invoice_id = json_response(create_conn)["id"]
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert is_integer(invoice["status_transitions"]["finalized_at"])
+      assert String.contains?(invoice["hosted_invoice_url"], invoice_id)
+      assert String.contains?(invoice["invoice_pdf"], invoice_id)
+    end
   end
 
   describe "POST /v1/invoices/:id/pay - Pay invoice" do
@@ -610,6 +625,23 @@ defmodule PaperTiger.Resources.InvoiceTest do
       assert invoice["amount_remaining"] == 0
     end
 
+    test "sets paid timestamp" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"amount_due" => 2500, "customer" => customer_id, "total" => 2500})
+      invoice_id = json_response(create_conn)["id"]
+
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/pay", %{})
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert is_integer(invoice["status_transitions"]["paid_at"])
+      assert invoice["amount_paid"] == 2500
+      assert invoice["amount_remaining"] == 0
+    end
+
     test "cannot pay draft invoice" do
       customer_id = create_customer()
 
@@ -657,6 +689,164 @@ defmodule PaperTiger.Resources.InvoiceTest do
     end
   end
 
+  describe "POST /v1/invoices/:id/send - Send invoice" do
+    test "sends an open send_invoice invoice without changing status" do
+      customer_id = create_customer()
+
+      create_conn =
+        request(:post, "/v1/invoices", %{
+          "collection_method" => "send_invoice",
+          "customer" => customer_id,
+          "days_until_due" => 30,
+          "total" => 1800
+        })
+
+      invoice_id = json_response(create_conn)["id"]
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/send", %{})
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["id"] == invoice_id
+      assert invoice["status"] == "open"
+      assert invoice["collection_method"] == "send_invoice"
+      assert invoice["attempted"] == true
+      assert String.contains?(invoice["hosted_invoice_url"], invoice_id)
+      assert String.contains?(invoice["invoice_pdf"], invoice_id)
+      assert is_integer(invoice["webhooks_delivered_at"])
+    end
+
+    test "returns an error for draft invoice" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"customer" => customer_id})
+      invoice_id = json_response(create_conn)["id"]
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/send", %{})
+
+      assert conn.status != 200
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+      assert response["error"]["param"] == "status"
+    end
+  end
+
+  describe "POST /v1/invoices/:id/mark_uncollectible - Mark uncollectible" do
+    test "marks an open invoice uncollectible and timestamps the transition" do
+      customer_id = create_customer()
+
+      create_conn =
+        request(:post, "/v1/invoices", %{
+          "amount_due" => 4200,
+          "customer" => customer_id,
+          "total" => 4200
+        })
+
+      invoice_id = json_response(create_conn)["id"]
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/mark_uncollectible", %{})
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["status"] == "uncollectible"
+      assert invoice["paid"] == false
+      assert invoice["amount_remaining"] == 4200
+      assert is_integer(invoice["status_transitions"]["marked_uncollectible_at"])
+      assert is_integer(invoice["webhooks_delivered_at"])
+    end
+
+    test "returns an error for draft invoice" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"customer" => customer_id})
+      invoice_id = json_response(create_conn)["id"]
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/mark_uncollectible", %{})
+
+      assert conn.status != 200
+      response = json_response(conn)
+      assert response["error"]["type"] == "invalid_request_error"
+      assert response["error"]["param"] == "status"
+    end
+  end
+
+  describe "POST /v1/invoices/:id/attach_payment - Attach payment" do
+    test "attaches a succeeded payment intent and pays the invoice" do
+      customer_id = create_customer()
+
+      create_invoice_conn =
+        request(:post, "/v1/invoices", %{
+          "amount_due" => 2000,
+          "customer" => customer_id,
+          "total" => 2000
+        })
+
+      invoice_id = json_response(create_invoice_conn)["id"]
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      create_pi_conn =
+        request(:post, "/v1/payment_intents", %{
+          "amount" => 2000,
+          "currency" => "usd",
+          "customer" => customer_id,
+          "payment_method" => "pm_card_visa"
+        })
+
+      payment_intent_id = json_response(create_pi_conn)["id"]
+      confirm_conn = request(:post, "/v1/payment_intents/#{payment_intent_id}/confirm", %{})
+      assert json_response(confirm_conn)["status"] == "succeeded"
+
+      conn =
+        request(:post, "/v1/invoices/#{invoice_id}/attach_payment", %{
+          "payment_intent" => payment_intent_id
+        })
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["payment_intent"] == payment_intent_id
+      assert invoice["status"] == "paid"
+      assert invoice["amount_paid"] == 2000
+      assert invoice["amount_remaining"] == 0
+      assert [payment] = invoice["payments"]["data"]
+      assert payment["object"] == "invoice_payment"
+      assert payment["payment"]["type"] == "payment_intent"
+      assert payment["payment"]["payment_intent"] == payment_intent_id
+      assert payment["status"] == "paid"
+    end
+
+    test "requires exactly one payment reference" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"customer" => customer_id})
+      invoice_id = json_response(create_conn)["id"]
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      missing_conn = request(:post, "/v1/invoices/#{invoice_id}/attach_payment", %{})
+
+      assert missing_conn.status != 200
+      assert json_response(missing_conn)["error"]["param"] == "payment_intent"
+
+      both_conn =
+        request(:post, "/v1/invoices/#{invoice_id}/attach_payment", %{
+          "payment_intent" => "pi_test",
+          "payment_record" => "inpay_test"
+        })
+
+      assert both_conn.status != 200
+      assert json_response(both_conn)["error"]["type"] == "invalid_request_error"
+
+      payment_record_conn =
+        request(:post, "/v1/invoices/#{invoice_id}/attach_payment", %{
+          "payment_record" => "inpay_test"
+        })
+
+      assert payment_record_conn.status != 200
+      assert json_response(payment_record_conn)["error"]["param"] == "payment_record"
+    end
+  end
+
   describe "POST /v1/invoices/:id/void - Void invoice" do
     test "voids an open invoice" do
       customer_id = create_customer()
@@ -689,6 +879,23 @@ defmodule PaperTiger.Resources.InvoiceTest do
 
       assert void_conn.status == 200
       assert json_response(void_conn)["status"] == "void"
+    end
+
+    test "sets voided timestamp" do
+      customer_id = create_customer()
+
+      create_conn = request(:post, "/v1/invoices", %{"customer" => customer_id})
+      invoice_id = json_response(create_conn)["id"]
+
+      request(:post, "/v1/invoices/#{invoice_id}/finalize", %{})
+
+      conn = request(:post, "/v1/invoices/#{invoice_id}/void", %{})
+
+      assert conn.status == 200
+      invoice = json_response(conn)
+      assert invoice["status"] == "void"
+      assert is_integer(invoice["status_transitions"]["voided_at"])
+      assert is_integer(invoice["webhooks_delivered_at"])
     end
 
     test "can void a draft invoice" do

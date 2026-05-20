@@ -1083,6 +1083,45 @@ defmodule PaperTiger.TestClient do
   end
 
   @doc """
+  Sends an invoice to the customer.
+  """
+  def send_invoice(invoice_id) do
+    case mode() do
+      :real_stripe ->
+        send_invoice_real(invoice_id)
+
+      :paper_tiger ->
+        send_invoice_mock(invoice_id)
+    end
+  end
+
+  @doc """
+  Marks an invoice as uncollectible.
+  """
+  def mark_invoice_uncollectible(invoice_id) do
+    case mode() do
+      :real_stripe ->
+        mark_invoice_uncollectible_real(invoice_id)
+
+      :paper_tiger ->
+        mark_invoice_uncollectible_mock(invoice_id)
+    end
+  end
+
+  @doc """
+  Attaches a payment to an invoice.
+  """
+  def attach_invoice_payment(invoice_id, params) do
+    case mode() do
+      :real_stripe ->
+        attach_invoice_payment_real(invoice_id, params)
+
+      :paper_tiger ->
+        attach_invoice_payment_mock(invoice_id, params)
+    end
+  end
+
+  @doc """
   Lists invoices with optional filters.
 
   Supports:
@@ -1339,48 +1378,39 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_invoice_real(params) do
-    case Stripe.Invoice.create(normalize_params(params), stripe_opts()) do
-      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/invoices", params)
   end
 
   defp get_invoice_real(invoice_id) do
-    case Stripe.Invoice.retrieve(invoice_id, %{}, stripe_opts()) do
-      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/invoices/#{invoice_id}")
   end
 
   defp update_invoice_real(invoice_id, params) do
-    case Stripe.Invoice.update(invoice_id, normalize_params(params), stripe_opts()) do
-      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/invoices/#{invoice_id}", params)
   end
 
   defp finalize_invoice_real(invoice_id) do
-    case Stripe.Invoice.finalize_invoice(invoice_id, %{}, stripe_opts()) do
-      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/invoices/#{invoice_id}/finalize")
   end
 
   defp pay_invoice_real(invoice_id) do
-    case Stripe.Invoice.pay(invoice_id, %{}, stripe_opts()) do
-      {:ok, invoice} -> {:ok, stripe_to_map(invoice)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/invoices/#{invoice_id}/pay")
+  end
+
+  defp send_invoice_real(invoice_id) do
+    stripe_request(:post, "/v1/invoices/#{invoice_id}/send")
+  end
+
+  defp mark_invoice_uncollectible_real(invoice_id) do
+    stripe_request(:post, "/v1/invoices/#{invoice_id}/mark_uncollectible")
+  end
+
+  defp attach_invoice_payment_real(invoice_id, params) do
+    stripe_request(:post, "/v1/invoices/#{invoice_id}/attach_payment", params)
   end
 
   defp list_invoices_real(params) do
-    case Stripe.Invoice.list(normalize_params(params), stripe_opts()) do
-      {:ok, %{data: invoices, has_more: has_more}} ->
-        {:ok, %{"data" => Enum.map(invoices, &stripe_to_map/1), "has_more" => has_more, "object" => "list"}}
-
-      {:error, error} ->
-        {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/invoices", params)
   end
 
   defp search_invoices_real(params) do
@@ -1388,17 +1418,11 @@ defmodule PaperTiger.TestClient do
   end
 
   defp create_invoice_item_real(params) do
-    case Stripe.Invoiceitem.create(normalize_params(params), stripe_opts()) do
-      {:ok, item} -> {:ok, stripe_to_map(item)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:post, "/v1/invoiceitems", params)
   end
 
   defp get_invoice_item_real(invoice_item_id) do
-    case Stripe.Invoiceitem.retrieve(invoice_item_id, %{}, stripe_opts()) do
-      {:ok, item} -> {:ok, stripe_to_map(item)}
-      {:error, error} -> {:error, stripe_error_to_map(error)}
-    end
+    stripe_request(:get, "/v1/invoiceitems/#{invoice_item_id}")
   end
 
   defp create_product_real(params) do
@@ -1694,6 +1718,21 @@ defmodule PaperTiger.TestClient do
 
   defp pay_invoice_mock(invoice_id) do
     conn = request(:post, "/v1/invoices/#{invoice_id}/pay", %{})
+    handle_response(conn)
+  end
+
+  defp send_invoice_mock(invoice_id) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}/send", %{})
+    handle_response(conn)
+  end
+
+  defp mark_invoice_uncollectible_mock(invoice_id) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}/mark_uncollectible", %{})
+    handle_response(conn)
+  end
+
+  defp attach_invoice_payment_mock(invoice_id, params) do
+    conn = request(:post, "/v1/invoices/#{invoice_id}/attach_payment", params)
     handle_response(conn)
   end
 
