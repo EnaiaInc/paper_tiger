@@ -193,6 +193,11 @@ defmodule PaperTiger.ListFilters do
   defp parse_boolean(false, _param), do: {:ok, false}
   defp parse_boolean("true", _param), do: {:ok, true}
   defp parse_boolean("false", _param), do: {:ok, false}
+  # Python's `str(True)` / `str(False)` produces capitalized strings, and
+  # the urlencoder ships them as-is. Real Stripe accepts these because the
+  # official Python SDK is one of its primary clients.
+  defp parse_boolean("True", _param), do: {:ok, true}
+  defp parse_boolean("False", _param), do: {:ok, false}
   defp parse_boolean(_value, param), do: invalid("Invalid boolean value", param)
 
   defp boolean_match?(value, expected) do

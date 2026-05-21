@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional Python SDK contract suite that drives the official `stripe` Python package against PaperTiger over local HTTP, tagged `:python_sdk` and enabled with `VALIDATE_PYTHON_SDK=true`.
+
+### Fixed
+
+- Stripe list filters and CustomerSession component parsing now accept Python SDK boolean serialization (`True` / `False`) in addition to lowercase boolean strings.
+- PaymentIntent creation with a `payment_method` now enters `requires_confirmation`, matching Stripe's pre-confirmation state.
+- Predefined `pm_card_*` test PaymentMethods now materialize fresh attachable PaymentMethod objects in attach/setup flows, so the same test fixture can be reused across customers without rebinding a singleton.
+
 ## [1.1.0] - 2026-05-20
 
 ### Added

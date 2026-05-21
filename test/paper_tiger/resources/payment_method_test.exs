@@ -679,9 +679,8 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert pm["customer"] == customer_id
     end
 
-    test "updates payment_method.customer field on attach" do
+    test "reattaching an already-attached payment method to the same customer is idempotent" do
       customer1_id = create_customer("customer1@example.com")
-      customer2_id = create_customer("customer2@example.com")
 
       create_conn = request(:post, "/v1/payment_methods", %{"type" => "card"})
       pm_id = json_response(create_conn)["id"]
@@ -695,18 +694,18 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert attach1_conn.status == 200
       assert json_response(attach1_conn)["customer"] == customer1_id
 
-      # Reattach to second customer
+      # Reattach to the same customer
       attach2_conn =
         request(:post, "/v1/payment_methods/#{pm_id}/attach", %{
-          "customer" => customer2_id
+          "customer" => customer1_id
         })
 
       assert attach2_conn.status == 200
-      assert json_response(attach2_conn)["customer"] == customer2_id
+      assert json_response(attach2_conn)["customer"] == customer1_id
 
       # Verify the change persists
       get_conn = request(:get, "/v1/payment_methods/#{pm_id}")
-      assert json_response(get_conn)["customer"] == customer2_id
+      assert json_response(get_conn)["customer"] == customer1_id
     end
 
     test "attach requires customer parameter" do
@@ -782,7 +781,7 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
       assert pm["billing_details"]["name"] == "Original Name"
     end
 
-    test "can attach already-attached payment method to different customer" do
+    test "cannot attach already-attached payment method to a different customer" do
       customer1_id = create_customer("customer1@example.com")
       customer2_id = create_customer("customer2@example.com")
 
@@ -794,15 +793,47 @@ defmodule PaperTiger.Resources.PaymentMethodTest do
         "customer" => customer1_id
       })
 
-      # Attach to different customer (reassign)
       conn =
         request(:post, "/v1/payment_methods/#{pm_id}/attach", %{
           "customer" => customer2_id
         })
 
-      assert conn.status == 200
-      pm = json_response(conn)
-      assert pm["customer"] == customer2_id
+      assert conn.status == 400
+      error = json_response(conn)["error"]
+      assert error["type"] == "invalid_request_error"
+      assert error["param"] == "payment_method"
+      assert error["message"] =~ "already attached"
+    end
+
+    test "predefined pm_card tokens materialize fresh payment methods on attach" do
+      customer1_id = create_customer("token1@example.com")
+      customer2_id = create_customer("token2@example.com")
+
+      pm1 =
+        request(:post, "/v1/payment_methods/pm_card_visa/attach", %{
+          "customer" => customer1_id
+        })
+        |> json_response()
+
+      pm2 =
+        request(:post, "/v1/payment_methods/pm_card_visa/attach", %{
+          "customer" => customer2_id
+        })
+        |> json_response()
+
+      assert pm1["id"] != "pm_card_visa"
+      assert pm2["id"] != "pm_card_visa"
+      assert pm1["id"] != pm2["id"]
+      assert pm1["customer"] == customer1_id
+      assert pm2["customer"] == customer2_id
+      assert pm1["card"]["last4"] == "4242"
+      assert pm2["card"]["last4"] == "4242"
+
+      customer1_methods =
+        request(:get, "/v1/payment_methods", %{"customer" => customer1_id})
+        |> json_response()
+
+      assert Enum.map(customer1_methods["data"], & &1["id"]) == [pm1["id"]]
     end
   end
 

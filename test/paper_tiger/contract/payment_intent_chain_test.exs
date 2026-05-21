@@ -37,7 +37,7 @@ defmodule PaperTiger.Contract.PaymentIntentChainTest do
 
       {:ok, pi} = TestClient.create_payment_intent(pi_params)
 
-      assert pi["status"] in ["requires_confirmation", "requires_payment_method"]
+      assert pi["status"] == "requires_confirmation"
 
       # Confirm PI
       {:ok, confirmed} =

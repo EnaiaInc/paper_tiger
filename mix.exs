@@ -78,16 +78,26 @@ defmodule PaperTiger.MixProject do
       # Testing/dev
       {:bypass, "~> 2.1", only: :test},
       {:mox, "~> 1.2", only: :test},
-      {:stripity_stripe, "~> 3.3", only: :test},
+      {:stripity_stripe, "~> 3.3", only: :test}
+    ] ++
+      python_sdk_contract_deps() ++
+      [
+        # Quality tooling
+        {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+        {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+        {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+        {:quokka, "~> 2.7", only: [:dev, :test], runtime: false},
+        {:mix_test_watch, "~> 1.2", only: :dev, runtime: false},
+        {:excoveralls, "~> 0.18", only: :test}
+      ]
+  end
 
-      # Quality tooling
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:quokka, "~> 2.7", only: [:dev, :test], runtime: false},
-      {:mix_test_watch, "~> 1.2", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.18", only: :test}
-    ]
+  defp python_sdk_contract_deps do
+    if System.get_env("VALIDATE_PYTHON_SDK") == "true" do
+      [{:erlang_python, "~> 3.0", only: :test, runtime: false}]
+    else
+      []
+    end
   end
 
   defp package do

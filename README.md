@@ -668,6 +668,24 @@ mix test test/paper_tiger/contract_drift_test.exs
 
 Drift tests are tagged `:stripe_live` and excluded by default, so the regular suite stays offline. When a mismatch appears, the failure includes the scenario name, first mismatched path, Stripe expected value, PaperTiger actual value, and both normalized response shapes. Add new drift scenarios for endpoint work when behavior must stay aligned over time, especially lifecycle transitions, error objects, expansion shapes, and related webhook/event side effects.
 
+### Python SDK Contract Validation
+
+PaperTiger also has an optional contract suite that drives the official Python
+`stripe` SDK against PaperTiger over real local HTTP. This catches wire-level
+compatibility issues that an Elixir client can hide, such as SDK-specific form
+encoding and boolean serialization.
+
+The suite is tagged `:python_sdk` and excluded by default. It uses
+`erlang_python`, creates a cached virtualenv at `_build/test/python_sdk_venv`,
+and requires Python 3.12+ plus a working CMake/C toolchain.
+
+Run it with:
+
+```bash
+VALIDATE_PYTHON_SDK=true mix deps.get
+VALIDATE_PYTHON_SDK=true mix test test/paper_tiger/contract/python_sdk_test.exs
+```
+
 ### Writing Contract Tests
 
 ```elixir
@@ -1149,6 +1167,10 @@ STRIPE_API_KEY=sk_test_xxx VALIDATE_AGAINST_STRIPE=true \
 # Side-by-side contract drift tests (Stripe validation mode)
 STRIPE_API_KEY=sk_test_xxx VALIDATE_CONTRACT_DRIFT=true \
   mix test test/paper_tiger/contract_drift_test.exs
+
+# Python SDK contract tests (local PaperTiger mode)
+VALIDATE_PYTHON_SDK=true mix deps.get
+VALIDATE_PYTHON_SDK=true mix test test/paper_tiger/contract/python_sdk_test.exs
 ```
 
 ### Quality Checks

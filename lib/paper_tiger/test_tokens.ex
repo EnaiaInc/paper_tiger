@@ -194,6 +194,38 @@ defmodule PaperTiger.TestTokens do
   end
 
   @doc """
+  Returns true when the given ID is one of Stripe's predefined `pm_card_*`
+  test payment method tokens.
+  """
+  @spec test_payment_method_id?(term()) :: boolean()
+  def test_payment_method_id?(id) when is_binary(id), do: id in payment_method_ids()
+  def test_payment_method_id?(_id), do: false
+
+  @doc """
+  Materializes a fresh PaymentMethod from a predefined `pm_card_*` test token.
+
+  Stripe treats these fixtures as reusable tokens in attach/setup flows: each
+  use yields an ordinary PaymentMethod instance that can be attached to one
+  customer without consuming the named fixture globally.
+  """
+  @spec materialize_payment_method(String.t(), map()) :: {:ok, map()} | {:error, :not_found}
+  def materialize_payment_method(id, attrs \\ %{}) when is_binary(id) and is_map(attrs) do
+    case payment_method_template(id) do
+      {:ok, template} ->
+        payment_method =
+          template
+          |> Map.put(:created, PaperTiger.now())
+          |> Map.put(:customer, Map.get(attrs, :customer) || Map.get(attrs, "customer"))
+          |> Map.put(:id, PaperTiger.Resource.generate_id("pm"))
+
+        PaymentMethods.insert(payment_method)
+
+      :error ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
   Returns a list of all supported tok_* token IDs.
   """
   @spec token_ids() :: [String.t()]
@@ -209,46 +241,7 @@ defmodule PaperTiger.TestTokens do
   defp load_brand_payment_methods do
     Enum.reduce(@card_brands, 0, fn {name, config}, count ->
       id = "pm_card_#{name}"
-      brand = Map.get(config, :brand, name)
-
-      payment_method = %{
-        billing_details: %{
-          address: %{
-            city: nil,
-            country: nil,
-            line1: nil,
-            line2: nil,
-            postal_code: nil,
-            state: nil
-          },
-          email: nil,
-          name: nil,
-          phone: nil
-        },
-        card: %{
-          brand: normalize_brand(brand),
-          checks: %{
-            address_line1_check: nil,
-            address_postal_code_check: nil,
-            cvc_check: "pass"
-          },
-          country: config.country,
-          exp_month: config.exp_month,
-          exp_year: config.exp_year,
-          fingerprint: config.fingerprint,
-          funding: config.funding,
-          last4: config.last4,
-          three_d_secure_usage: %{supported: true},
-          wallet: nil
-        },
-        created: PaperTiger.now(),
-        customer: nil,
-        id: id,
-        livemode: false,
-        metadata: %{},
-        object: "payment_method",
-        type: "card"
-      }
+      payment_method = build_brand_payment_method(id, name, config)
 
       {:ok, _} = PaymentMethods.insert(payment_method)
       count + 1
@@ -258,34 +251,7 @@ defmodule PaperTiger.TestTokens do
   defp load_decline_payment_methods do
     Enum.reduce(@decline_cards, 0, fn {name, config}, count ->
       id = "pm_card_#{name}"
-
-      payment_method = %{
-        billing_details: %{
-          address: %{city: nil, country: nil, line1: nil, line2: nil, postal_code: nil, state: nil},
-          email: nil,
-          name: nil,
-          phone: nil
-        },
-        card: %{
-          brand: config.brand,
-          checks: %{address_line1_check: nil, address_postal_code_check: nil, cvc_check: "pass"},
-          country: "US",
-          exp_month: 12,
-          exp_year: 2030,
-          fingerprint: "pm_card_#{name}_fingerprint",
-          funding: "credit",
-          last4: config.last4,
-          three_d_secure_usage: %{supported: true},
-          wallet: nil
-        },
-        created: PaperTiger.now(),
-        customer: nil,
-        id: id,
-        livemode: false,
-        metadata: %{_paper_tiger_decline_code: config.decline_code},
-        object: "payment_method",
-        type: "card"
-      }
+      payment_method = build_decline_payment_method(id, name, config)
 
       {:ok, _} = PaymentMethods.insert(payment_method)
       count + 1
@@ -323,6 +289,86 @@ defmodule PaperTiger.TestTokens do
   end
 
   # Normalize brand names to match Stripe's format
+  defp payment_method_template("pm_card_" <> name = id) do
+    cond do
+      config = Map.get(@card_brands, name) ->
+        {:ok, build_brand_payment_method(id, name, config)}
+
+      config = Map.get(@decline_cards, name) ->
+        {:ok, build_decline_payment_method(id, name, config)}
+
+      true ->
+        :error
+    end
+  end
+
+  defp payment_method_template(_id), do: :error
+
+  defp build_brand_payment_method(id, name, config) do
+    brand = Map.get(config, :brand, name)
+
+    %{
+      billing_details: empty_billing_details(),
+      card: %{
+        brand: normalize_brand(brand),
+        checks: empty_card_checks(),
+        country: config.country,
+        exp_month: config.exp_month,
+        exp_year: config.exp_year,
+        fingerprint: config.fingerprint,
+        funding: config.funding,
+        last4: config.last4,
+        three_d_secure_usage: %{supported: true},
+        wallet: nil
+      },
+      created: PaperTiger.now(),
+      customer: nil,
+      id: id,
+      livemode: false,
+      metadata: %{},
+      object: "payment_method",
+      type: "card"
+    }
+  end
+
+  defp build_decline_payment_method(id, name, config) do
+    %{
+      billing_details: empty_billing_details(),
+      card: %{
+        brand: config.brand,
+        checks: empty_card_checks(),
+        country: "US",
+        exp_month: 12,
+        exp_year: 2030,
+        fingerprint: "pm_card_#{name}_fingerprint",
+        funding: "credit",
+        last4: config.last4,
+        three_d_secure_usage: %{supported: true},
+        wallet: nil
+      },
+      created: PaperTiger.now(),
+      customer: nil,
+      id: id,
+      livemode: false,
+      metadata: %{_paper_tiger_decline_code: config.decline_code},
+      object: "payment_method",
+      type: "card"
+    }
+  end
+
+  defp empty_billing_details do
+    %{
+      address: %{city: nil, country: nil, line1: nil, line2: nil, postal_code: nil, state: nil},
+      email: nil,
+      name: nil,
+      phone: nil
+    }
+  end
+
+  defp empty_card_checks do
+    %{address_line1_check: nil, address_postal_code_check: nil, cvc_check: "pass"}
+  end
+
   defp normalize_brand("visa"), do: "visa"
   defp normalize_brand("visa_debit"), do: "visa"
   defp normalize_brand("mastercard"), do: "mastercard"

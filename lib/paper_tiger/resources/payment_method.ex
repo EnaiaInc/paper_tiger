@@ -193,10 +193,8 @@ defmodule PaperTiger.Resources.PaymentMethod do
   """
   @spec attach(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def attach(conn, id) do
-    with {:ok, payment_method} <- PaymentMethods.get(id),
-         {:ok, customer_id} <- validate_customer_param(conn.params),
-         attached = attach_to_customer(payment_method, customer_id),
-         {:ok, attached} <- PaymentMethods.update(attached) do
+    with {:ok, customer_id} <- validate_customer_param(conn.params),
+         {:ok, attached} <- attach_payment_method(id, customer_id) do
       :telemetry.execute([:paper_tiger, :payment_method, :attached], %{}, %{object: attached})
 
       attached
@@ -210,6 +208,15 @@ defmodule PaperTiger.Resources.PaymentMethod do
         error_response(
           conn,
           PaperTiger.Error.invalid_request("Missing required parameter", "customer")
+        )
+
+      {:error, :payment_method_attached_elsewhere} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            "This PaymentMethod is already attached to a different customer.",
+            "payment_method"
+          )
         )
     end
   end
@@ -284,6 +291,26 @@ defmodule PaperTiger.Resources.PaymentMethod do
       customer_id -> {:ok, customer_id}
     end
   end
+
+  defp attach_payment_method(id, customer_id) do
+    if PaperTiger.TestTokens.test_payment_method_id?(id) do
+      PaperTiger.TestTokens.materialize_payment_method(id, %{customer: customer_id})
+    else
+      with {:ok, payment_method} <- PaymentMethods.get(id) do
+        attach_existing_to_customer(payment_method, customer_id)
+      end
+    end
+  end
+
+  defp attach_existing_to_customer(%{customer: nil} = payment_method, customer_id) do
+    payment_method
+    |> attach_to_customer(customer_id)
+    |> PaymentMethods.update()
+  end
+
+  defp attach_existing_to_customer(%{customer: customer_id} = payment_method, customer_id), do: {:ok, payment_method}
+
+  defp attach_existing_to_customer(_payment_method, _customer_id), do: {:error, :payment_method_attached_elsewhere}
 
   defp attach_to_customer(payment_method, customer_id) do
     %{payment_method | customer: customer_id}
