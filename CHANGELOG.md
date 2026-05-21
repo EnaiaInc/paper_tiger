@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-21
+
 ### Added
 
 - Optional Python SDK contract suite that drives the official `stripe` Python package against PaperTiger over local HTTP, tagged `:python_sdk` and enabled with `VALIDATE_PYTHON_SDK=true`.
