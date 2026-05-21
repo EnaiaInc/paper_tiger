@@ -482,6 +482,7 @@ defmodule PaperTiger.Resources.SetupIntent do
         |> Map.put(:latest_attempt, attempt.id)
         |> Map.put(:mandate, mandate_id)
         |> Map.put(:next_action, nil)
+        |> Map.put(:payment_method, payment_method.id)
         |> Map.put(:status, "succeeded")
 
       {:ok, succeeded} = SetupIntents.update(succeeded)
@@ -503,6 +504,7 @@ defmodule PaperTiger.Resources.SetupIntent do
         |> Map.put(:latest_attempt, latest_attempt_id)
         |> Map.put(:mandate, mandate_id)
         |> Map.put(:next_action, nil)
+        |> Map.put(:payment_method, payment_method.id)
         |> Map.put(:status, "succeeded")
 
       {:ok, verified} = SetupIntents.update(verified)
@@ -533,17 +535,35 @@ defmodule PaperTiger.Resources.SetupIntent do
 
   defp maybe_attach_payment_method(payment_method, nil), do: {:ok, payment_method}
 
-  defp maybe_attach_payment_method(%{customer: nil} = payment_method, customer_id) do
-    attached = %{payment_method | customer: customer_id}
-    PaymentMethods.update(attached)
+  defp maybe_attach_payment_method(%{id: payment_method_id}, customer_id)
+       when is_binary(payment_method_id) and is_binary(customer_id) do
+    if PaperTiger.TestTokens.test_payment_method_id?(payment_method_id) do
+      PaperTiger.TestTokens.materialize_payment_method(payment_method_id, %{customer: customer_id})
+    else
+      maybe_attach_existing_payment_method(payment_method_id, customer_id)
+    end
   end
 
-  defp maybe_attach_payment_method(%{customer: existing_customer_id} = payment_method, customer_id)
+  defp maybe_attach_payment_method(_payment_method, _customer_id), do: {:error, :payment_method_attached_elsewhere}
+
+  defp maybe_attach_existing_payment_method(payment_method_id, customer_id) do
+    with {:ok, payment_method} <- PaymentMethods.get(payment_method_id) do
+      attach_existing_payment_method(payment_method, customer_id)
+    end
+  end
+
+  defp attach_existing_payment_method(%{customer: nil} = payment_method, customer_id) do
+    payment_method
+    |> Map.put(:customer, customer_id)
+    |> PaymentMethods.update()
+  end
+
+  defp attach_existing_payment_method(%{customer: existing_customer_id} = payment_method, customer_id)
        when existing_customer_id == customer_id do
     {:ok, payment_method}
   end
 
-  defp maybe_attach_payment_method(_payment_method, _customer_id), do: {:error, :payment_method_attached_elsewhere}
+  defp attach_existing_payment_method(_payment_method, _customer_id), do: {:error, :payment_method_attached_elsewhere}
 
   defp create_setup_attempt(setup_intent, payment_method, status, error \\ nil) do
     setup_attempt = %{

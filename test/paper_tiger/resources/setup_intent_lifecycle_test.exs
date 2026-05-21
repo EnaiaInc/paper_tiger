@@ -35,13 +35,14 @@ defmodule PaperTiger.Resources.SetupIntentLifecycleTest do
       confirmed = json_response(conn)
       assert confirmed["status"] == "succeeded"
       assert confirmed["customer"] == customer_id
-      assert confirmed["payment_method"] == "pm_card_visa"
+      assert confirmed["payment_method"] != "pm_card_visa"
+      assert String.starts_with?(confirmed["payment_method"], "pm_")
       assert String.starts_with?(confirmed["latest_attempt"], "setatt_")
       assert is_nil(confirmed["last_setup_error"])
       assert is_nil(confirmed["next_action"])
 
       payment_method =
-        request(:get, "/v1/payment_methods/pm_card_visa")
+        request(:get, "/v1/payment_methods/#{confirmed["payment_method"]}")
         |> json_response()
 
       assert payment_method["customer"] == customer_id
@@ -53,11 +54,11 @@ defmodule PaperTiger.Resources.SetupIntentLifecycleTest do
       assert [
                %{
                  "object" => "setup_attempt",
-                 "payment_method" => "pm_card_visa",
                  "status" => "succeeded"
                }
              ] = attempts["data"]
 
+      assert hd(attempts["data"])["payment_method"] == confirmed["payment_method"]
       assert hd(attempts["data"])["payment_method_details"]["type"] == "card"
     end
 

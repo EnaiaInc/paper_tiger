@@ -52,8 +52,10 @@ defmodule PaperTiger.Resources.CustomerSession do
 
   defp component_enabled?(%{enabled: true}), do: true
   defp component_enabled?(%{enabled: "true"}), do: true
+  defp component_enabled?(%{enabled: "True"}), do: true
   defp component_enabled?(%{"enabled" => true}), do: true
   defp component_enabled?(%{"enabled" => "true"}), do: true
+  defp component_enabled?(%{"enabled" => "True"}), do: true
   defp component_enabled?(_config), do: false
 
   defp build_customer_session(params) do

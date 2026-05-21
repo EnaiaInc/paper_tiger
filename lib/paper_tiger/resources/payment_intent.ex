@@ -474,10 +474,15 @@ defmodule PaperTiger.Resources.PaymentIntent do
       shipping: Map.get(params, :shipping),
       source: Map.get(params, :source),
       statement_descriptor: Map.get(params, :statement_descriptor),
-      status: "requires_payment_method",
+      status: initial_status(params),
       transfer_data: Map.get(params, :transfer_data)
     }
   end
+
+  defp initial_status(%{payment_method: payment_method}) when is_binary(payment_method) and payment_method != "",
+    do: "requires_confirmation"
+
+  defp initial_status(_params), do: "requires_payment_method"
 
   defp maybe_expand(payment_intent, params) do
     expand_params = parse_expand_params(params)

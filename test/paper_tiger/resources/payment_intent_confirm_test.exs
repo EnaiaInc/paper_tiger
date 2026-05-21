@@ -65,7 +65,7 @@ defmodule PaperTiger.Resources.PaymentIntentConfirmTest do
       assert pi_conn.status == 200
       pi = json_response(pi_conn)
       pi_id = pi["id"]
-      assert pi["status"] == "requires_payment_method"
+      assert pi["status"] == "requires_confirmation"
 
       # Confirm the PI
       confirm_conn = request(:post, "/v1/payment_intents/#{pi_id}/confirm")
