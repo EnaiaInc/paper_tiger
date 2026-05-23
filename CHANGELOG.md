@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-23
+
 ### Fixed
 
 - Reserved auto-selected PaperTiger HTTP ports until Bandit takes ownership of the listener socket, eliminating an intermittent `:eaddrinuse` startup race on Linux CI.
