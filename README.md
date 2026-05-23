@@ -127,18 +127,15 @@ end
 PaperTiger respects environment variables for runtime configuration:
 
 - `PAPER_TIGER_START` - Set to "true" to enable HTTP server
-- `PAPER_TIGER_PORT` - Port to run on (default: 4001)
-- `PAPER_TIGER_PORT_DEV` - Port for dev environment (overrides `PAPER_TIGER_PORT`)
-- `PAPER_TIGER_PORT_TEST` - Port for test environment (overrides `PAPER_TIGER_PORT`)
+- `PAPER_TIGER_PORT` - Fixed port to run on (default: reserved random port)
 
-**Port precedence:** `PAPER_TIGER_PORT_{ENV}` > `PAPER_TIGER_PORT` > config > 4001
+**Port precedence:** `PAPER_TIGER_PORT` > config > reserved random port
 
-This allows running dev server and tests simultaneously on different ports:
+Set a fixed port when CI or deployment infrastructure needs one:
 
 ```bash
 # In .env or shell
-export PAPER_TIGER_PORT_DEV=4001
-export PAPER_TIGER_PORT_TEST=4003
+export PAPER_TIGER_PORT=4001
 ```
 
 This is also useful for Fly.io or other PaaS deployments:
@@ -216,7 +213,7 @@ end
 # Terminal 1: Start Phoenix (port 4000)
 mix phx.server
 
-# Terminal 2: Start PaperTiger (port 4001)
+# Terminal 2: Start PaperTiger (reserved random port unless PAPER_TIGER_PORT is set)
 iex -S mix
 iex> PaperTiger.start()
 iex> PaperTiger.register_webhook(url: "http://localhost:4000/webhooks/stripe")
@@ -331,13 +328,14 @@ end
 
 ### Port Configuration
 
-PaperTiger automatically picks a random available port in the 59000-60000 range by default, eliminating port conflicts when running multiple instances (tests + dev server, parallel test suites).
+PaperTiger automatically picks and reserves a random available port in the 59000-60000 range by default, eliminating port conflicts when running multiple instances (tests + dev server, parallel test suites).
 
 **Port selection:**
 
-- **Random by default** - Picks available port, retries if conflict detected
+- **Random by default** - Reserves an available port, retries if conflict detected
 - **Early resolution** - `stripity_stripe_config()` and `PaperTiger.get_port()` resolve and cache the port before startup
 - **Manual override** - Set explicit port via env var or config
+- **Advanced listen options** - Set `config :paper_tiger, transport_options: [ip: {127, 0, 0, 1}]` to pass TCP listen options through reservation and startup
 
 If you need a specific port:
 

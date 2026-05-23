@@ -150,14 +150,14 @@ defmodule PaperTiger.Application do
   end
 
   defp maybe_add_http_server(children) do
-    port = PaperTiger.Port.resolve()
+    {port, bandit_options} = PaperTiger.Port.resolve_for_bandit()
 
     # Store the actual port for PaperTiger.get_port/0
     Application.put_env(:paper_tiger, :actual_port, port)
 
     http_spec = {
       Bandit,
-      plug: PaperTiger.Router, port: port, scheme: :http
+      [plug: PaperTiger.Router, port: port, scheme: :http] ++ bandit_options
     }
 
     Logger.debug("PaperTiger HTTP server starting on port #{port}")

@@ -90,7 +90,8 @@ defmodule PaperTiger do
 
   ## Options
 
-  - `:port` - HTTP port (default: random port 59000-60000, checked for availability)
+  - `:port` - HTTP port (default: random port 59000-60000, reserved before startup)
+  - `:transport_options` - TCP listen options passed to Thousand Island (default: `[]`)
   - `:clock_mode` - Time mode (default: `:real`)
 
   ## Examples
@@ -106,6 +107,10 @@ defmodule PaperTiger do
     # Only set port if explicitly provided - otherwise Application will pick random available port
     if Keyword.has_key?(opts, :port) do
       Application.put_env(:paper_tiger, :port, opts[:port])
+    end
+
+    if Keyword.has_key?(opts, :transport_options) do
+      Application.put_env(:paper_tiger, :transport_options, opts[:transport_options])
     end
 
     Application.put_env(:paper_tiger, :clock_mode, opts[:clock_mode])
